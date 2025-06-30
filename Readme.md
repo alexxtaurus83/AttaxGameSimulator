@@ -1,5 +1,5 @@
 This project was written to support my Unity mobile game "Ataxx". 
-This project was written in colabaration with Gemini 2.5 and Ghat GPT.
+This project was written in colabaration with Gemini 2.5 and Ghat GPT using chat capabilities. Project developed using  Windsurf AI IDE (https://windsurf.com)
 
 # Ataxx AI Engine & ML Trainer Project Overview
 
