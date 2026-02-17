@@ -1,0 +1,11 @@
+e:\github\repo\AttaxSimulator\Attax.Core\bin\Debug\netstandard2.1\Attax.Core.deps.json
+e:\github\repo\AttaxSimulator\Attax.Core\bin\Debug\netstandard2.1\Attax.Core.dll
+e:\github\repo\AttaxSimulator\Attax.Core\bin\Debug\netstandard2.1\Attax.Core.pdb
+e:\github\repo\AttaxSimulator\Attax.Core\obj\Debug\netstandard2.1\Attax.Core.csproj.AssemblyReference.cache
+e:\github\repo\AttaxSimulator\Attax.Core\obj\Debug\netstandard2.1\Attax.Core.GeneratedMSBuildEditorConfig.editorconfig
+e:\github\repo\AttaxSimulator\Attax.Core\obj\Debug\netstandard2.1\Attax.Core.AssemblyInfoInputs.cache
+e:\github\repo\AttaxSimulator\Attax.Core\obj\Debug\netstandard2.1\Attax.Core.AssemblyInfo.cs
+e:\github\repo\AttaxSimulator\Attax.Core\obj\Debug\netstandard2.1\Attax.Core.csproj.CoreCompileInputs.cache
+e:\github\repo\AttaxSimulator\Attax.Core\obj\Debug\netstandard2.1\Attax.Core.sourcelink.json
+e:\github\repo\AttaxSimulator\Attax.Core\obj\Debug\netstandard2.1\Attax.Core.dll
+e:\github\repo\AttaxSimulator\Attax.Core\obj\Debug\netstandard2.1\Attax.Core.pdb

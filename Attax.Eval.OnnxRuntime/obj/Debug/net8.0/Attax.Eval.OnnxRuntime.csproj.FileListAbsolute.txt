@@ -1,0 +1,16 @@
+e:\github\repo\AttaxSimulator\Attax.Eval.OnnxRuntime\bin\Debug\net8.0\Attax.Eval.OnnxRuntime.deps.json
+e:\github\repo\AttaxSimulator\Attax.Eval.OnnxRuntime\bin\Debug\net8.0\Attax.Eval.OnnxRuntime.dll
+e:\github\repo\AttaxSimulator\Attax.Eval.OnnxRuntime\bin\Debug\net8.0\Attax.Eval.OnnxRuntime.pdb
+e:\github\repo\AttaxSimulator\Attax.Eval.OnnxRuntime\bin\Debug\net8.0\Attax.Core.dll
+e:\github\repo\AttaxSimulator\Attax.Eval.OnnxRuntime\bin\Debug\net8.0\Attax.Core.pdb
+e:\github\repo\AttaxSimulator\Attax.Eval.OnnxRuntime\obj\Debug\net8.0\Attax.Eval.OnnxRuntime.csproj.AssemblyReference.cache
+e:\github\repo\AttaxSimulator\Attax.Eval.OnnxRuntime\obj\Debug\net8.0\Attax.Eval.OnnxRuntime.GeneratedMSBuildEditorConfig.editorconfig
+e:\github\repo\AttaxSimulator\Attax.Eval.OnnxRuntime\obj\Debug\net8.0\Attax.Eval.OnnxRuntime.AssemblyInfoInputs.cache
+e:\github\repo\AttaxSimulator\Attax.Eval.OnnxRuntime\obj\Debug\net8.0\Attax.Eval.OnnxRuntime.AssemblyInfo.cs
+e:\github\repo\AttaxSimulator\Attax.Eval.OnnxRuntime\obj\Debug\net8.0\Attax.Eval.OnnxRuntime.csproj.CoreCompileInputs.cache
+e:\github\repo\AttaxSimulator\Attax.Eval.OnnxRuntime\obj\Debug\net8.0\Attax.Eval.OnnxRuntime.sourcelink.json
+e:\github\repo\AttaxSimulator\Attax.Eval.OnnxRuntime\obj\Debug\net8.0\Attax.Ev.6E0EC249.Up2Date
+e:\github\repo\AttaxSimulator\Attax.Eval.OnnxRuntime\obj\Debug\net8.0\Attax.Eval.OnnxRuntime.dll
+e:\github\repo\AttaxSimulator\Attax.Eval.OnnxRuntime\obj\Debug\net8.0\refint\Attax.Eval.OnnxRuntime.dll
+e:\github\repo\AttaxSimulator\Attax.Eval.OnnxRuntime\obj\Debug\net8.0\Attax.Eval.OnnxRuntime.pdb
+e:\github\repo\AttaxSimulator\Attax.Eval.OnnxRuntime\obj\Debug\net8.0\ref\Attax.Eval.OnnxRuntime.dll
