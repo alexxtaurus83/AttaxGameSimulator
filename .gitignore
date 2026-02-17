@@ -1,2 +1,6 @@
 /logs_g7800.bin
 /ataxx_value_7800.onnx
+/.cr
+bin
+obj
+.vs

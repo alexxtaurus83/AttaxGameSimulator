@@ -134,6 +134,81 @@ Attax.Console selfplayloggen [options]
 | `--samplesPerGame` | `int?` | *(hidden)* | Legacy alias for `--samples`; when provided, it overrides `--samples` (see [`SamplesPerGame`](Attax.Console/SelfPlayLogGenOptions.cs:27)). |
 | `--debugInit` | `bool` | *(hidden)* | Emit a one-line “init position” snapshot during log generation ([`DebugInit`](Attax.Console/SelfPlayLogGenOptions.cs:36)). |
 
+---
+
+## How to choose self-play log parameters
+
+### Core idea (what “good logs” mean)
+
+A “good” training log set usually balances:
+
+1. **Strength** (search budget / depth) → higher-quality labels
+2. **Diversity** (temperature / topK / epsilon / profiles) → avoids overfitting to one style
+3. **Coverage** (enough positions) → more games + enough samples/game
+4. **Cleanliness** (not too many “junk” positions) → very short or random games can add noise
+
+---
+
+## Flag guide (with quality + speed effects)
+
+| Flag                                    | What it controls                           | When to increase                                        | When to decrease                                | Effect on log quality                                 | Effect on time/game                                        |                                            |                                 |
+| --------------------------------------- | ------------------------------------------ | ------------------------------------------------------- | ----------------------------------------------- | ----------------------------------------------------- | ---------------------------------------------------------- | ------------------------------------------ | ------------------------------- |
+| `--games`                               | How many games to generate                 | You want more training data / more variety              | You’re iterating quickly                        | More games = better coverage                          | **Linear**: 2× games ≈ 2× time                             |                                            |                                 |
+| `--seed`                                | RNG seed for reproducibility               | You want repeatable experiments                         | You want fresh data each run                    | Doesn’t change “quality”, but affects reproducibility | None                                                       |                                            |                                 |
+| `--out`                                 | Output file path                           | N/A                                                     | N/A                                             | N/A                                                   | None                                                       |                                            |                                 |
+| `--nodeBudget` *(Fixed mode)*           | Search nodes per move                      | You want stronger moves / better labels                 | You want faster generation                      | Better quality labels, less random noise              | **Strongly increases** time/game                           |                                            |                                 |
+| `--nodesMin/--nodesMax` *(Random mode)* | Node budget range per game                 | You want mixed-strength data (robustness)               | You want consistent strength                    | Adds variety; can improve generalization              | Avg time depends on mean budget                            |                                            |                                 |
+| `--aiDepth`                             | Search depth                               | You want stronger tactical accuracy                     | You want faster games                           | Usually improves label quality (up to a point)        | **Increases** time/game                                    |                                            |                                 |
+| `--disableQuiescence`                   | Quiescence search toggle                   | (Usually) keep consistent with your eval strategy       | Enable quiescence if tactical stability matters | Can reduce noisy evaluations in sharp positions       | Enabling quiescence usually **slower**                     |                                            |                                 |
+| `--topK` *(Fixed mode)*                 | Select moves from top-K candidates         | You want more exploration                               | You want best-play logs                         | Higher K increases diversity but may lower strength   | Small speed change                                         |                                            |                                 |
+| `--topKSet` *(Random mode)*             | Per-game random topK values                | You want mixed exploration levels                       | You want deterministic style                    | Great for diversity; reduces “same openings forever”  | None/slight                                                |                                            |                                 |
+| `--temp` *(Fixed mode)*                 | Sampling temperature                       | You want varied play                                    | You want strongest play                         | Higher temp = more diversity, more noise              | None/slight                                                |                                            |                                 |
+| `--tempSet` *(Random mode)*             | Per-game random temperature                | You want mixture of styles                              | You want stable policy                          | Strong diversity boost; often good for training       | None/slight                                                |                                            |                                 |
+| `--epsilonStart/mid/late`               | Random-move probability by phase           | You need exploration to avoid collapse                  | You see too many blunders / short games         | Adds exploration; too high = junk data                | None/slight (but can shorten games)                        |                                            |                                 |
+| `--epsilonPly1/--epsilonPly2`           | When epsilon schedule changes              | You want longer opening exploration                     | You want more serious opening                   | Lets you tune *where* randomness happens              | None                                                       |                                            |                                 |
+| `--samples`                             | Target samples/positions recorded per game | You want more training positions                        | File too big / generation too slow              | More samples = more learning signal                   | More samples → **more I/O + file size** (slight speed hit) |                                            |                                 |
+| `--samplesPerGame` *(legacy alias)*     | Overrides `--samples`                      | (Avoid; prefer `--samples`)                             | Use only for backward compatibility             | Same as `--samples`                                   | Same as `--samples`                                        |                                            |                                 |
+| `--profileMode Fixed                    | Random`                                    | Whether per-game settings are fixed or randomized       | You want robustness/diversity                   | You want strict benchmarking                          | **Random** often yields better generalization              | Random itself doesn’t slow much            |                                 |
+| `--weakSideChance`                      | Chance one side plays “weaker”             | You want model to punish mistakes + see recovery        | You want pure best-play                         | Adds realistic mistakes; too high adds noise          | Can speed up (weaker side blunders)                        |                                            |                                 |
+| `--weakSideNodesScale`                  | How weak the weak side is (node scaling)   | You want clearer “bad moves” examples                   | You want less label noise                       | Helps diversity; too low = garbage games              | Lower scale often speeds up                                |                                            |                                 |
+| `--symmetryMode None                    | Random                                     | All`                                                    | Data augmentation via symmetries                | You want more data from same games                    | Disk/time is tight                                         | Improves generalization; `All` can be huge | `All` increases file size a lot |
+| `--useOrthogonalOnlyCapture`            | Rule variant toggle                        | Only if training that variant                           | Otherwise keep off                              | Must match target ruleset                             | None/slight                                                |                                            |                                 |
+| `--useMLRootOnly`                       | ML eval only on root                       | If you want faster search with ML guidance only at root | If you rely heavily on ML in tree               | Can trade strength for speed                          | Can speed up noticeably                                    |                                            |                                 |
+| `--logGenMode`                          | “log generation mode” engine config        | Keep enabled for dataset creation                       | Disable only for comparisons                    | Usually ensures consistent sampling/logging behavior  | Depends on engine                                          |                                            |                                 |
+| `--debugInit`                           | Extra debug print                          | Debugging only                                          | Normal runs                                     | No training value                                     | Negligible                                                 |                                            |                                 |
+
+---
+
+## Practical presets
+
+### 1) “Quality-first” (slower, stronger labels)
+
+* Higher `nodeBudget` / `aiDepth`
+* Lower epsilon, lower temp, smaller topK
+
+Example style:
+
+* `--profileMode Fixed`
+* `--nodeBudget 2000+`
+* `--aiDepth 3-4`
+* `--topK 1`
+* `--temp 0.2-0.6`
+* `--epsilonStart 0.15-0.25`, `--epsilonMid 0.05-0.10`, `--epsilonLate 0.01-0.03`
+
+### 2) “Generalization-first” (mixture of styles, usually best overall)
+
+* Random profiles + moderate epsilon + temperature sets
+* Node budget range to avoid overfitting to one strength
+
+Example style:
+
+* `--profileMode Random`
+* `--nodesMin 300 --nodesMax 2500`
+* `--topKSet 1,2,4`
+* `--tempSet 0.2,0.5,0.8` (or similar)
+* `--weakSideChance 0.10-0.25`
+* `--weakSideNodesScale 0.4-0.7`
+
 #### Examples
 
 Fixed parameters:
