@@ -1,0 +1,25 @@
+{
+  "board": {
+    "size": 7,
+    "bitIndex": "row_major_y_times_size_plus_x"
+  },
+  "model": {
+    "inputChannels": 4,
+    "channels": [
+      "friendly",
+      "enemy",
+      "blocked",
+      "constant"
+    ],
+    "onnxInputName": "input",
+    "onnxOutputName": "output"
+  },
+  "logFormat": {
+    "magic": "ATLG",
+    "version": 1,
+    "sideEncoding": {
+      "red": 0,
+      "blue": 1
+    }
+  }
+}

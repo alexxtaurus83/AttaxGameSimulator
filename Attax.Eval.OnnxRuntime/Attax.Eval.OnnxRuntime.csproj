@@ -1,0 +1,22 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UseOnnxGpu>false</UseOnnxGpu>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Attax.Core\Attax.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(UseOnnxGpu)' == 'true'">
+    <PackageReference Include="Microsoft.ML.OnnxRuntime.Gpu" Version="1.24.1" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(UseOnnxGpu)' != 'true'">
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.24.1" />
+  </ItemGroup>
+
+</Project>
