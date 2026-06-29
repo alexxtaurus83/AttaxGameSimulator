@@ -2,7 +2,9 @@ using System;
 using static Attax.Core.AtaxxAIEngine;
 
 namespace Attax.Core {
+    
     public class HeuristicEvaluator : IValueEvaluator {
+
         public float Evaluate(BitboardState board, PlayerColor sideToMove, byte ruleFlags) {
             PlayerColor enemy = SwitchPlayer(sideToMove);
             int finalEvaluationScore = 0;
@@ -78,13 +80,13 @@ namespace Attax.Core {
         private int GetStabilityBonus(BitboardState boardState, PlayerColor player)
             => BitboardFeatures.GetStabilityBonus(boardState, player);
 
-        private bool IsStable(BitboardState boardState, int x, int y, PlayerColor player)
+        /*private bool IsStable(BitboardState boardState, int x, int y, PlayerColor player)
             => BitboardFeatures.IsStable(boardState, x, y, player);
 
         private bool HasAdjacentEmpty(BitboardState boardState, int x, int y)
             => BitboardFeatures.HasAdjacentEmpty(boardState, x, y);
 
-        private int TrailingZeroCount(ulong value) => BitboardOps.TrailingZeroCount(value);
+        private int TrailingZeroCount(ulong value) => BitboardOps.TrailingZeroCount(value);*/
         private int PopCount(ulong value) => BitboardOps.PopCount(value);
 
         public (int p1Count, int p2Count) GetRedAndBlueCounts(BitboardState boardState, PlayerColor p1Color)

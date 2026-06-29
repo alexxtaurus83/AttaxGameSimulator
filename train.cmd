@@ -1,0 +1,1 @@
+python train.py --data ml_training_data.bin --device cuda --amp --batch-size 4096 --num-workers 0 --pin-memory --prefetch-factor 8 --shuffle-buffer 400000 --epochs 30 --check-onnx

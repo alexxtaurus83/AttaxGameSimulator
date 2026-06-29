@@ -84,7 +84,6 @@ class AtaxxStreamingDataset(IterableDataset):
         split="train",
         val_fraction=0.05,
         batch_size=BATCH_SIZE,
-        max_outstanding_games=1000,
         strict_metadata=True,
         skip_bad_games=False,
         trainer_config=None,
@@ -95,7 +94,6 @@ class AtaxxStreamingDataset(IterableDataset):
         self.split = split
         self.val_fraction = float(val_fraction)
         self.batch_size = max(1, int(batch_size))
-        self.max_outstanding_games = max_outstanding_games
         self.strict_metadata = bool(strict_metadata)
         self.skip_bad_games = bool(skip_bad_games)
         self.trainer_config = trainer_config if trainer_config is not None else TrainerConfig()
@@ -112,22 +110,21 @@ class AtaxxStreamingDataset(IterableDataset):
         expected_rule_flag = np.uint8(1 if self.trainer_config.expected_orth_capture else 0)
 
         with open(path, "rb") as f:
-            # Format detection:
-            # v1 files start with 6-byte header: [magic="ATLG"][version=ushort].
-            # Legacy streams have no file header and begin directly with record type bytes.
-            start_pos = f.tell()
+            # v1 header: [magic="ATLG"][version=ushort] = 6 bytes. Required.
             maybe_magic = f.read(4)
-            if len(maybe_magic) == 4 and maybe_magic == b"ATLG":
-                version_bytes = f.read(2)
-                if len(version_bytes) != 2:
-                    raise ValueError("Invalid file header: missing format version")
+            if len(maybe_magic) < 4 or maybe_magic != b"ATLG":
+                raise ValueError(
+                    f"File {path} is missing the 'ATLG' header. "
+                    "Legacy v0 format is no longer supported."
+                )
 
-                version = struct.unpack("<H", version_bytes)[0]
-                if version != 1:
-                    raise ValueError(f"Unsupported training log format version: {version}")
-            else:
-                # No recognized header => treat as legacy stream and rewind.
-                f.seek(start_pos)
+            version_bytes = f.read(2)
+            if len(version_bytes) != 2:
+                raise ValueError("Invalid file header: missing format version")
+
+            version = struct.unpack("<H", version_bytes)[0]
+            if version != 1:
+                raise ValueError(f"Unsupported training log format version: {version}")
 
             while True:
                 type_byte = f.read(1)
@@ -285,12 +282,11 @@ class AtaxxStreamingDataset(IterableDataset):
                             file_samples[gid] = []
                         file_samples[gid].append(gid_samples)
 
-                        if len(file_samples) > self.max_outstanding_games:
+                        if len(file_samples) > 100:
                             print(
-                                f"WARNING: High number of outstanding games ({len(file_samples)}) in {path}. "
-                                "This suggests GameResult records are significantly delayed or missing, which will increase RAM usage."
+                                f"WARNING: {len(file_samples)} outstanding games in {path}. "
+                                "This suggests GameResult records are delayed or missing."
                             )
-                            self.max_outstanding_games *= 2
                     continue
 
                 if record_type == 3:  # GameResult
@@ -302,8 +298,8 @@ class AtaxxStreamingDataset(IterableDataset):
                     _ = total_plies
 
                     if game_id not in file_samples:
-                        if game_id in game_headers and self.strict_metadata:
-                            raise ValueError(f"GameResult for game {game_id} had no samples")
+                        # Game had a header but no samples — valid for --samples 0 runs.
+                        game_headers.pop(game_id, None)
                         continue
 
                     is_val = game_in_validation_split(game_id, self.val_fraction)
@@ -331,6 +327,13 @@ class AtaxxStreamingDataset(IterableDataset):
 
                 raise ValueError(f"Unknown record type byte: {record_type}")
 
+            if file_samples:
+                print(
+                    f"WARNING: {len(file_samples)} game(s) had samples but no GameResult "
+                    f"in {path} (game IDs: {sorted(file_samples.keys())[:20]}). "
+                    f"These samples were discarded."
+                )
+
     def __iter__(self):
         worker_info = get_worker_info()
         if worker_info is None:
@@ -353,23 +356,23 @@ class AtaxxStreamingDataset(IterableDataset):
                     if x_chunk.size == 0:
                         continue
 
-                    x_buffer.append(np.ascontiguousarray(x_chunk, dtype=np.float32))
-                    y_buffer.append(np.ascontiguousarray(y_chunk, dtype=np.float32))
+                    x_buffer.append(x_chunk)
+                    y_buffer.append(y_chunk)
                     buffered += int(x_chunk.shape[0])
 
                     while buffered >= self.batch_size:
                         x_all = x_buffer[0] if len(x_buffer) == 1 else np.concatenate(x_buffer, axis=0)
                         y_all = y_buffer[0] if len(y_buffer) == 1 else np.concatenate(y_buffer, axis=0)
 
-                        x_batch = np.ascontiguousarray(x_all[: self.batch_size], dtype=np.float32)
-                        y_batch = np.ascontiguousarray(y_all[: self.batch_size], dtype=np.float32)
+                        x_batch = x_all[: self.batch_size]
+                        y_batch = y_all[: self.batch_size]
                         yield torch.from_numpy(x_batch), torch.from_numpy(y_batch)
 
                         x_rem = x_all[self.batch_size :]
                         y_rem = y_all[self.batch_size :]
                         if x_rem.shape[0] > 0:
-                            x_buffer = [np.ascontiguousarray(x_rem, dtype=np.float32)]
-                            y_buffer = [np.ascontiguousarray(y_rem, dtype=np.float32)]
+                            x_buffer = [x_rem]
+                            y_buffer = [y_rem]
                             buffered = int(x_rem.shape[0])
                         else:
                             x_buffer = []
@@ -379,9 +382,7 @@ class AtaxxStreamingDataset(IterableDataset):
             if buffered > 0:
                 x_all = x_buffer[0] if len(x_buffer) == 1 else np.concatenate(x_buffer, axis=0)
                 y_all = y_buffer[0] if len(y_buffer) == 1 else np.concatenate(y_buffer, axis=0)
-                yield torch.from_numpy(np.ascontiguousarray(x_all, dtype=np.float32)), torch.from_numpy(
-                    np.ascontiguousarray(y_all, dtype=np.float32)
-                )
+                yield torch.from_numpy(x_all), torch.from_numpy(y_all)
 
         if self.shuffle_buffer <= 0:
             yield from iter_batched_stream()
@@ -638,12 +639,11 @@ def scan_training_data(file_paths):
         if not os.path.exists(path):
             continue
         with open(path, "rb") as f:
-            # Skip header if present
             maybe_magic = f.read(4)
-            if maybe_magic == b"ATLG":
-                f.read(2)  # version
-            else:
-                f.seek(0)
+            if maybe_magic != b"ATLG":
+                print(f"WARNING: Skipping {path} — missing 'ATLG' header (unsupported legacy format).")
+                continue
+            f.read(2)  # version (already validated by _iter_file_samples if training)
 
             while True:
                 type_byte = f.read(1)
@@ -780,6 +780,11 @@ def train(
         f"prefetch_factor={prefetch_factor if num_workers > 0 else 'n/a'}, "
         f"shuffle_buffer={shuffle_buffer}"
     )
+    if num_workers > 0:
+        print(
+            f"NOTE: {num_workers} DataLoader workers will each maintain independent "
+            f"file buffers. Total RAM usage scales with worker count."
+        )
     print(f"AMP enabled: {amp_enabled}")
     print(f"Validation fraction: {val_fraction:.3f}")
 
@@ -805,7 +810,7 @@ def train(
         strict_metadata=strict_metadata,
         skip_bad_games=skip_bad_games,
         trainer_config=trainer_config,
-        shuffle_buffer=shuffle_buffer,
+        shuffle_buffer=0,  # No shuffling needed for validation
     )
 
     if overfit_n > 0:
@@ -853,7 +858,7 @@ def train(
 
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-4)
     criterion = nn.SmoothL1Loss()
-    scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled)
+    scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled) if amp_enabled else None
 
     monitor_interval = 10
     log_interval_seconds = 2.0
@@ -912,11 +917,16 @@ def train(
                 outputs = model(inputs)
                 loss = criterion(outputs, targets)
 
-            scaler.scale(loss).backward()
-            scaler.step(optimizer)
-            scaler.update()
+            if scaler is not None:
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                loss.backward()
+                optimizer.step()
 
-            if device.type == "cuda":
+            needs_log = running_batches + 1 >= monitor_interval or (time.time() - last_log_time) >= log_interval_seconds
+            if device.type == "cuda" and needs_log:
                 torch.cuda.synchronize(device)
             compute_ms = (time.perf_counter() - compute_start) * 1000.0
 
@@ -927,9 +937,7 @@ def train(
             running_compute_ms += compute_ms
             running_batches += 1
 
-            if running_batches > 0 and (
-                (time.time() - last_log_time) >= log_interval_seconds or running_batches >= monitor_interval
-            ):
+            if running_batches > 0 and needs_log:
                 avg_data_ms = running_data_ms / running_batches
                 avg_compute_ms = running_compute_ms / running_batches
 
@@ -1003,19 +1011,17 @@ def train(
     print("Exporting to ONNX...")
     model.cpu()
     model.eval()
-    # Create dummy input with correct shape [1, 4, 7, 7]
-    dummy_input = torch.randn(1, INPUT_CHANNELS, BOARD_SIZE, BOARD_SIZE, device="cpu")
-
-    # Dynamic axes for batch size
-    torch.onnx.export(
-        model,
-        dummy_input,
-        MODEL_PATH,
-        input_names=["input"],
-        output_names=["output"],
-        dynamic_axes={"input": {0: "batch_size"}, "output": {0: "batch_size"}},
-        opset_version=15,
-    )
+    with torch.no_grad():
+        dummy_input = torch.randn(1, INPUT_CHANNELS, BOARD_SIZE, BOARD_SIZE, device="cpu")
+        torch.onnx.export(
+            model,
+            dummy_input,
+            MODEL_PATH,
+            input_names=["input"],
+            output_names=["output"],
+            dynamic_axes={"input": {0: "batch_size"}, "output": {0: "batch_size"}},
+            opset_version=15,
+        )
     print(f"Model saved to {MODEL_PATH}")
 
     if check_onnx:

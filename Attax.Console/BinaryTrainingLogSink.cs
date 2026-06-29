@@ -60,11 +60,10 @@ namespace Attax.Console {
                 Directory.CreateDirectory(dir);
             }
 
-            _fileStream = new FileStream(outputPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
+            _fileStream = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.Read);
             _writer = new BinaryWriter(_fileStream);
 
             InitializeOrValidateFileHeader();
-            _fileStream.Seek(0, SeekOrigin.End);
         }
 
         public void LogInformation(string message) {
@@ -130,31 +129,9 @@ namespace Attax.Console {
         }
 
         private void InitializeOrValidateFileHeader() {
-            if (_fileStream.Length == 0) {
-                _writer.Write(FileMagic);
-                _writer.Write(FormatVersion);
-                _writer.Flush();
-                return;
-            }
-
-            if (_fileStream.Length < sizeof(uint) + sizeof(ushort)) {
-                throw new InvalidDataException($"Existing log '{_outputPath}' is too small to contain a valid header.");
-            }
-
-            _fileStream.Seek(0, SeekOrigin.Begin);
-            var reader = new BinaryReader(_fileStream, System.Text.Encoding.UTF8, leaveOpen: true);
-            uint magic = reader.ReadUInt32();
-            ushort version = reader.ReadUInt16();
-
-            if (magic != FileMagic) {
-                throw new InvalidDataException(
-                    $"Existing log '{_outputPath}' is in legacy format without integrity header. Use a new output file path.");
-            }
-
-            if (version != FormatVersion) {
-                throw new InvalidDataException(
-                    $"Existing log '{_outputPath}' has unsupported version {version}. Expected {FormatVersion}.");
-            }
+            _writer.Write(FileMagic);
+            _writer.Write(FormatVersion);
+            _writer.Flush();
         }
 
         private void WriteGameHeader(GameHeader header) {

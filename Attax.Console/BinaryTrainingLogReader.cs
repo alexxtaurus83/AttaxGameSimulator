@@ -35,7 +35,7 @@ namespace Attax.Console {
             using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             using var reader = new BinaryReader(stream);
 
-            var format = DetectFormat(reader);
+            DetectFormat(reader);
             int index = 0;
 
             bool inGame = false;
@@ -77,39 +77,24 @@ namespace Attax.Console {
                                 throw new InvalidDataException("Encountered negative block size.");
                             }
 
-                            if (format == 1) {
-                                uint expectedChecksum = reader.ReadUInt32();
-                                byte[] compressedPayload = reader.ReadBytes(compressedSize);
-                                if (compressedPayload.Length != compressedSize) {
-                                    throw new EndOfStreamException("Unexpected EOF while reading compressed payload.");
-                                }
-
-                                uint actualChecksum = ComputeCrc32(compressedPayload, compressedPayload.Length);
-                                bool ok = actualChecksum == expectedChecksum;
-                                if (!ok) {
-                                    throw new InvalidDataException(
-                                        $"CompressedSampleBlock checksum mismatch. Expected 0x{expectedChecksum:X8}, got 0x{actualChecksum:X8}.");
-                                }
-
-                                if (_strictGameCompleteness) {
-                                    sampleBlockCountInGame++;
-                                }
-
-                                yield return new ValidationRecord(recordType, index++, checksumValid: true);
-                            } else {
-                                byte[] compressedPayload = reader.ReadBytes(compressedSize);
-                                if (compressedPayload.Length != compressedSize) {
-                                    throw new EndOfStreamException("Unexpected EOF while reading compressed payload.");
-                                }
-
-                                if (_strictGameCompleteness) {
-                                    sampleBlockCountInGame++;
-                                }
-
-                                // v0 has no checksum field; record is structurally valid but unverifiable.
-                                yield return new ValidationRecord(recordType, index++, checksumValid: false);
+                            uint expectedChecksum = reader.ReadUInt32();
+                            byte[] compressedPayload = reader.ReadBytes(compressedSize);
+                            if (compressedPayload.Length != compressedSize) {
+                                throw new EndOfStreamException("Unexpected EOF while reading compressed payload.");
                             }
 
+                            uint actualChecksum = ComputeCrc32(compressedPayload, compressedPayload.Length);
+                            bool ok = actualChecksum == expectedChecksum;
+                            if (!ok) {
+                                throw new InvalidDataException(
+                                    $"CompressedSampleBlock checksum mismatch. Expected 0x{expectedChecksum:X8}, got 0x{actualChecksum:X8}.");
+                            }
+
+                            if (_strictGameCompleteness) {
+                                sampleBlockCountInGame++;
+                            }
+
+                            yield return new ValidationRecord(recordType, index++, checksumValid: true);
                             break;
                         }
 
@@ -144,7 +129,7 @@ namespace Attax.Console {
             }
         }
 
-        private static int DetectFormat(BinaryReader reader) {
+        private static void DetectFormat(BinaryReader reader) {
             if (reader.BaseStream.Length < sizeof(byte)) {
                 throw new InvalidDataException("Training log is empty.");
             }
@@ -160,15 +145,14 @@ namespace Attax.Console {
                             $"Unsupported file format version {maybeVersion}. Expected {CurrentFormatVersion}.");
                     }
 
-                    return 1;
+                    return;
                 }
 
-                // Backwards-compat strategy: no header => treat as v0 legacy stream.
-                reader.BaseStream.Seek(start, SeekOrigin.Begin);
-                return 0;
+                throw new InvalidDataException(
+                    "Training log is missing the 'ATLG' file header. Legacy v0 format is no longer supported.");
             }
 
-            return 0;
+            throw new InvalidDataException("Training log is too small to contain a valid header.");
         }
 
         private static uint ComputeCrc32(byte[] bytes, int count) {

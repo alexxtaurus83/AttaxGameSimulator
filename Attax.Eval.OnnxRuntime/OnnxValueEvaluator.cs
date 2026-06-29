@@ -19,9 +19,46 @@ namespace Attax.Eval.OnnxRuntime {
         private readonly int _boardSize = 7; // Assuming 7x7 board
         private readonly int _inputChannels = 4; // As per plan: Friendly, Enemy, Blocked, Constant
 
-        public OnnxValueEvaluator(string modelPath, OnnxRuntimeProvider provider = OnnxRuntimeProvider.Cpu) {
+        /// <summary>
+        /// One-time runtime diagnostics: which ONNX Runtime is actually loaded and which
+        /// execution providers the loaded native library exposes. Useful to confirm the
+        /// CUDA provider is present before a session is created (and that init didn't freeze).
+        /// </summary>
+        public static string GetRuntimeDiagnostics(OnnxRuntimeProvider requested) {
+            try {
+                string ortVersion = typeof(InferenceSession).Assembly.GetName().Version?.ToString() ?? "unknown";
+                string[] available;
+                try {
+                    available = OrtEnv.Instance().GetAvailableProviders();
+                } catch (Exception ex) {
+                    available = new[] { $"<unavailable: {ex.Message}>" };
+                }
+
+                string requestedEp = requested == OnnxRuntimeProvider.Cuda ? "CUDAExecutionProvider" : "CPUExecutionProvider";
+                bool requestedPresent = available.Any(p => p.Equals(requestedEp, StringComparison.OrdinalIgnoreCase));
+
+                return $"[gpu-diag] ORT assembly v{ortVersion}; available providers: [{string.Join(", ", available)}]; "
+                     + $"requested={requestedEp} present={requestedPresent}";
+            } catch (Exception ex) {
+                return $"[gpu-diag] diagnostics unavailable: {ex.Message}";
+            }
+        }
+
+        /// <param name="intraOpNumThreads">
+        /// Threads ONNX Runtime may use to parallelize a single inference. Pass 0 to leave the
+        /// runtime default. Pass 1 to pin inference to one thread — used when the caller runs many
+        /// games in parallel on the CPU, so game-level parallelism owns the cores instead of
+        /// intra-op threading (which scales poorly for this tiny 4x7x7 model).
+        /// </param>
+        public OnnxValueEvaluator(string modelPath, OnnxRuntimeProvider provider = OnnxRuntimeProvider.Cpu, int intraOpNumThreads = 0) {
             try {
                 using var options = new SessionOptions();
+
+                if (intraOpNumThreads > 0) {
+                    options.IntraOpNumThreads = intraOpNumThreads;
+                    options.InterOpNumThreads = 1;
+                    options.ExecutionMode = ExecutionMode.ORT_SEQUENTIAL;
+                }
 
                 if (provider == OnnxRuntimeProvider.Cuda) {
                     try {

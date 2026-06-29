@@ -31,6 +31,58 @@ namespace Attax.Core {
             public const int flipWeight = 25;
             public const int centerWeightMultiplier = 1;
         }
+
+        // Root-only move-selection nudges, expressed in HEURISTIC POINTS (same scale as the
+        // leaf evaluator output, before *evaluationScale). 1 point here is comparable to ~1/35
+        // of a piece (material weight is 30-40). These are deliberately small: material already
+        // gives a clone its intrinsic +1-piece edge, and the depth>=2 search already accounts
+        // for flips and the opponent's reply, so these only fine-tune move choice.
+        public static class RootBonusConst {
+            // Phase-aware extra clone preference (on top of material). ~6 = mild, ~20 = strong,
+            // ~40 = dominant (≈ one piece). Opening favors clones; late game lets captures win.
+            public const double cloneOpening = 6.0;   // totalPieces <= openingMax
+            public const double cloneMid = 3.0;       // openingMax < totalPieces <= midMax
+            public const double cloneLate = 1.0;      // totalPieces > midMax
+
+            public const int openingMax = 8;
+            public const int midMax = 20;
+
+            // Per-flip immediate-capture nudge. ~0 because the search already sees flips as
+            // material one ply down; a tiny value only breaks near-ties toward active moves.
+            public const double flipPoints = 0.0;
+
+            // Per-opponent-flip-risk penalty: a mild safety margin beyond what the search sees.
+            public const double riskPoints = 0.8;
+
+            // Center/positional nudge per GetPositionalValue unit (value is 1..7).
+            public const double positionalPoints = 0.3;
+
+            // Penalty (heuristic points) for a jump that neither captures nor grows — pure
+            // repositioning that abandons a piece's spot. Steers the root choice toward growth
+            // (clones/captures). Root-only, so the leaf evaluation / positional "feel" is untouched.
+            // Folded into the clone (growth) axis in the move log. Raise if too many jumps persist.
+            public const double nonCapturingJumpPenalty = 6.0;
+        }
+
+        // Phase-aware extra clone preference in heuristic points. Replaces the old
+        // GetDynamicCloneBonus * DynamicCloneBonusMultiplier hack (which was ~1/1,000,000 the
+        // scale of the search score and therefore numerically inert).
+        public static double GetCloneBonusPoints(int totalPieces) {
+            if (totalPieces <= RootBonusConst.openingMax) return RootBonusConst.cloneOpening;
+            if (totalPieces <= RootBonusConst.midMax) return RootBonusConst.cloneMid;
+            return RootBonusConst.cloneLate;
+        }
+
+        // Root-only "comeback" aggression. aiDelta = aiPieces - opponentPieces from the AI's
+        // (fixed root) perspective. When far behind, the AI chases captures, fears risk less,
+        // and values passive clones less. Applied ONLY at the root so it never breaks the
+        // negamax antisymmetry of the leaf evaluator.
+        public static double GetAggressionFactor(int aiDelta) {
+            if (aiDelta >= -2) return 1.0;  // even or ahead: normal style
+            if (aiDelta >= -5) return 1.5;  // losing by 3-5
+            if (aiDelta >= -8) return 2.0;  // losing by 6-8
+            return 2.5;                     // losing by 9+: fight hard
+        }
         public static class EvaluateHeuristicConst {
 
             public const int earlyMaterialWeight = 30;

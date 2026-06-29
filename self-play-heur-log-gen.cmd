@@ -1,0 +1,1 @@
+Attax.Console.exe selfplayloggen --games 20000 --out ml_training_data.bin --aiDepth 4 --profileMode Random --nodeBudget 9000000 --topKSet 1,2,3 --tempSet 1.0,1.25 --weakSideChance 0.30 --weakSideNodesScale 0.25 --symmetryMode All --samples 40

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -79,7 +79,7 @@ namespace Attax.Console {
         static void PrintUsage() {
             System.Console.WriteLine("Usage:");
             System.Console.WriteLine("  Attax.Console selfplayloggen --games <N> --seed <S> --out <path> --nodeBudget <N> --topK <K> --temp <T> --samples <S> [--aiDepth <1..12>] [--useOrthogonalOnlyCapture true|false] [--useMLRootOnly true|false] [--disableQuiescence true|false] [--epsilonStart <D>] [--epsilonMid <D>] [--epsilonLate <D>] [--epsilonPly1 <N>] [--epsilonPly2 <N>] [--nodesMin <N>] [--nodesMax <N>] [--topKSet <csv>] [--tempSet <csv>] [--profileMode fixed|random] [--weakSideChance <D>] [--weakSideNodesScale <D>] [--symmetryMode none|random|all] [--logGenMode true|false]");
-            System.Console.WriteLine("  Attax.Console modelarena --model1 <path|heuristic> --model2 <path|heuristic> --games <N> [--ort cpu|cuda] [--aiDepth <1..12>] [--useOrthogonalOnlyCapture true|false] [--useMLRootOnly true|false] [--disableQuiescence true|false]");
+            System.Console.WriteLine("  Attax.Console modelarena --model1 <path|heuristic> --model2 <path|heuristic> --games <N> [--ort cpu|cuda] [--aiDepthM1 <1..12>] [--aiDepthM2 <1..12>] [--maxNodes <N>] [--maxNodesM1 <N>] [--maxNodesM2 <N>] [--useOrthogonalOnlyCapture true|false] [--useMLRootOnly true|false] [--arenaTemp <D>] [--arenaTopK <N>] [--arenaOpeningPlies <N>] [--runGamesInParallel auto|true|false]");
             System.Console.WriteLine("  Attax.Console mirror-test [--model <path|heuristic>] [--ort cpu|cuda] [--side red|blue]");
             System.Console.WriteLine("  Attax.Console validate-log --path <path> [--strict true|false]");
             System.Console.WriteLine("  Attax.Console validate-hash [--games <N>] [--seed <S>] [--moves <N>] [--strict true|false]");
@@ -165,40 +165,37 @@ namespace Attax.Console {
             int totalCollectedSamples = 0;
             var collectedSamplesByPhase = new int[3];
 
+            object statsLock = new object();
+            object logLock = new object();
+
             System.Console.WriteLine(
                 $"Starting SelfPlayLogGen: Games={games}, Seed={seed}, Out={outPath}, ProfileMode={profileMode}, Nodes=[{nodesMin},{nodesMax}], TopKSet={string.Join(",", topKSet)}, TempSet={string.Join(",", tempSet.Select(v => v.ToString("0.###", CultureInfo.InvariantCulture)))}, Epsilon=[{epsilonStart:0.###},{epsilonMid:0.###},{epsilonLate:0.###}]@Ply[{epsilonPly1},{epsilonPly2}], WeakSideChance={weakSideChance:0.###}, WeakSideNodesScale={weakSideNodesScale:0.###}, SymmetryMode={symmetryMode}, SamplesPerGame={samplesPerGame}, AiDepth={aiDepth}, LogGenMode={(logGenMode ? 1 : 0)}, UseOrthogonalOnlyCapture={(useOrthogonalOnlyCapture ? 1 : 0)}, UseMLRootOnly={(useMLRootOnly ? 1 : 0)}, DisableQuiescenceSearch={(disableQuiescence ? 1 : 0)}, DebugInit={(debugInit ? 1 : 0)}");
 
+            // Red and Blue engines share an identical static config (only the per-engine seed and the
+            // per-game profile node budget / topK / temp / weak-side scaling differ at runtime).
+            string selfPlayPlayerConfig =
+                $"evaluator=heuristic, aiDepth={aiDepth}, trainingMode=1, useMLRootOnly={(useMLRootOnly ? 1 : 0)}, "
+                + $"disableQuiescence={(disableQuiescence ? 1 : 0)}, disableParallelRootSearch=1, timeManagement=0, "
+                + $"useOrthogonalOnlyCapture={(useOrthogonalOnlyCapture ? 1 : 0)}, logGenMode={(logGenMode ? 1 : 0)}";
+            System.Console.WriteLine($"[selfplay-config] Red : {selfPlayPlayerConfig}");
+            System.Console.WriteLine($"[selfplay-config] Blue: {selfPlayPlayerConfig}");
+
             using (var logSink = new BinaryTrainingLogSink(outPath)) {
-                var rng = new Random(seed);
                 long totalPositions = 0;
                 var stopwatch = Stopwatch.StartNew();
+                int gamesCompletedCounter = 0;
 
-                for (int i = 0; i < games; i++) {
-                    int gameSeed = rng.Next();
+                Parallel.For(0, games, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount }, i => {
                     uint gameId = (uint)i;
+                    int gameSeed = CombineSeed(seed, i);
+                    var rng = new Random(gameSeed);
 
                     int profileNodes = profileMode == ProfileModeOption.Random ? rng.Next(nodesMin, nodesMax + 1) : nodeBudget;
                     int profileTopK = profileMode == ProfileModeOption.Random ? topKSet[rng.Next(topKSet.Count)] : topK;
                     double profileTemp = profileMode == ProfileModeOption.Random ? tempSet[rng.Next(tempSet.Count)] : temp;
-
-                    profileNodeBudgets.Add(profileNodes);
-                    if (profileNodes == nodesMin) {
-                        lowEndNodeBudgetHits++;
-                    }
-
-                    if (!profileTopKHistogram.TryAdd(profileTopK, 1)) {
-                        profileTopKHistogram[profileTopK]++;
-                    }
-
                     string profileTempKey = profileTemp.ToString("0.###", CultureInfo.InvariantCulture);
-                    if (!profileTempHistogram.TryAdd(profileTempKey, 1)) {
-                        profileTempHistogram[profileTempKey]++;
-                    }
 
                     bool hasWeakSide = rng.NextDouble() < weakSideChance;
-                    if (hasWeakSide) {
-                        weakSideActiveGames++;
-                    }
                     AtaxxAIEngine.PlayerColor weakSide = rng.Next(2) == 0
                         ? AtaxxAIEngine.PlayerColor.Red
                         : AtaxxAIEngine.PlayerColor.Blue;
@@ -243,11 +240,10 @@ namespace Attax.Console {
                         int emptyCount0 = AtaxxAIEngine.PopCount(masterBoard.EmptySquares());
                         bool redHasMoves0 = redEngine.GetAllValidMoves(masterBoard, AtaxxAIEngine.PlayerColor.Red).Count > 0;
                         bool blueHasMoves0 = blueEngine.GetAllValidMoves(masterBoard, AtaxxAIEngine.PlayerColor.Blue).Count > 0;
-                        System.Console.WriteLine($"[selfplay-debug-init] game={i + 1}, red={redCount0}, blue={blueCount0}, empty={emptyCount0}, redMovesPly0={redHasMoves0}, blueMovesPly0={blueHasMoves0}");
+                        lock(statsLock) {
+                            System.Console.WriteLine($"[selfplay-debug-init] game={i + 1}, redEval=heuristic(first=yes), blueEval=heuristic(first=no), red={redCount0}, blue={blueCount0}, empty={emptyCount0}, redMovesPly0={redHasMoves0}, blueMovesPly0={blueHasMoves0}");
+                        }
                     }
-
-                    byte ruleFlags = (byte)(useOrthogonalOnlyCapture ? 0b_0000_0001 : 0);
-                    logSink.LogGameStart(gameId, (ulong)gameSeed, ruleFlags, 7);
 
                     AtaxxAIEngine.PlayerColor sideToMove = AtaxxAIEngine.PlayerColor.Red;
                     int plyCount = 0;
@@ -269,6 +265,15 @@ namespace Attax.Console {
                         phaseLateQuota,
                         samplingRng);
 
+                    int localRandomMovesPlayed = 0;
+                    int localSearchedMovesPlayed = 0;
+                    var localRandomMovesByPhase = new int[3];
+                    var localSearchedMovesByPhase = new int[3];
+                    double localEpsilonStrongSum = 0.0;
+                    double localEpsilonWeakSum = 0.0;
+                    int localEpsilonStrongCount = 0;
+                    int localEpsilonWeakCount = 0;
+
                     while (!gameOver) {
                         masterBoard.ZobristHash = redEngine.ComputeZobristHash(masterBoard, sideToMove);
 
@@ -281,11 +286,11 @@ namespace Attax.Console {
 
                         bool sideIsWeak = hasWeakSide && sideToMove == weakSide;
                         if (sideIsWeak) {
-                            epsilonWeakSum += epsilon;
-                            epsilonWeakCount++;
+                            localEpsilonWeakSum += epsilon;
+                            localEpsilonWeakCount++;
                         } else {
-                            epsilonStrongSum += epsilon;
-                            epsilonStrongCount++;
+                            localEpsilonStrongSum += epsilon;
+                            localEpsilonStrongCount++;
                         }
 
                         int effectiveNodes = sideIsWeak
@@ -301,17 +306,17 @@ namespace Attax.Console {
                         if (legalMoves.Count > 0) {
                             if (rng.NextDouble() < epsilon) {
                                 move = legalMoves[rng.Next(legalMoves.Count)];
-                                randomMovesPlayed++;
-                                randomMovesByPhase[phaseIndex]++;
+                                localRandomMovesPlayed++;
+                                localRandomMovesByPhase[phaseIndex]++;
                             } else {
                                 move = currentEngine.GetBestMove(sideToMove, false, (float)profileTemp, profileTopK);
                                 if (move.Equals(default(AtaxxAIEngine.Move))) {
                                     move = legalMoves[rng.Next(legalMoves.Count)];
-                                    randomMovesPlayed++;
-                                    randomMovesByPhase[phaseIndex]++;
+                                    localRandomMovesPlayed++;
+                                    localRandomMovesByPhase[phaseIndex]++;
                                 } else {
-                                    searchedMovesPlayed++;
-                                    searchedMovesByPhase[phaseIndex]++;
+                                    localSearchedMovesPlayed++;
+                                    localSearchedMovesByPhase[phaseIndex]++;
                                 }
                             }
                         }
@@ -319,7 +324,6 @@ namespace Attax.Console {
                         if (move.Equals(default(AtaxxAIEngine.Move))) {
                             consecutivePasses++;
                             passesThisGame++;
-                            totalPasses++;
                             sideToMove = AtaxxAIEngine.SwitchPlayer(sideToMove);
                         } else {
                             consecutivePasses = 0;
@@ -346,89 +350,134 @@ namespace Attax.Console {
                     if (redCount > blueCount) result = 1;
                     else if (blueCount > redCount) result = -1;
 
-                    gamePlies.Add(plyCount);
-                    if (!terminalReasonCounts.TryAdd(terminalReason, 1)) {
-                        terminalReasonCounts[terminalReason]++;
-                    }
-
-                    if (result > 0) redWins++;
-                    else if (result < 0) blueWins++;
-                    else drawGames++;
-
                     var keptSamples = sampler.GetFinalSamples();
                     int samplesCollectedThisGame = keptSamples.Count;
-                    totalRequestedSamples += samplesPerGame;
-                    totalCollectedSamples += samplesCollectedThisGame;
-                    if (samplesCollectedThisGame < samplesPerGame) {
-                        underfilledGames++;
-                    }
-                    var collectedThisGameByPhase = new int[3];
+
+                    var localCollectedThisGameByPhase = new int[3];
+                    var sampleLogPositions = new List<(ushort ply, BitboardState board, AtaxxAIEngine.PlayerColor side)>();
+
                     foreach (var sample in keptSamples) {
                         int samplePieceCount = AtaxxAIEngine.PopCount(sample.Board.RedPieces) + AtaxxAIEngine.PopCount(sample.Board.BluePieces);
                         int samplePhaseIndex = GetPhaseIndex(samplePieceCount, phaseEarlyMaxPieces, phaseMidMaxPieces);
-                        collectedThisGameByPhase[samplePhaseIndex]++;
-                        collectedSamplesByPhase[samplePhaseIndex]++;
+                        localCollectedThisGameByPhase[samplePhaseIndex]++;
+                        
                         if (symmetryMode == SymmetryModeOption.None) {
-                            logSink.LogPosition(gameId, sample.Ply, sample.Board, sample.SideToMove);
-                            totalPositions++;
+                            sampleLogPositions.Add((sample.Ply, sample.Board, sample.SideToMove));
                         } else if (symmetryMode == SymmetryModeOption.Random) {
                             int symmetry = rng.Next(8);
                             var transformed = ApplySymmetryToBoard(sample.Board, symmetry);
-                            logSink.LogPosition(gameId, sample.Ply, transformed, sample.SideToMove);
-                            totalPositions++;
+                            sampleLogPositions.Add((sample.Ply, transformed, sample.SideToMove));
                         } else {
                             for (int symmetry = 0; symmetry < 8; symmetry++) {
                                 var transformed = ApplySymmetryToBoard(sample.Board, symmetry);
-                                logSink.LogPosition(gameId, sample.Ply, transformed, sample.SideToMove);
-                                totalPositions++;
+                                sampleLogPositions.Add((sample.Ply, transformed, sample.SideToMove));
                             }
                         }
                     }
 
-                    logSink.LogGameEnd(gameId, result, (ushort)plyCount);
+                    byte ruleFlags = (byte)(useOrthogonalOnlyCapture ? 0b_0000_0001 : 0);
 
-                    if ((i + 1) % 10 == 0) {
-                        double elapsed = stopwatch.Elapsed.TotalSeconds;
-                        System.Console.WriteLine($"Game {i + 1}/{games} finished. {totalPositions / elapsed:F0} pos/sec. Avg plies: {plyCount}. Time {elapsed} seconds");
-
-                        int gamesCompleted = gamePlies.Count;
-                        var sortedPlies = gamePlies.OrderBy(v => v).ToArray();
-                        int minPlies = sortedPlies[0];
-                        int p10Plies = GetPercentile(sortedPlies, 0.10);
-                        int p50Plies = GetPercentile(sortedPlies, 0.50);
-                        int p90Plies = GetPercentile(sortedPlies, 0.90);
-                        int maxPlies = sortedPlies[sortedPlies.Length - 1];
-                        double pctLe20 = 100.0 * gamePlies.Count(v => v <= 20) / gamesCompleted;
-                        double pctLe40 = 100.0 * gamePlies.Count(v => v <= 40) / gamesCompleted;
-
-                        int totalMovesPlayed = randomMovesPlayed + searchedMovesPlayed;
-                        double randomPct = totalMovesPlayed == 0 ? 0.0 : 100.0 * randomMovesPlayed / totalMovesPlayed;
-                        double randomPctEarly = GetRatioPercent(randomMovesByPhase[0], randomMovesByPhase[0] + searchedMovesByPhase[0]);
-                        double randomPctMid = GetRatioPercent(randomMovesByPhase[1], randomMovesByPhase[1] + searchedMovesByPhase[1]);
-                        double randomPctLate = GetRatioPercent(randomMovesByPhase[2], randomMovesByPhase[2] + searchedMovesByPhase[2]);
-                        double avgEpsilonStrong = epsilonStrongCount == 0 ? 0.0 : epsilonStrongSum / epsilonStrongCount;
-                        double avgEpsilonWeak = epsilonWeakCount == 0 ? 0.0 : epsilonWeakSum / epsilonWeakCount;
-
-                        double meanNodeBudget = profileNodeBudgets.Count == 0 ? 0.0 : profileNodeBudgets.Average();
-                        int medianNodeBudget = profileNodeBudgets.Count == 0
-                            ? 0
-                            : GetPercentile(profileNodeBudgets.OrderBy(v => v).ToArray(), 0.50);
-                        double lowEndHitPct = profileNodeBudgets.Count == 0 ? 0.0 : 100.0 * lowEndNodeBudgetHits / profileNodeBudgets.Count;
-                        string topKHist = string.Join(", ", profileTopKHistogram.OrderBy(kv => kv.Key).Select(kv => $"{kv.Key}:{kv.Value}"));
-                        string tempHist = string.Join(", ", profileTempHistogram.OrderBy(kv => kv.Key).Select(kv => $"{kv.Key}:{kv.Value}"));
-                        string terminalHist = string.Join(", ", terminalReasonCounts.OrderBy(kv => kv.Key).Select(kv => $"{kv.Key}:{kv.Value}"));
-
-                        double underfilledPct = gamesCompleted == 0 ? 0.0 : 100.0 * underfilledGames / gamesCompleted;
-                        double avgCollectedSamples = gamesCompleted == 0 ? 0.0 : (double)totalCollectedSamples / gamesCompleted;
-                        double collectionRatePct = totalRequestedSamples == 0 ? 0.0 : 100.0 * totalCollectedSamples / totalRequestedSamples;
-
-                        System.Console.WriteLine($"[selfplay-metrics] plies min/p10/p50/p90/max={minPlies}/{p10Plies}/{p50Plies}/{p90Plies}/{maxPlies}, <=20={pctLe20:0.0}%, <=40={pctLe40:0.0}%");
-                        System.Console.WriteLine($"[selfplay-metrics] winners red/blue/draw={redWins}/{blueWins}/{drawGames}, terminalReasons={terminalHist}, totalPasses={totalPasses}, lastGamePasses={passesThisGame}");
-                        System.Console.WriteLine($"[selfplay-metrics] exploration random={randomMovesPlayed}, searched={searchedMovesPlayed}, random%={randomPct:0.0}%, random% early/mid/late={randomPctEarly:0.0}/{randomPctMid:0.0}/{randomPctLate:0.0}, avgEpsilon strong/weak={avgEpsilonStrong:0.###}/{avgEpsilonWeak:0.###}");
-                        System.Console.WriteLine($"[selfplay-metrics] profile nodeBudget mean/median={meanNodeBudget:0.##}/{medianNodeBudget}, lowEndHit%={lowEndHitPct:0.0}%, weakSideActive%={GetRatioPercent(weakSideActiveGames, gamesCompleted):0.0}%, topKHist={topKHist}, tempHist={tempHist}");
-                        System.Console.WriteLine($"[selfplay-metrics] sampling lastCollected={samplesCollectedThisGame}/{samplesPerGame} (E/M/L={collectedThisGameByPhase[0]}/{collectedThisGameByPhase[1]}/{collectedThisGameByPhase[2]}), underfilledGames={underfilledGames}/{gamesCompleted} ({underfilledPct:0.0}%), avgCollected={avgCollectedSamples:0.##}, collectionRate={collectionRatePct:0.0}%, totalPhaseCollected E/M/L={collectedSamplesByPhase[0]}/{collectedSamplesByPhase[1]}/{collectedSamplesByPhase[2]}");
+                    lock (logLock) {
+                        logSink.LogGameStart(gameId, (ulong)gameSeed, ruleFlags, 7);
+                        foreach (var pos in sampleLogPositions) {
+                            logSink.LogPosition(gameId, pos.ply, pos.board, pos.side);
+                        }
+                        logSink.LogGameEnd(gameId, result, (ushort)plyCount);
+                        totalPositions += sampleLogPositions.Count;
                     }
-                }
+
+                    lock (statsLock) {
+                        profileNodeBudgets.Add(profileNodes);
+                        if (profileNodes == nodesMin) {
+                            lowEndNodeBudgetHits++;
+                        }
+
+                        if (!profileTopKHistogram.TryAdd(profileTopK, 1)) {
+                            profileTopKHistogram[profileTopK]++;
+                        }
+
+                        if (!profileTempHistogram.TryAdd(profileTempKey, 1)) {
+                            profileTempHistogram[profileTempKey]++;
+                        }
+
+                        if (hasWeakSide) {
+                            weakSideActiveGames++;
+                        }
+
+                        gamePlies.Add(plyCount);
+                        if (!terminalReasonCounts.TryAdd(terminalReason, 1)) {
+                            terminalReasonCounts[terminalReason]++;
+                        }
+
+                        if (result > 0) redWins++;
+                        else if (result < 0) blueWins++;
+                        else drawGames++;
+
+                        totalPasses += passesThisGame;
+
+                        randomMovesPlayed += localRandomMovesPlayed;
+                        searchedMovesPlayed += localSearchedMovesPlayed;
+                        for (int phase = 0; phase < 3; phase++) {
+                            randomMovesByPhase[phase] += localRandomMovesByPhase[phase];
+                            searchedMovesByPhase[phase] += localSearchedMovesByPhase[phase];
+                            collectedSamplesByPhase[phase] += localCollectedThisGameByPhase[phase];
+                        }
+                        epsilonStrongSum += localEpsilonStrongSum;
+                        epsilonWeakSum += localEpsilonWeakSum;
+                        epsilonStrongCount += localEpsilonStrongCount;
+                        epsilonWeakCount += localEpsilonWeakCount;
+
+                        totalRequestedSamples += samplesPerGame;
+                        totalCollectedSamples += samplesCollectedThisGame;
+                        if (samplesCollectedThisGame < samplesPerGame) {
+                            underfilledGames++;
+                        }
+
+                        int currentCompleted = ++gamesCompletedCounter;
+                        if (currentCompleted % 10 == 0) {
+                            double elapsed = stopwatch.Elapsed.TotalSeconds;
+                            int gamesCompleted = gamePlies.Count;
+                            double avgPlies = gamesCompleted == 0 ? 0.0 : gamePlies.Sum() / (double)gamesCompleted;
+                            System.Console.WriteLine($"Game {currentCompleted}/{games} finished [Red=heuristic(first=yes),Blue=heuristic(first=no)]. {totalPositions / elapsed:F0} pos/sec. Avg plies: {avgPlies:0.#}. Time {elapsed} seconds");
+
+                            var sortedPlies = gamePlies.OrderBy(v => v).ToArray();
+                            int minPlies = sortedPlies[0];
+                            int p10Plies = GetPercentile(sortedPlies, 0.10);
+                            int p50Plies = GetPercentile(sortedPlies, 0.50);
+                            int p90Plies = GetPercentile(sortedPlies, 0.90);
+                            int maxPlies = sortedPlies[sortedPlies.Length - 1];
+                            double pctLe20 = 100.0 * gamePlies.Count(v => v <= 20) / gamesCompleted;
+                            double pctLe40 = 100.0 * gamePlies.Count(v => v <= 40) / gamesCompleted;
+
+                            int totalMovesPlayed = randomMovesPlayed + searchedMovesPlayed;
+                            double randomPct = totalMovesPlayed == 0 ? 0.0 : 100.0 * randomMovesPlayed / totalMovesPlayed;
+                            double randomPctEarly = GetRatioPercent(randomMovesByPhase[0], randomMovesByPhase[0] + searchedMovesByPhase[0]);
+                            double randomPctMid = GetRatioPercent(randomMovesByPhase[1], randomMovesByPhase[1] + searchedMovesByPhase[1]);
+                            double randomPctLate = GetRatioPercent(randomMovesByPhase[2], randomMovesByPhase[2] + searchedMovesByPhase[2]);
+                            double avgEpsilonStrong = epsilonStrongCount == 0 ? 0.0 : epsilonStrongSum / epsilonStrongCount;
+                            double avgEpsilonWeak = epsilonWeakCount == 0 ? 0.0 : epsilonWeakSum / epsilonWeakCount;
+
+                            double meanNodeBudget = profileNodeBudgets.Count == 0 ? 0.0 : profileNodeBudgets.Average();
+                            int medianNodeBudget = profileNodeBudgets.Count == 0
+                                ? 0
+                                : GetPercentile(profileNodeBudgets.OrderBy(v => v).ToArray(), 0.50);
+                            double lowEndHitPct = profileNodeBudgets.Count == 0 ? 0.0 : 100.0 * lowEndNodeBudgetHits / profileNodeBudgets.Count;
+                            string topKHist = string.Join(", ", profileTopKHistogram.OrderBy(kv => kv.Key).Select(kv => $"{kv.Key}:{kv.Value}"));
+                            string tempHist = string.Join(", ", profileTempHistogram.OrderBy(kv => kv.Key).Select(kv => $"{kv.Key}:{kv.Value}"));
+                            string terminalHist = string.Join(", ", terminalReasonCounts.OrderBy(kv => kv.Key).Select(kv => $"{kv.Key}:{kv.Value}"));
+
+                            double underfilledPct = gamesCompleted == 0 ? 0.0 : 100.0 * underfilledGames / gamesCompleted;
+                            double avgCollectedSamples = gamesCompleted == 0 ? 0.0 : (double)totalCollectedSamples / gamesCompleted;
+                            double collectionRatePct = totalRequestedSamples == 0 ? 0.0 : 100.0 * totalCollectedSamples / totalRequestedSamples;
+
+                            System.Console.WriteLine($"[selfplay-metrics] plies min/p10/p50/p90/max={minPlies}/{p10Plies}/{p50Plies}/{p90Plies}/{maxPlies}, <=20={pctLe20:0.0}%, <=40={pctLe40:0.0}%");
+                            System.Console.WriteLine($"[selfplay-metrics] winners red/blue/draw={redWins}/{blueWins}/{drawGames}, terminalReasons={terminalHist}, totalPasses={totalPasses}, thisGamePasses={passesThisGame}");
+                            System.Console.WriteLine($"[selfplay-metrics] exploration random={randomMovesPlayed}, searched={searchedMovesPlayed}, random%={randomPct:0.0}%, random% early/mid/late={randomPctEarly:0.0}/{randomPctMid:0.0}/{randomPctLate:0.0}, avgEpsilon strong/weak={avgEpsilonStrong:0.###}/{avgEpsilonWeak:0.###}");
+                            System.Console.WriteLine($"[selfplay-metrics] profile nodeBudget mean/median={meanNodeBudget:0.##}/{medianNodeBudget}, lowEndHit%={lowEndHitPct:0.0}%, weakSideActive%={GetRatioPercent(weakSideActiveGames, gamesCompleted):0.0}%, topKHist={topKHist}, tempHist={tempHist}");
+                            System.Console.WriteLine($"[selfplay-metrics] sampling lastCollected={samplesCollectedThisGame}/{samplesPerGame} (E/M/L={localCollectedThisGameByPhase[0]}/{localCollectedThisGameByPhase[1]}/{localCollectedThisGameByPhase[2]}), underfilledGames={underfilledGames}/{gamesCompleted} ({underfilledPct:0.0}%), avgCollected={avgCollectedSamples:0.##}, collectionRate={collectionRatePct:0.0}%, totalPhaseCollected E/M/L={collectedSamplesByPhase[0]}/{collectedSamplesByPhase[1]}/{collectedSamplesByPhase[2]}");
+                        }
+                    }
+                });
             }
         }
 
@@ -701,30 +750,96 @@ namespace Attax.Console {
             }
         }
 
-        static void RunModelArena(ModelArenaOptions opts) {
-            var sharedConfig = AttaxConfigLoader.LoadOrDefault();
+        static void RunModelArena(ModelArenaOptions opts) {           
 
             string model1Path = opts.Model1;
             string model2Path = opts.Model2;
             int games = opts.Games;
-            int aiDepth = opts.AiDepth;
+            int model1Depth = opts.AiDepthM1;
+            int model2Depth = opts.AiDepthM2;
+
+            // Per-player node budget: 0 means unlimited (MaxNodes = null in the engine).
+            int rawM1 = Math.Max(0, opts.MaxNodesM1);
+            int rawM2 = Math.Max(0, opts.MaxNodesM2);
+            int? maxNodesM1 = rawM1 == 0 ? (int?)null : rawM1;
+            int? maxNodesM2 = rawM2 == 0 ? (int?)null : rawM2;
+
             bool useOrthogonalOnlyCapture = opts.UseOrthogonalOnlyCapture;
             bool useMLRootOnly = opts.UseMLRootOnly;
-            bool disableQuiescence = opts.DisableQuiescence
-                ?? (!model1Path.Equals("heuristic", StringComparison.OrdinalIgnoreCase)
-                    || !model2Path.Equals("heuristic", StringComparison.OrdinalIgnoreCase));
+            bool isModel1 = !model1Path.Equals("heuristic", StringComparison.OrdinalIgnoreCase);
+            bool isModel2 = !model2Path.Equals("heuristic", StringComparison.OrdinalIgnoreCase);
+
+            bool disableQuiescence = !opts.DisableQuiescence.Equals("false", StringComparison.OrdinalIgnoreCase);
+
+            // Models always disable quiescence (their value function replaces it).
+            // Heuristic players use the --disableQuiescence flag (default true for speed).
+            bool disableQ1 = isModel1 || disableQuiescence;
+            bool disableQ2 = isModel2 || disableQuiescence;
 
             var ortProvider = opts.Ort == OrtOption.Cuda
                 ? OnnxRuntimeProvider.Cuda
                 : OnnxRuntimeProvider.Cpu;
 
-            System.Console.WriteLine($"Starting ModelArena: {model1Path} vs {model2Path}, Games={games}, ORT={opts.Ort}, UseMLRootOnly={(useMLRootOnly ? 1 : 0)}, DisableQuiescenceSearch={(disableQuiescence ? 1 : 0)}");
+            bool useGpu = opts.Ort == OrtOption.Cuda;
+            bool anyModel = isModel1 || isModel2;
+
+            // Execution strategy (auto):
+            //  - model + GPU    : one game at a time; parallelize the root search to overlap GPU calls.
+            //  - model + CPU    : run games in parallel; keep each search serial and pin ONNX to 1
+            //                     intra-op thread so game-level parallelism owns the cores.
+            //  - heuristic-only : always parallelize games (cheap, no GPU/threads to contend for).
+            bool autoGamesParallel = !anyModel || !useGpu;
+
+            // --runGamesInParallel overrides the auto strategy:
+            //   auto  → use autoGamesParallel (default)
+            //   true  → force parallel games (throughput mode)
+            //   false → force sequential games (realistic per-move timing, desktop simulation)
+            bool? gamesParallelOverride = opts.RunGamesInParallel.ToLowerInvariant() switch {
+                "true"  => true,
+                "false" => false,
+                _       => (bool?)null
+            };
+            bool gamesParallel = gamesParallelOverride ?? autoGamesParallel;
+            string gamesParallelSource = gamesParallelOverride.HasValue ? "override" : "auto";
+
+            bool engineRootParallel = anyModel && useGpu;
+            int onnxIntraOp = useGpu ? 0 : 1;
+
+            // Temperature + topK only apply when both sides are models — heuristic games
+            // are already distinct per seed via alpha-beta RNG, so temperature is not needed.
+            // topK must be > 1 for temperature sampling to have any effect (the sampling
+            // code gates on candidates.Count > 1).
+            bool bothModels = isModel1 && isModel2;
+            float arenaTemp = bothModels ? (float)opts.ArenaTemp : 0f;
+            int arenaTopK = (bothModels && arenaTemp > 0f) ? Math.Max(2, opts.ArenaTopK) : 1;
+            int arenaOpeningPlies = Math.Max(0, opts.ArenaOpeningPlies);
+
+            System.Console.WriteLine($"Starting ModelArena: {model1Path} vs {model2Path}, Games={games}, ORT={opts.Ort}, UseMLRootOnly={(useMLRootOnly ? 1 : 0)}, M1DisableQ={(disableQ1 ? 1 : 0)}, M2DisableQ={(disableQ2 ? 1 : 0)}");
+            System.Console.WriteLine($"[arena-strategy] gamesParallel={(gamesParallel ? 1 : 0)} [{gamesParallelSource}] (maxDOP={(gamesParallel ? Environment.ProcessorCount : 1)}), engineRootParallel={(engineRootParallel ? 1 : 0)}, onnxIntraOpThreads={(onnxIntraOp == 0 ? "default" : onnxIntraOp.ToString())}, arenaTemp={arenaTemp:0.###}, arenaTopK={arenaTopK} (sampling={(bothModels && arenaTemp > 0f ? "active" : "off")}), arenaOpeningPlies={arenaOpeningPlies}");
+
+
+            string FormatNodes(int? n) => n.HasValue ? n.Value.ToString() : "unlimited";
+            string DescribePlayer(string path, bool isModel, bool disableQ, int depth, int? nodes) =>
+                $"evaluator={(isModel ? "onnx" : "heuristic")} ({path}), aiDepth={depth}, maxNodes={FormatNodes(nodes)}, "
+                + $"useMLRootOnly={(useMLRootOnly ? 1 : 0)}, disableQuiescence={(disableQ ? 1 : 0)}{(isModel && disableQ ? " (model)" : !isModel && disableQ ? " (flag)" : " (quiescence ON)")}, "
+                + $"useOrthogonalOnlyCapture={(useOrthogonalOnlyCapture ? 1 : 0)}, rootParallel={(engineRootParallel ? 1 : 0)}, "
+                + $"temp={(isModel && bothModels ? arenaTemp.ToString("0.###") : "0 (n/a)")}, topK={(isModel && bothModels ? arenaTopK.ToString() : "1 (n/a)")}, timeManagement=0";
+            System.Console.WriteLine($"[arena-config] Model1: {DescribePlayer(model1Path, isModel1, disableQ1, model1Depth, maxNodesM1)}");
+            System.Console.WriteLine($"[arena-config] Model2: {DescribePlayer(model2Path, isModel2, disableQ2, model2Depth, maxNodesM2)}");
+
+            // One-time runtime diagnostic: confirms which ORT/providers actually loaded
+            // (printed before session creation so a freeze during CUDA init is easy to locate).
+            bool usesOnnx = !model1Path.Equals("heuristic", StringComparison.OrdinalIgnoreCase)
+                            || !model2Path.Equals("heuristic", StringComparison.OrdinalIgnoreCase);
+            if (usesOnnx) {
+                System.Console.WriteLine(OnnxValueEvaluator.GetRuntimeDiagnostics(ortProvider));
+            }
 
             IValueEvaluator CreateEvaluator(string path) {
                 if (path.Equals("heuristic", StringComparison.OrdinalIgnoreCase))
                     return new HeuristicEvaluator();
                 else
-                    return new OnnxValueEvaluator(path, ortProvider);
+                    return new OnnxValueEvaluator(path, ortProvider, onnxIntraOp);
             }
 
             var eval1 = CreateEvaluator(model1Path);
@@ -733,32 +848,96 @@ namespace Attax.Console {
             int wins1 = 0;
             int wins2 = 0;
             int draws = 0;
+            int gamesCompleted = 0;
 
-            // We swap sides halfway through
-            for (int i = 0; i < games; i++) {
+            // Arena-wide timing/accumulators for progress + batch logging.
+            var arenaStopwatch = System.Diagnostics.Stopwatch.StartNew();
+            long totalPlies = 0;
+            long totalM1Chips = 0;
+            long totalM2Chips = 0;
+            // Move-time accumulators (stored as microseconds in longs for Interlocked).
+            long totalM1MaxMoveMicros = 0, totalM2MaxMoveMicros = 0;
+            long totalM1AvgMoveMicros = 0, totalM2AvgMoveMicros = 0;
+            object logLock = new object();
+            int prevReportGames = 0, prevWins1 = 0, prevWins2 = 0, prevDraws = 0;
+            double prevReportElapsed = 0;
+
+            // One-time warmup inference: confirms the model + execution provider actually run
+            // (and that CUDA init didn't freeze) before the games loop begins.
+            if (anyModel) {
+                var warmEval = !model1Path.Equals("heuristic", StringComparison.OrdinalIgnoreCase) ? eval1 : eval2;
+                var warmBoard = CreateStandardInitialBoard();
+                var warmSw = Stopwatch.StartNew();
+                float warmVal = warmEval.Evaluate(warmBoard, AtaxxAIEngine.PlayerColor.Red, 0);
+                warmSw.Stop();
+                System.Console.WriteLine($"[gpu-diag] warmup inference ok: value={warmVal:0.000}, time={warmSw.Elapsed.TotalMilliseconds:0.0} ms (provider={ortProvider})");
+            }
+
+            Action<int> runGame = (int i) => {
+                var gameStopwatch = System.Diagnostics.Stopwatch.StartNew();
                 bool swapSides = i >= games / 2;
                 var p1Color = swapSides ? AtaxxAIEngine.PlayerColor.Blue : AtaxxAIEngine.PlayerColor.Red;
                 var p2Color = swapSides ? AtaxxAIEngine.PlayerColor.Red : AtaxxAIEngine.PlayerColor.Blue;
 
+                // Human-readable color labels: "M1=Red,M2=Blue" or "M1=Blue,M2=Red"
+                string m1Color = swapSides ? "Blue" : "Red";
+                string m2Color = swapSides ? "Red" : "Blue";
+                string colorTag = $"M1={m1Color}(first={(m1Color == "Red" ? "yes" : "no")}),M2={m2Color}(first={(m2Color == "Red" ? "yes" : "no")})";
+
+                if (games <= 10) {
+                    lock (logLock) {
+                        System.Console.WriteLine($"Starting game {i + 1}/{games}... [{colorTag}]");
+                    }
+                }
+
                 var p1Eval = swapSides ? eval2 : eval1;
                 var p2Eval = swapSides ? eval1 : eval2;
 
-                var config = new AtaxxAIEngine.AIEngineConfig {
+                bool p1DisableQ = swapSides ? disableQ2 : disableQ1;
+                bool p2DisableQ = swapSides ? disableQ1 : disableQ2;
+
+                int p1Depth = swapSides ? model2Depth : model1Depth;
+                int p2Depth = swapSides ? model1Depth : model2Depth;
+
+                var config1 = new AtaxxAIEngine.AIEngineConfig {
                     UseTimeManagement = false,
-                    AiDepth = aiDepth,
+                    AiDepth = p1Depth,
                     UseOrthogonalOnlyCapture = useOrthogonalOnlyCapture,
                     Seed = i,
                     UseMLRootOnly = useMLRootOnly,
-                    DisableQuiescenceSearch = disableQuiescence
+                    DisableQuiescenceSearch = p1DisableQ,
+                    DisableParallelRootSearch = !engineRootParallel
                 };
 
-                var engine1 = new AtaxxAIEngine(p1Eval, null, null, config) {
-                    AIPlayerColor = AtaxxAIEngine.PlayerColor.Red,
-                    MaxNodes = 1000
+                var config2 = new AtaxxAIEngine.AIEngineConfig {
+                    UseTimeManagement = false,
+                    AiDepth = p2Depth,
+                    UseOrthogonalOnlyCapture = useOrthogonalOnlyCapture,
+                    Seed = i,
+                    UseMLRootOnly = useMLRootOnly,
+                    DisableQuiescenceSearch = p2DisableQ,
+                    DisableParallelRootSearch = !engineRootParallel
                 };
-                var engine2 = new AtaxxAIEngine(p2Eval, null, null, config) {
+
+                // p1 is the engine that plays Red (engine1). When swapSides, model2 drives p1
+                // and model1 drives p2, so node budgets must follow the model assignment.
+                int? p1Nodes = swapSides ? maxNodesM2 : maxNodesM1;
+                int? p2Nodes = swapSides ? maxNodesM1 : maxNodesM2;
+
+                // Console logger active only for small game counts so output stays readable.
+                bool useEngineLogger = games <= 2;
+                string p1ModelLabel = swapSides ? "M2" : "M1";
+                string p2ModelLabel = swapSides ? "M1" : "M2";
+                ILogSink? p1Logger = useEngineLogger ? new ConsoleLogSink($"game{i + 1} {p1ModelLabel}(Red)") : null;
+                ILogSink? p2Logger = useEngineLogger ? new ConsoleLogSink($"game{i + 1} {p2ModelLabel}(Blue)") : null;
+
+                var engine1 = new AtaxxAIEngine(p1Eval, p1Logger, null, config1) {
+                    AIPlayerColor = AtaxxAIEngine.PlayerColor.Red,
+                    MaxNodes = p1Nodes
+                };
+                var engine2 = new AtaxxAIEngine(p2Eval, p2Logger, null, config2) {
                     AIPlayerColor = AtaxxAIEngine.PlayerColor.Blue,
-                    MaxNodes = 1000
+                    MaxNodes = p2Nodes
                 };
 
                 var masterBoard = CreateStandardInitialBoard();
@@ -770,17 +949,45 @@ namespace Attax.Console {
                 string endReason = "";
                 bool debugArena = games == 1;
 
+                // Opening book: play N random moves before models take over.
+                // Seeded from game index so each game gets a unique opening.
+                var openingRng = new Random(CombineSeed(i, unchecked((int)0xA3B1C2D3)));
+                int openingPliesPlayed = 0;
+
+                // Per-move timing tracked per model (M1/M2), not per color,
+                // so stats are correct regardless of swapSides.
+                double m1MaxMoveMs = 0, m1TotalMoveMs = 0;
+                double m2MaxMoveMs = 0, m2TotalMoveMs = 0;
+                int m1MoveCount = 0, m2MoveCount = 0;
+                var moveSw = new Stopwatch();
+
                 while (!gameOver) {
                     // Keep hash synchronized with current side-to-move (important after pass turns).
                     masterBoard.ZobristHash = engine1.ComputeZobristHash(masterBoard, sideToMove);
 
                     AtaxxAIEngine.Move move = default;
-                    if (sideToMove == AtaxxAIEngine.PlayerColor.Red) {
+                    if (openingPliesPlayed < arenaOpeningPlies) {
+                        var legalMoves = engine1.GetAllValidMoves(masterBoard, sideToMove);
+                        if (legalMoves.Count > 0) {
+                            move = legalMoves[openingRng.Next(legalMoves.Count)];
+                        }
+                        openingPliesPlayed++;
+                    } else if (sideToMove == AtaxxAIEngine.PlayerColor.Red) {
                         engine1.Board = masterBoard.Clone();
-                        move = engine1.GetBestMove(sideToMove);
+                        moveSw.Restart();
+                        move = engine1.GetBestMove(sideToMove, false, arenaTemp, arenaTopK);
+                        double elapsedMs = moveSw.Elapsed.TotalMilliseconds;
+                        // engine1 plays for M1 when !swapSides, for M2 when swapSides
+                        if (!swapSides) { m1TotalMoveMs += elapsedMs; m1MoveCount++; if (elapsedMs > m1MaxMoveMs) m1MaxMoveMs = elapsedMs; }
+                        else            { m2TotalMoveMs += elapsedMs; m2MoveCount++; if (elapsedMs > m2MaxMoveMs) m2MaxMoveMs = elapsedMs; }
                     } else {
                         engine2.Board = masterBoard.Clone();
-                        move = engine2.GetBestMove(sideToMove);
+                        moveSw.Restart();
+                        move = engine2.GetBestMove(sideToMove, false, arenaTemp, arenaTopK);
+                        double elapsedMs = moveSw.Elapsed.TotalMilliseconds;
+                        // engine2 plays for M2 when !swapSides, for M1 when swapSides
+                        if (!swapSides) { m2TotalMoveMs += elapsedMs; m2MoveCount++; if (elapsedMs > m2MaxMoveMs) m2MaxMoveMs = elapsedMs; }
+                        else            { m1TotalMoveMs += elapsedMs; m1MoveCount++; if (elapsedMs > m1MaxMoveMs) m1MaxMoveMs = elapsedMs; }
                     }
 
                     if (move.Equals(default(AtaxxAIEngine.Move))) {
@@ -807,27 +1014,88 @@ namespace Attax.Console {
 
                 var (redCount, blueCount) = AtaxxAIEngine.GetRedAndBlueCounts(masterBoard, AtaxxAIEngine.PlayerColor.Red);
 
-                // Determine winner relative to Model 1
-                // If swapSides is false: Model 1 is Red.
-                // If swapSides is true: Model 1 is Blue.
+                // Determine winner relative to Model 1.
+                // swapSides == false: Model 1 is Red; swapSides == true: Model 1 is Blue.
+                int m1Chips = swapSides ? blueCount : redCount;
+                int m2Chips = swapSides ? redCount : blueCount;
+                int scoreDiff = m1Chips - m2Chips; // Model 1 perspective
 
-                int scoreDiff = redCount - blueCount; // Red - Blue
-                if (swapSides) scoreDiff = -scoreDiff; // Blue - Red (Model 1 perspective)
+                string result;
+                if (scoreDiff > 0) { Interlocked.Increment(ref wins1); result = "M1 win"; }
+                else if (scoreDiff < 0) { Interlocked.Increment(ref wins2); result = "M2 win"; }
+                else { Interlocked.Increment(ref draws); result = "draw"; }
 
-                if (scoreDiff > 0) wins1++;
-                else if (scoreDiff < 0) wins2++;
-                else draws++;
+                double gameSeconds = gameStopwatch.Elapsed.TotalSeconds;
+                Interlocked.Add(ref totalPlies, plyCount);
+                Interlocked.Add(ref totalM1Chips, m1Chips);
+                Interlocked.Add(ref totalM2Chips, m2Chips);
+
+                double m1AvgMoveMs = m1MoveCount > 0 ? m1TotalMoveMs / m1MoveCount : 0;
+                double m2AvgMoveMs = m2MoveCount > 0 ? m2TotalMoveMs / m2MoveCount : 0;
+                string moveTiming = $"moveMs M1(max/avg)={m1MaxMoveMs:0}/{m1AvgMoveMs:0} M2(max/avg)={m2MaxMoveMs:0}/{m2AvgMoveMs:0}";
+
+                Interlocked.Add(ref totalM1MaxMoveMicros, (long)(m1MaxMoveMs * 1000));
+                Interlocked.Add(ref totalM2MaxMoveMicros, (long)(m2MaxMoveMs * 1000));
+                Interlocked.Add(ref totalM1AvgMoveMicros, (long)(m1AvgMoveMs * 1000));
+                Interlocked.Add(ref totalM2AvgMoveMicros, (long)(m2AvgMoveMs * 1000));
 
                 if (debugArena) {
-                    System.Console.WriteLine($"[arena-debug] game={i + 1}, endReason={endReason}, plies={plyCount}, consecutivePasses={consecutivePasses}, redCount={redCount}, blueCount={blueCount}, swapSides={swapSides}, scoreDiffFromM1={scoreDiff}");
+                    string redOwner = m1Color == "Red" ? "M1" : "M2";
+                    string blueOwner = m1Color == "Blue" ? "M1" : "M2";
+                    System.Console.WriteLine($"[arena-debug] game={i + 1}, {colorTag}, endReason={endReason}, plies={plyCount}, consecutivePasses={consecutivePasses}, red({redOwner})={redCount}, blue({blueOwner})={blueCount}, scoreDiffFromM1={scoreDiff}, {moveTiming}");
                 }
 
-                if ((i + 1) % 10 == 0) {
-                    System.Console.WriteLine($"Game {i + 1}: M1 Wins: {wins1}, M2 Wins: {wins2}, Draws: {draws}");
+                lock (logLock) {
+                    int currentCompleted = ++gamesCompleted;
+
+                    // games <= 10: print every game (batch size 1). games > 10: print a batch summary every 10.
+                    if (games <= 10) {
+                        System.Console.WriteLine(
+                            $"Game {currentCompleted}/{games} [{colorTag}]: {result}, chips M1/M2={m1Chips}/{m2Chips} (margin {scoreDiff:+0;-0;0}), " +
+                            $"plies={plyCount}, end={endReason}, time={gameSeconds:0.00}s, {moveTiming} " +
+                            $"| totals M1/M2/draw={wins1}/{wins2}/{draws}, elapsed={arenaStopwatch.Elapsed.TotalSeconds:0.0}s");
+                    } else if (currentCompleted % 10 == 0 || currentCompleted == games) {
+                        double now = arenaStopwatch.Elapsed.TotalSeconds;
+                        int batchGames = currentCompleted - prevReportGames;
+                        int bw1 = wins1 - prevWins1, bw2 = wins2 - prevWins2, bd = draws - prevDraws;
+                        double batchSeconds = now - prevReportElapsed;
+                        double avgPlies = (double)totalPlies / currentCompleted;
+                        double avgM1 = (double)totalM1Chips / currentCompleted;
+                        double avgM2 = (double)totalM2Chips / currentCompleted;
+                        // M1 plays Red for games [0, games/2) and Blue for games [games/2, games).
+                        string colorNote = $"M1=Red(first=yes) games 1-{games / 2}, M2=Blue(first=no) games {games / 2 + 1}-{games}";
+                        double avgM1MaxMs = totalM1MaxMoveMicros / 1000.0 / currentCompleted;
+                        double avgM2MaxMs = totalM2MaxMoveMicros / 1000.0 / currentCompleted;
+                        double avgM1AvgMs = totalM1AvgMoveMicros / 1000.0 / currentCompleted;
+                        double avgM2AvgMs = totalM2AvgMoveMicros / 1000.0 / currentCompleted;
+                        System.Console.WriteLine(
+                            $"Games {prevReportGames + 1}-{currentCompleted}/{games} (batch {batchGames}) [{colorNote}]: " +
+                            $"batch M1/M2/draw={bw1}/{bw2}/{bd}, batch time={batchSeconds:0.0}s ({batchSeconds / Math.Max(1, batchGames):0.00}s/game) " +
+                            $"| totals M1/M2/draw={wins1}/{wins2}/{draws}, avgChips M1/M2={avgM1:0.0}/{avgM2:0.0}, avgPlies={avgPlies:0.#}, elapsed={now:0.0}s " +
+                            $"| avgMoveMs M1(max/avg)={avgM1MaxMs:0.0}/{avgM1AvgMs:0.0} M2(max/avg)={avgM2MaxMs:0.0}/{avgM2AvgMs:0.0}");
+                        prevReportGames = currentCompleted;
+                        prevWins1 = wins1; prevWins2 = wins2; prevDraws = draws;
+                        prevReportElapsed = now;
+                    }
+                }
+            };
+
+            if (gamesParallel) {
+                Parallel.For(0, games, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount }, runGame);
+            } else {
+                for (int i = 0; i < games; i++) {
+                    runGame(i);
                 }
             }
 
-            System.Console.WriteLine($"Final Results: M1 Wins: {wins1}, M2 Wins: {wins2}, Draws: {draws}");
+            arenaStopwatch.Stop();
+            double finalElapsed = arenaStopwatch.Elapsed.TotalSeconds;
+            int played = gamesCompleted == 0 ? 1 : gamesCompleted;
+            double m1Score = 100.0 * (wins1 + 0.5 * draws) / played; // M1 score% (win=1, draw=0.5)
+            System.Console.WriteLine(
+                $"Final Results: M1 Wins: {wins1}, M2 Wins: {wins2}, Draws: {draws} " +
+                $"| games={gamesCompleted}, M1 score={m1Score:0.0}%, avgChips M1/M2={(double)totalM1Chips / played:0.0}/{(double)totalM2Chips / played:0.0}, " +
+                $"avgPlies={(double)totalPlies / played:0.#}, totalTime={finalElapsed:0.0}s ({finalElapsed / played:0.00}s/game)");
 
             if (eval1 is IDisposable d1) d1.Dispose();
             if (eval2 is IDisposable d2) d2.Dispose();

@@ -319,7 +319,7 @@ Definition: [`ValidateHashOptions`](Attax.Console/ValidateHashOptions.cs:4) → 
 Example:
 
 ```bash
-dotnet run -c Release --project Attax.Console -- validate-hash --games 50 --seed 0 --moves 200 --strict true
+dotnet run -c Release --project Attax.Console --validate-hash --games 50 --seed 0 --moves 200 --strict true
 ```
 
 ---

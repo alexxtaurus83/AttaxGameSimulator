@@ -1,6 +1,9 @@
-/logs_g7800.bin
-/ataxx_value_7800.onnx
+/zlibwapi.dll
+/*.bin
+/*.onnx
 /.cr
 bin
 obj
 .vs
+.kilo
+__pycache__
