@@ -39,6 +39,9 @@ namespace Attax.Console {
         [Option("disableQuiescence", Default = true, HelpText = "Disable quiescence search (true/false).")]
         public bool DisableQuiescence { get; set; } = true;
 
+        [Option("iterativeDeepening", Default = false, HelpText = "Self-play only: search depth 1..aiDepth instead of jumping straight to aiDepth, so a small --nodeBudget still leaves a finished shallower result (true/false).")]
+        public bool IterativeDeepening { get; set; } = false;
+
         [Option("logGenMode", Default = true, HelpText = "Enable log-generation mode (true/false).")]
         public bool LogGenMode { get; set; } = true;
 

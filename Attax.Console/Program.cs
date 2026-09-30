@@ -78,7 +78,7 @@ namespace Attax.Console {
 
         static void PrintUsage() {
             System.Console.WriteLine("Usage:");
-            System.Console.WriteLine("  Attax.Console selfplayloggen --games <N> --seed <S> --out <path> --nodeBudget <N> --topK <K> --temp <T> --samples <S> [--aiDepth <1..12>] [--useMLRootOnly true|false] [--disableQuiescence true|false] [--epsilonStart <D>] [--epsilonMid <D>] [--epsilonLate <D>] [--epsilonPly1 <N>] [--epsilonPly2 <N>] [--nodesMin <N>] [--nodesMax <N>] [--topKSet <csv>] [--tempSet <csv>] [--profileMode fixed|random] [--weakSideChance <D>] [--weakSideNodesScale <D>] [--symmetryMode none|random|all] [--logGenMode true|false]");
+            System.Console.WriteLine("  Attax.Console selfplayloggen --games <N> --seed <S> --out <path> --nodeBudget <N> --topK <K> --temp <T> --samples <S> [--aiDepth <1..12>] [--useMLRootOnly true|false] [--disableQuiescence true|false] [--epsilonStart <D>] [--epsilonMid <D>] [--epsilonLate <D>] [--epsilonPly1 <N>] [--epsilonPly2 <N>] [--nodesMin <N>] [--nodesMax <N>] [--topKSet <csv>] [--tempSet <csv>] [--profileMode fixed|random] [--weakSideChance <D>] [--weakSideNodesScale <D>] [--symmetryMode none|random|all] [--logGenMode true|false] [--iterativeDeepening true|false]");
             System.Console.WriteLine("  Attax.Console modelarena --model1 <path|heuristic> --model2 <path|heuristic> --games <N> [--ort cpu|cuda] [--aiDepthM1 <1..12>] [--aiDepthM2 <1..12>] [--maxNodes <N>] [--maxNodesM1 <N>] [--maxNodesM2 <N>] [--useMLRootOnly true|false] [--arenaTemp <D>] [--arenaTopK <N>] [--arenaOpeningPlies <N>] [--runGamesInParallel auto|true|false]");
             System.Console.WriteLine("  Attax.Console mirror-test [--model <path|heuristic>] [--ort cpu|cuda] [--side red|blue]");
             System.Console.WriteLine("  Attax.Console validate-log --path <path> [--strict true|false]");
@@ -101,6 +101,7 @@ namespace Attax.Console {
             int aiDepth = opts.AiDepth;
             bool debugInit = opts.DebugInit;
             bool useMLRootOnly = opts.UseMLRootOnly;
+            bool iterativeDeepening = opts.IterativeDeepening;
             bool disableQuiescence = opts.DisableQuiescence;
             bool logGenMode = opts.LogGenMode;
 
@@ -211,7 +212,8 @@ namespace Attax.Console {
                         UseMLRootOnly = useMLRootOnly,
                         DisableQuiescenceSearch = disableQuiescence,
                         DisableParallelRootSearch = true,
-                        LogGenMode = logGenMode
+                        LogGenMode = logGenMode,
+                        IterativeDeepeningInTraining = iterativeDeepening
                     };
 
                     var blueConfig = new AtaxxAIEngine.AIEngineConfig {
@@ -222,7 +224,8 @@ namespace Attax.Console {
                         UseMLRootOnly = useMLRootOnly,
                         DisableQuiescenceSearch = disableQuiescence,
                         DisableParallelRootSearch = true,
-                        LogGenMode = logGenMode
+                        LogGenMode = logGenMode,
+                        IterativeDeepeningInTraining = iterativeDeepening
                     };
 
                     var redEngine = new AtaxxAIEngine(evaluator, null, null, redConfig) { AIPlayerColor = AtaxxAIEngine.PlayerColor.Red, MaxNodes = profileNodes };
@@ -342,10 +345,17 @@ namespace Attax.Console {
                         }
                     }
 
-                    var (redCount, blueCount) = AtaxxAIEngine.GetRedAndBlueCounts(masterBoard, AtaxxAIEngine.PlayerColor.Red);
+                    // Shared rule: a stuck player loses regardless of counts. Only a ply-cap end (no terminal
+                    // position) falls back to piece counts.
+                    var terminal = redEngine.GetTerminalResult(masterBoard);
                     sbyte result = 0;
-                    if (redCount > blueCount) result = 1;
-                    else if (blueCount > redCount) result = -1;
+                    if (terminal == AtaxxAIEngine.TerminalResult.RedWins) result = 1;
+                    else if (terminal == AtaxxAIEngine.TerminalResult.BlueWins) result = -1;
+                    else if (terminal == AtaxxAIEngine.TerminalResult.NotOver) {
+                        var (redCount, blueCount) = AtaxxAIEngine.GetRedAndBlueCounts(masterBoard, AtaxxAIEngine.PlayerColor.Red);
+                        if (redCount > blueCount) result = 1;
+                        else if (blueCount > redCount) result = -1;
+                    }
 
                     var keptSamples = sampler.GetFinalSamples();
                     int samplesCollectedThisGame = keptSamples.Count;
@@ -1010,11 +1020,18 @@ namespace Attax.Console {
                 // swapSides == false: Model 1 is Red; swapSides == true: Model 1 is Blue.
                 int m1Chips = swapSides ? blueCount : redCount;
                 int m2Chips = swapSides ? redCount : blueCount;
-                int scoreDiff = m1Chips - m2Chips; // Model 1 perspective
+                int scoreDiff = m1Chips - m2Chips; // Model 1 perspective: piece margin, display only
+
+                // Winner by the shared rule: a stuck player loses regardless of counts; ply-cap falls back to counts.
+                int winnerForM1 = Math.Sign(scoreDiff);
+                var terminalResult = engine1.GetTerminalResult(masterBoard);
+                if (terminalResult == AtaxxAIEngine.TerminalResult.RedWins) winnerForM1 = swapSides ? -1 : 1;
+                else if (terminalResult == AtaxxAIEngine.TerminalResult.BlueWins) winnerForM1 = swapSides ? 1 : -1;
+                else if (terminalResult == AtaxxAIEngine.TerminalResult.Draw) winnerForM1 = 0;
 
                 string result;
-                if (scoreDiff > 0) { Interlocked.Increment(ref wins1); result = "M1 win"; }
-                else if (scoreDiff < 0) { Interlocked.Increment(ref wins2); result = "M2 win"; }
+                if (winnerForM1 > 0) { Interlocked.Increment(ref wins1); result = "M1 win"; }
+                else if (winnerForM1 < 0) { Interlocked.Increment(ref wins2); result = "M2 win"; }
                 else { Interlocked.Increment(ref draws); result = "draw"; }
 
                 double gameSeconds = gameStopwatch.Elapsed.TotalSeconds;

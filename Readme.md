@@ -116,6 +116,7 @@ Attax.Console selfplayloggen [options]
 | `--aiDepth` | `int` | `3` | Search depth for self-play ([`AiDepth`](Attax.Console/SelfPlayLogGenOptions.cs:30)). |
 | `--useMLRootOnly` | `bool` | `false` | Use the ML evaluator on the root only ([`UseMLRootOnly`](Attax.Console/SelfPlayLogGenOptions.cs:39)). |
 | `--disableQuiescence` | `bool` | `true` | Disable quiescence search ([`DisableQuiescence`](Attax.Console/SelfPlayLogGenOptions.cs:42)). |
+| `--iterativeDeepening` | `bool` | `false` | Search depth 1..`--aiDepth` instead of jumping straight to `--aiDepth`, so a small `--nodeBudget` still leaves a finished shallower result. Off by default (legacy behavior). |
 | `--logGenMode` | `bool` | `true` | Enable “log generation mode” on the engine config ([`LogGenMode`](Attax.Console/SelfPlayLogGenOptions.cs:45)). |
 | `--epsilonStart` | `double` | `0.25` | Opening epsilon (random-move probability) ([`EpsilonStart`](Attax.Console/SelfPlayLogGenOptions.cs:48)). |
 | `--epsilonMid` | `double` | `0.10` | Midgame epsilon ([`EpsilonMid`](Attax.Console/SelfPlayLogGenOptions.cs:51)). |
@@ -241,7 +242,8 @@ Attax.Console modelarena [options]
 | `--model2` | `string` | `heuristic` | Model 2 path or the literal `heuristic` ([`Model2`](Attax.Console/ModelArenaOptions.cs:9)). |
 | `--games` | `int` | `100` | Number of arena games (sides swap halfway through) ([`Games`](Attax.Console/ModelArenaOptions.cs:12), swap logic in [`RunModelArena()`](Attax.Console/Program.cs:737)). |
 | `--ort` | `Cpu\|Cuda` | `Cpu` | ONNX Runtime provider used when a model path is provided ([`Ort`](Attax.Console/ModelArenaOptions.cs:15)). |
-| `--aiDepth` | `int` | `3` | Search depth used for both players ([`AiDepth`](Attax.Console/ModelArenaOptions.cs:18)). |
+| `--aiDepthM1` / `--aiDepthM2` | `int` | `1` | Search depth for Model 1 / Model 2 (the arena has no single `--aiDepth`). |
+| `--maxNodesM1` / `--maxNodesM2` | `int` | `1000` | Node budget per move for Model 1 / Model 2 (`0` = unlimited). |
 | `--useMLRootOnly` | `bool` | `false` | Use ML evaluator on root only ([`UseMLRootOnly`](Attax.Console/ModelArenaOptions.cs:24)). |
 | `--disableQuiescence` | `bool?` | `null` (auto) | If provided, forces quiescence on/off. If omitted (default `null`), resolves to `true` when either model is not `heuristic`, otherwise `false` (see [`disableQuiescence`](Attax.Console/Program.cs:713)). |
 
@@ -429,6 +431,22 @@ The config is validated by .NET via [`AttaxConfigLoader.LoadOrDefault()`](Attax.
 - log format magic/version and side encoding
 
 ---
+
+## Game result rule
+
+A player with no legal move (including a color with no pieces) loses immediately, regardless of piece counts. If neither player can move (full board, or both walled off), the side with more pieces wins and equal counts are a draw. A game that hits the 400-ply cap has no terminal result and falls back to piece counts. Search, self-play logs and the arena all use the single helper `AtaxxAIEngine.GetTerminalResult`.
+
+## Node budget
+
+`--nodeBudget` / `--maxNodesM1` / `--maxNodesM2` is a hard per-move limit shared by all iterations and root workers. If the budget runs out before any iteration finishes, the engine discards the partial result and plays a cheap unlimited depth-1 pass instead (`LastSearchUsedFallback`, `LastFallbackNodes`). Use `--iterativeDeepening true` for self-play if you want a finished shallower iteration to fall back on.
+
+## Tests
+
+```bash
+dotnet test Attax.Core.Tests/Attax.Core.Tests.csproj -c Release
+```
+
+The tests are model-free and cover the terminal rule, Blue/Red elimination detection, node-budget limits, interrupted-search safety, parallel helper ownership and move-buffer bounds.
 
 ## Gotchas / troubleshooting
 
