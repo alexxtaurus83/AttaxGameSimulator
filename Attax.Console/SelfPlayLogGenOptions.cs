@@ -30,9 +30,6 @@ namespace Attax.Console {
         [Option("aiDepth", Default = 3, HelpText = "Search depth (commonly 1..12).")]
         public int AiDepth { get; set; } = 3;
 
-        [Option("useOrthogonalOnlyCapture", Default = false, HelpText = "Use orthogonal-only capture rule (true/false).")]
-        public bool UseOrthogonalOnlyCapture { get; set; } = false;
-
         [Option("debugInit", Hidden = true, Default = false, HelpText = "Enable self-play initialization debug output (true/false).")]
         public bool DebugInit { get; set; } = false;
 

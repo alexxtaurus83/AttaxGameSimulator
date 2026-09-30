@@ -16,7 +16,7 @@
   },
   "logFormat": {
     "magic": "ATLG",
-    "version": 1,
+    "version": 2,
     "sideEncoding": {
       "red": 0,
       "blue": 1

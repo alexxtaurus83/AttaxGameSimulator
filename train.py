@@ -24,7 +24,7 @@ INPUT_CHANNELS = 4  # Friendly, Enemy, Blocked, Constant
 MODEL_PATH = "ataxx_value.onnx"
 DATA_DIR = "."  # Directory containing .bin files
 
-SAMPLE_SIZE = 32
+SAMPLE_SIZE = 35
 SAMPLE_DTYPE = np.dtype(
     [
         ("gid", "<u4"),
@@ -33,7 +33,7 @@ SAMPLE_DTYPE = np.dtype(
         ("blue", "<u8"),
         ("blocked", "<u8"),
         ("side", "u1"),
-        ("rules", "u1"),
+        ("reserved", "<f4"),  # v2: always 0, ignored; training targets come from GameResult
     ]
 )
 
@@ -72,7 +72,6 @@ def game_in_validation_split(game_id, val_fraction):
 @dataclass
 class TrainerConfig:
     board_size: int = BOARD_SIZE
-    expected_orth_capture: int = 0
 
 
 class AtaxxStreamingDataset(IterableDataset):
@@ -102,15 +101,14 @@ class AtaxxStreamingDataset(IterableDataset):
     def _iter_file_samples(self, path):
         # game_id -> list[np.ndarray[SAMPLE_DTYPE]]
         file_samples = {}
-        # game_id -> (rule_flags, board_size)
+        # game_id -> board_size
         game_headers = {}
 
         board_bits = self.trainer_config.board_size * self.trainer_config.board_size
         board_mask = np.uint64((1 << board_bits) - 1)
-        expected_rule_flag = np.uint8(1 if self.trainer_config.expected_orth_capture else 0)
 
         with open(path, "rb") as f:
-            # v1 header: [magic="ATLG"][version=ushort] = 6 bytes. Required.
+            # v2 header: [magic="ATLG"][version=ushort] = 6 bytes. Required.
             maybe_magic = f.read(4)
             if len(maybe_magic) < 4 or maybe_magic != b"ATLG":
                 raise ValueError(
@@ -123,7 +121,7 @@ class AtaxxStreamingDataset(IterableDataset):
                 raise ValueError("Invalid file header: missing format version")
 
             version = struct.unpack("<H", version_bytes)[0]
-            if version != 1:
+            if version != 2:
                 raise ValueError(f"Unsupported training log format version: {version}")
 
             while True:
@@ -134,13 +132,13 @@ class AtaxxStreamingDataset(IterableDataset):
                 record_type = type_byte[0]
 
                 if record_type == 1:  # GameHeader
-                    # [GameId:4][Seed:8][RuleFlags:1][BoardSize:1] = 14 bytes
-                    header = f.read(14)
-                    if len(header) != 14:
-                        raise ValueError("Invalid game header record: expected 14 bytes")
+                    # [GameId:4][Seed:8][BoardSize:1] = 13 bytes
+                    header = f.read(13)
+                    if len(header) < 13:
+                        raise ValueError("Invalid game header record: expected 13 bytes")
 
-                    game_id, _seed, rule_flags, board_size = struct.unpack("<IQBB", header)
-                    game_headers[game_id] = (rule_flags, board_size)
+                    game_id, _seed, board_size = struct.unpack("<IQB", header)
+                    game_headers[game_id] = board_size
 
                     if board_size != self.trainer_config.board_size:
                         msg = (
@@ -227,7 +225,7 @@ class AtaxxStreamingDataset(IterableDataset):
                             if gid not in game_headers:
                                 continue
 
-                            header_rule_flags, header_board_size = game_headers[gid]
+                            header_board_size = game_headers[gid]
                             gid_mask = gids == gid_u
 
                             if header_board_size != self.trainer_config.board_size:
@@ -240,32 +238,6 @@ class AtaxxStreamingDataset(IterableDataset):
                                 if self.skip_bad_games:
                                     valid_mask &= ~gid_mask
                                 continue
-
-                            sample_rule_bits = samples["rules"][gid_mask] & np.uint8(0b00000001)
-                            header_rule_bit = np.uint8(header_rule_flags & 0b00000001)
-
-                            rule_match_ok = np.all(sample_rule_bits == header_rule_bit)
-                            if not rule_match_ok:
-                                msg = (
-                                    f"Rule mismatch in game {gid}: "
-                                    f"sample rules={int(sample_rule_bits[0])}, header rules={header_rule_flags}"
-                                )
-                                if self.strict_metadata:
-                                    raise ValueError(msg)
-                                if self.skip_bad_games:
-                                    valid_mask &= ~gid_mask
-                                continue
-
-                            expected_rule_ok = np.all(sample_rule_bits == expected_rule_flag)
-                            if not expected_rule_ok:
-                                msg = (
-                                    f"Unexpected capture rule in game {gid}: sample={int(sample_rule_bits[0])}, "
-                                    f"expected={int(expected_rule_flag)}"
-                                )
-                                if self.strict_metadata:
-                                    raise ValueError(msg)
-                                if self.skip_bad_games:
-                                    valid_mask &= ~gid_mask
 
                     if self.skip_bad_games:
                         samples = samples[valid_mask]
@@ -604,13 +576,7 @@ def parse_args():
         default=0,
         help="Skip bad samples/games on metadata mismatch instead of failing (default: 0)",
     )
-    parser.add_argument(
-        "--expected-orth-capture",
-        type=int,
-        choices=[0, 1],
-        default=None,
-        help="Expected orthogonal-capture rule flag (0=standard, 1=orthogonal-only). Defaults to 0 if omitted.",
-    )
+
 
     return parser.parse_args()
 
@@ -641,9 +607,16 @@ def scan_training_data(file_paths):
         with open(path, "rb") as f:
             maybe_magic = f.read(4)
             if maybe_magic != b"ATLG":
-                print(f"WARNING: Skipping {path} — missing 'ATLG' header (unsupported legacy format).")
+                print(f"WARNING: Skipping {path} - missing 'ATLG' header (unsupported legacy format).")
                 continue
-            f.read(2)  # version (already validated by _iter_file_samples if training)
+            version_bytes = f.read(2)
+            if len(version_bytes) != 2:
+                print(f"WARNING: Skipping {path} - truncated file header (missing format version).")
+                continue
+            version = struct.unpack("<H", version_bytes)[0]
+            if version != 2:
+                print(f"WARNING: Skipping {path} - unsupported log format version {version} (expected 2).")
+                continue
 
             while True:
                 type_byte = f.read(1)
@@ -652,7 +625,9 @@ def scan_training_data(file_paths):
                 record_type = type_byte[0]
 
                 if record_type == 1:  # GameHeader
-                    f.read(14)
+                    if len(f.read(13)) != 13:
+                        print(f"WARNING: {path} ends inside a game header record.")
+                        break
                 elif record_type == 2:  # CompressedSampleBlock
                     header_data = f.read(16)
                     if len(header_data) != 16:
@@ -749,7 +724,6 @@ def train(
     overfit_n=0,
     strict_metadata=True,
     skip_bad_games=False,
-    expected_orth_capture=None,
     shuffle_buffer=0,
 ):
     device = resolve_device(device_mode)
@@ -789,8 +763,6 @@ def train(
     print(f"Validation fraction: {val_fraction:.3f}")
 
     trainer_config = load_trainer_config()
-    if expected_orth_capture is not None:
-        trainer_config.expected_orth_capture = int(expected_orth_capture)
 
     train_dataset = AtaxxStreamingDataset(
         files,
@@ -1045,5 +1017,4 @@ if __name__ == "__main__":
         overfit_n=args.overfit_n,
         strict_metadata=bool(args.strict_metadata),
         skip_bad_games=bool(args.skip_bad_games),
-        expected_orth_capture=args.expected_orth_capture,
     )

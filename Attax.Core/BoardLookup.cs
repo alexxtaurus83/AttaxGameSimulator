@@ -4,7 +4,6 @@ namespace Attax.Core {
     public static class BoardLookup {
         public static readonly ulong[] SingleStepMoves;
         public static readonly ulong[] TwoStepMoves;
-        public static readonly ulong[] OrthogonalStepMoves;
         public static readonly int[] CenterControlWeights;
         public static readonly ulong CornerMask;
         public static readonly ulong EdgeMask;
@@ -14,7 +13,6 @@ namespace Attax.Core {
             int totalSquares = boardSize * boardSize;
             SingleStepMoves = new ulong[totalSquares];
             TwoStepMoves = new ulong[totalSquares];
-            OrthogonalStepMoves = new ulong[totalSquares];
             CenterControlWeights = new int[totalSquares];
 
             for (int y = 0; y < boardSize; y++) {
@@ -69,20 +67,6 @@ namespace Attax.Core {
                 edgeMask |= (1UL << GetBitIndex(boardSize - 1, i)); // Right column
             }
             EdgeMask = edgeMask & ~CornerMask; // Exclude corners from the edge mask       
-
-            for (int i = 0; i < totalSquares; i++) {
-                ulong mask = 0UL;
-                int x = i % boardSize;
-                int y = i / boardSize;
-
-                // Check the 4 orthogonal neighbors
-                if (x > 0) mask |= (1UL << (i - 1));             // Left
-                if (x < boardSize - 1) mask |= (1UL << (i + 1)); // Right
-                if (y > 0) mask |= (1UL << (i - boardSize));     // Up
-                if (y < boardSize - 1) mask |= (1UL << (i + boardSize)); // Down
-
-                OrthogonalStepMoves[i] = mask;
-            }
 
             int centerAreaStart = boardSize / 3; // For 7x7, this is 2. Loop from 2 to 4.
             int exactCenter = boardSize / 2;     // For 7x7, this is 3.

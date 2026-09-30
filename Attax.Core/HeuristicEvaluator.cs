@@ -5,7 +5,7 @@ namespace Attax.Core {
     
     public class HeuristicEvaluator : IValueEvaluator {
 
-        public float Evaluate(BitboardState board, PlayerColor sideToMove, byte ruleFlags) {
+        public float Evaluate(BitboardState board, PlayerColor sideToMove) {
             PlayerColor enemy = SwitchPlayer(sideToMove);
             int finalEvaluationScore = 0;
 

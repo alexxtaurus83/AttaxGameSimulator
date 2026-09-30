@@ -30,8 +30,7 @@ namespace Attax.Console {
         [Option("disableQuiescence", Default = "true", HelpText = "Disable quiescence search for heuristic players (true/false). Always disabled for model players regardless of this flag. Default true keeps arena fast; set false to let heuristic search tactical sequences deeper.")]
         public string DisableQuiescence { get; set; } = "true";
 
-        [Option("useOrthogonalOnlyCapture", Default = false, HelpText = "Use orthogonal-only capture rule (true/false).")]
-        public bool UseOrthogonalOnlyCapture { get; set; } = false;
+
 
         [Option("useMLRootOnly", Default = false, HelpText = "Use ML evaluator on root only (true/false).")]
         public bool UseMLRootOnly { get; set; } = false;

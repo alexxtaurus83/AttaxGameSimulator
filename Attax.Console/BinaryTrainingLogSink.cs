@@ -8,7 +8,7 @@ using K4os.Compression.LZ4;
 namespace Attax.Console {
     public class BinaryTrainingLogSink : ILogSink, IDisposable {
         private const uint FileMagic = 0x474C5441; // "ATLG"
-        private const ushort FormatVersion = 1;
+        private const ushort FormatVersion = 2;
 
         private readonly string _outputPath;
         private readonly int _bufferSizeSamples;
@@ -20,7 +20,7 @@ namespace Attax.Console {
         // Current game context
         private uint _currentGameId;
         private ulong _currentSeed;
-        private byte _currentRuleFlags;
+
         private byte _currentBoardSize;
         private bool _gameStarted;
 
@@ -28,7 +28,7 @@ namespace Attax.Console {
         private struct GameHeader {
             public uint GameId;
             public ulong Seed;
-            public byte RuleFlags;
+
             public byte BoardSize;
         }
 
@@ -40,7 +40,8 @@ namespace Attax.Console {
             public ulong Blue;
             public ulong Blocked;
             public byte SideToMove; // 0=Red, 1=Blue
-            public byte RuleFlags;
+            // Reserved in v2: always written as 0 and ignored by the trainer (targets come from GameResult).
+            public float Reserved;
         }
 
         [StructLayout(LayoutKind.Sequential, Pack = 1)]
@@ -73,18 +74,18 @@ namespace Attax.Console {
             System.Console.Error.WriteLine($"[BinaryLogSink Error] {message}");
         }
 
-        public void LogGameStart(uint gameId, ulong seed, byte ruleFlags, byte boardSize) {
+        public void LogGameStart(uint gameId, ulong seed, byte boardSize) {
             lock (_lock) {
                 _currentGameId = gameId;
                 _currentSeed = seed;
-                _currentRuleFlags = ruleFlags;
+
                 _currentBoardSize = boardSize;
                 _gameStarted = true;
 
                 WriteGameHeader(new GameHeader {
                     GameId = gameId,
                     Seed = seed,
-                    RuleFlags = ruleFlags,
+
                     BoardSize = boardSize
                 });
             }
@@ -101,7 +102,7 @@ namespace Attax.Console {
                     Blue = board.BluePieces,
                     Blocked = board.BlockedSquares,
                     SideToMove = (byte)(sideToMove == AtaxxAIEngine.PlayerColor.Red ? 0 : 1),
-                    RuleFlags = _currentRuleFlags
+                    Reserved = 0f
                 };
 
                 _sampleBuffer.Add(sample);
@@ -138,7 +139,7 @@ namespace Attax.Console {
             _writer.Write((byte)1); // RecordType: GameHeader
             _writer.Write(header.GameId);
             _writer.Write(header.Seed);
-            _writer.Write(header.RuleFlags);
+
             _writer.Write(header.BoardSize);
         }
 

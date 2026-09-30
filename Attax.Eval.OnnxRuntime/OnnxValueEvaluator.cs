@@ -82,12 +82,12 @@ namespace Attax.Eval.OnnxRuntime {
             }
         }
 
-        public float Evaluate(BitboardState board, PlayerColor sideToMove, byte ruleFlags) {
-            var values = EvaluateBatch(new[] { board }, sideToMove, ruleFlags);
+        public float Evaluate(BitboardState board, PlayerColor sideToMove) {
+            var values = EvaluateBatch(new[] { board }, sideToMove);
             return values.Length > 0 ? values[0] : 0.0f;
         }
 
-        public float[] EvaluateBatch(IReadOnlyList<BitboardState> boards, PlayerColor sideToMove, byte ruleFlags) {
+        public float[] EvaluateBatch(IReadOnlyList<BitboardState> boards, PlayerColor sideToMove) {
             if (boards == null) throw new ArgumentNullException(nameof(boards));
             if (boards.Count == 0) return Array.Empty<float>();
 

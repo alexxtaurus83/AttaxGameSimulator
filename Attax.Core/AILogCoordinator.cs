@@ -68,8 +68,8 @@ namespace Attax.Core {
         public class TurnLog {
             public MoveDetails playerMove { get; set; }
             public MoveDetails opponentMove { get; set; }
-            public bool useOrthogonalOnlyCapture { get; set; }
-            public TurnLog(bool useOrthogonalOnlyCapture) { this.useOrthogonalOnlyCapture = useOrthogonalOnlyCapture; }
+
+            public TurnLog() { }
         }
 
         public class AIEffectiveness {

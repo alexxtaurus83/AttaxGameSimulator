@@ -114,7 +114,6 @@ Attax.Console selfplayloggen [options]
 | `--temp` | `double` | `1.0` | Sampling temperature ([`Temp`](Attax.Console/SelfPlayLogGenOptions.cs:21)). |
 | `--samples` | `int` | `20` | Target samples per game (0 logs only game headers/results) ([`Samples`](Attax.Console/SelfPlayLogGenOptions.cs:24)). |
 | `--aiDepth` | `int` | `3` | Search depth for self-play ([`AiDepth`](Attax.Console/SelfPlayLogGenOptions.cs:30)). |
-| `--useOrthogonalOnlyCapture` | `bool` | `false` | Use the orthogonal-only capture rule variant ([`UseOrthogonalOnlyCapture`](Attax.Console/SelfPlayLogGenOptions.cs:33)). |
 | `--useMLRootOnly` | `bool` | `false` | Use the ML evaluator on the root only ([`UseMLRootOnly`](Attax.Console/SelfPlayLogGenOptions.cs:39)). |
 | `--disableQuiescence` | `bool` | `true` | Disable quiescence search ([`DisableQuiescence`](Attax.Console/SelfPlayLogGenOptions.cs:42)). |
 | `--logGenMode` | `bool` | `true` | Enable “log generation mode” on the engine config ([`LogGenMode`](Attax.Console/SelfPlayLogGenOptions.cs:45)). |
@@ -172,7 +171,6 @@ A “good” training log set usually balances:
 | `--weakSideChance`                      | Chance one side plays “weaker”             | You want model to punish mistakes + see recovery        | You want pure best-play                         | Adds realistic mistakes; too high adds noise          | Can speed up (weaker side blunders)                        |                                            |                                 |
 | `--weakSideNodesScale`                  | How weak the weak side is (node scaling)   | You want clearer “bad moves” examples                   | You want less label noise                       | Helps diversity; too low = garbage games              | Lower scale often speeds up                                |                                            |                                 |
 | `--symmetryMode None                    | Random                                     | All`                                                    | Data augmentation via symmetries                | You want more data from same games                    | Disk/time is tight                                         | Improves generalization; `All` can be huge | `All` increases file size a lot |
-| `--useOrthogonalOnlyCapture`            | Rule variant toggle                        | Only if training that variant                           | Otherwise keep off                              | Must match target ruleset                             | None/slight                                                |                                            |                                 |
 | `--useMLRootOnly`                       | ML eval only on root                       | If you want faster search with ML guidance only at root | If you rely heavily on ML in tree               | Can trade strength for speed                          | Can speed up noticeably                                    |                                            |                                 |
 | `--logGenMode`                          | “log generation mode” engine config        | Keep enabled for dataset creation                       | Disable only for comparisons                    | Usually ensures consistent sampling/logging behavior  | Depends on engine                                          |                                            |                                 |
 | `--debugInit`                           | Extra debug print                          | Debugging only                                          | Normal runs                                     | No training value                                     | Negligible                                                 |                                            |                                 |
@@ -244,7 +242,6 @@ Attax.Console modelarena [options]
 | `--games` | `int` | `100` | Number of arena games (sides swap halfway through) ([`Games`](Attax.Console/ModelArenaOptions.cs:12), swap logic in [`RunModelArena()`](Attax.Console/Program.cs:737)). |
 | `--ort` | `Cpu\|Cuda` | `Cpu` | ONNX Runtime provider used when a model path is provided ([`Ort`](Attax.Console/ModelArenaOptions.cs:15)). |
 | `--aiDepth` | `int` | `3` | Search depth used for both players ([`AiDepth`](Attax.Console/ModelArenaOptions.cs:18)). |
-| `--useOrthogonalOnlyCapture` | `bool` | `false` | Use orthogonal-only capture rule ([`UseOrthogonalOnlyCapture`](Attax.Console/ModelArenaOptions.cs:21)). |
 | `--useMLRootOnly` | `bool` | `false` | Use ML evaluator on root only ([`UseMLRootOnly`](Attax.Console/ModelArenaOptions.cs:24)). |
 | `--disableQuiescence` | `bool?` | `null` (auto) | If provided, forces quiescence on/off. If omitted (default `null`), resolves to `true` when either model is not `heuristic`, otherwise `false` (see [`disableQuiescence`](Attax.Console/Program.cs:713)). |
 
@@ -360,7 +357,6 @@ Parsed in [`parse_args()`](train.py:509) and passed into [`train()`](train.py:73
 | `--overfit-n` | `int` | `0` | Overfit sanity mode (train on the first N samples only) (see [`materialize_first_n()`](train.py:418)). |
 | `--strict-metadata` | `0\|1` | `1` | Strict metadata checks when reading logs ([`strict_metadata`](train.py:592)). |
 | `--skip-bad-games` | `0\|1` | `0` | If non-strict, skip mismatched samples/games instead of failing ([`skip_bad_games`](train.py:599)). |
-| `--expected-orth-capture` | `0\|1` | `None` (falls back to `0`) | Expected capture-rule bit; if omitted (default `None`), falls back to `0` (see argument definition in [`parse_args()`](train.py:607) and checks in [`_iter_file_samples()`](train.py:104)). |
 
 ### Example commands
 
@@ -390,9 +386,9 @@ py -3.11 -m train --device auto --overfit-n 5000 --val-fraction 0
 
 The log writer is [`BinaryTrainingLogSink`](Attax.Console/BinaryTrainingLogSink.cs:9). The validator is [`BinaryTrainingLogReader`](Attax.Console/BinaryTrainingLogReader.cs:6). The Python reader mirrors the same format in [`AtaxxStreamingDataset._iter_file_samples()`](train.py:104).
 
-#### File header (v1)
+#### File header (v2)
 
-v1 logs start with a **6-byte** header:
+v2 logs start with a **6-byte** header:
 
 - Magic: 4 bytes, ASCII `ATLG` (writer constant: [`FileMagic`](Attax.Console/BinaryTrainingLogSink.cs:10))
 - Version: `ushort` (writer constant: [`FormatVersion`](Attax.Console/BinaryTrainingLogSink.cs:11))
@@ -403,17 +399,17 @@ After the file header, the stream is a sequence of records. Each record starts w
 
 | Type byte | Record | Payload |
 | --- | --- | --- |
-| `1` | GameHeader | `uint gameId`, `ulong seed`, `byte ruleFlags`, `byte boardSize` (see [`WriteGameHeader()`](Attax.Console/BinaryTrainingLogSink.cs:160)) |
+| `1` | GameHeader | `uint gameId`, `ulong seed`, `byte boardSize` (see [`WriteGameHeader()`](Attax.Console/BinaryTrainingLogSink.cs:160)) |
 | `2` | CompressedSampleBlock | `int count`, `int uncompressedSize`, `int compressedSize`, `uint crc32`, followed by LZ4 payload (see [`FlushBuffer()`](Attax.Console/BinaryTrainingLogSink.cs:175)) |
 | `3` | GameResult | `uint gameId`, `sbyte resultFromRedPov`, `ushort totalPlies` (see [`WriteGameResult()`](Attax.Console/BinaryTrainingLogSink.cs:168)) |
 
-Each decompressed sample in a CompressedSampleBlock is a fixed-size 32-byte struct (mirrored by [`SAMPLE_DTYPE`](train.py:28)):
+Each decompressed sample in a CompressedSampleBlock is a fixed-size 35-byte struct (mirrored by [`SAMPLE_DTYPE`](train.py:28)):
 
 - `uint gid`
 - `ushort ply`
 - `ulong red`, `ulong blue`, `ulong blocked`
 - `byte side` (`0` = red, `1` = blue)
-- `byte rules` (currently uses bit 0 for the orthogonal-only capture flag)
+- `float reserved` (always written as `0` and ignored by the trainer; training targets are derived from the game's `GameResult`)
 
 ### ONNX model (`.onnx`)
 
@@ -455,5 +451,6 @@ The console app targets `net8.0` (see [`Attax.Console/Attax.Console.csproj`](Att
 ### Log writing and merging
 
 - Do **not** run multiple writers to the same `--out` path: [`BinaryTrainingLogSink`](Attax.Console/BinaryTrainingLogSink.cs:9) opens the file with `FileShare.Read` and assumes a single writer.
-- When merging v1 `.bin` logs, do not concatenate multiple full files including multiple v1 headers. Keep one file’s 6-byte header and append the other file(s) starting after their headers (header handling is in [`InitializeOrValidateFileHeader()`](Attax.Console/BinaryTrainingLogSink.cs:132) and format detection in [`DetectFormat()`](Attax.Console/BinaryTrainingLogReader.cs:147)).
+- Only v2 logs are supported. The C# validator and the Python trainer reject any other version (including v1 files written before the orthogonal-capture variant was removed), so regenerate old logs instead of merging them.
+- When merging v2 `.bin` logs, do not concatenate multiple full files including multiple v2 headers. Keep one file’s 6-byte header and append the other file(s) starting after their headers (header handling is in [`InitializeOrValidateFileHeader()`](Attax.Console/BinaryTrainingLogSink.cs:132) and format detection in [`DetectFormat()`](Attax.Console/BinaryTrainingLogReader.cs:147)).
 - After merging, run `validate-log` to confirm structure and checksums.

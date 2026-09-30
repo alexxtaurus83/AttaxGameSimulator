@@ -5,7 +5,7 @@ using System.IO;
 namespace Attax.Console {
     public sealed class BinaryTrainingLogReader {
         private const uint FileMagic = 0x474C5441; // "ATLG"
-        private const ushort CurrentFormatVersion = 1;
+        private const ushort CurrentFormatVersion = 2;
 
         private readonly bool _strictGameCompleteness;
 
@@ -53,7 +53,6 @@ namespace Attax.Console {
 
                         reader.ReadUInt32(); // gameId
                         reader.ReadUInt64(); // seed
-                        reader.ReadByte();   // ruleFlags
                         reader.ReadByte();   // boardSize
 
                         if (_strictGameCompleteness) {

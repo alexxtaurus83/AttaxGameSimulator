@@ -78,8 +78,8 @@ namespace Attax.Console {
 
         static void PrintUsage() {
             System.Console.WriteLine("Usage:");
-            System.Console.WriteLine("  Attax.Console selfplayloggen --games <N> --seed <S> --out <path> --nodeBudget <N> --topK <K> --temp <T> --samples <S> [--aiDepth <1..12>] [--useOrthogonalOnlyCapture true|false] [--useMLRootOnly true|false] [--disableQuiescence true|false] [--epsilonStart <D>] [--epsilonMid <D>] [--epsilonLate <D>] [--epsilonPly1 <N>] [--epsilonPly2 <N>] [--nodesMin <N>] [--nodesMax <N>] [--topKSet <csv>] [--tempSet <csv>] [--profileMode fixed|random] [--weakSideChance <D>] [--weakSideNodesScale <D>] [--symmetryMode none|random|all] [--logGenMode true|false]");
-            System.Console.WriteLine("  Attax.Console modelarena --model1 <path|heuristic> --model2 <path|heuristic> --games <N> [--ort cpu|cuda] [--aiDepthM1 <1..12>] [--aiDepthM2 <1..12>] [--maxNodes <N>] [--maxNodesM1 <N>] [--maxNodesM2 <N>] [--useOrthogonalOnlyCapture true|false] [--useMLRootOnly true|false] [--arenaTemp <D>] [--arenaTopK <N>] [--arenaOpeningPlies <N>] [--runGamesInParallel auto|true|false]");
+            System.Console.WriteLine("  Attax.Console selfplayloggen --games <N> --seed <S> --out <path> --nodeBudget <N> --topK <K> --temp <T> --samples <S> [--aiDepth <1..12>] [--useMLRootOnly true|false] [--disableQuiescence true|false] [--epsilonStart <D>] [--epsilonMid <D>] [--epsilonLate <D>] [--epsilonPly1 <N>] [--epsilonPly2 <N>] [--nodesMin <N>] [--nodesMax <N>] [--topKSet <csv>] [--tempSet <csv>] [--profileMode fixed|random] [--weakSideChance <D>] [--weakSideNodesScale <D>] [--symmetryMode none|random|all] [--logGenMode true|false]");
+            System.Console.WriteLine("  Attax.Console modelarena --model1 <path|heuristic> --model2 <path|heuristic> --games <N> [--ort cpu|cuda] [--aiDepthM1 <1..12>] [--aiDepthM2 <1..12>] [--maxNodes <N>] [--maxNodesM1 <N>] [--maxNodesM2 <N>] [--useMLRootOnly true|false] [--arenaTemp <D>] [--arenaTopK <N>] [--arenaOpeningPlies <N>] [--runGamesInParallel auto|true|false]");
             System.Console.WriteLine("  Attax.Console mirror-test [--model <path|heuristic>] [--ort cpu|cuda] [--side red|blue]");
             System.Console.WriteLine("  Attax.Console validate-log --path <path> [--strict true|false]");
             System.Console.WriteLine("  Attax.Console validate-hash [--games <N>] [--seed <S>] [--moves <N>] [--strict true|false]");
@@ -99,7 +99,6 @@ namespace Attax.Console {
             int samplesPerGame = opts.SamplesPerGame ?? opts.Samples;
 
             int aiDepth = opts.AiDepth;
-            bool useOrthogonalOnlyCapture = opts.UseOrthogonalOnlyCapture;
             bool debugInit = opts.DebugInit;
             bool useMLRootOnly = opts.UseMLRootOnly;
             bool disableQuiescence = opts.DisableQuiescence;
@@ -169,14 +168,14 @@ namespace Attax.Console {
             object logLock = new object();
 
             System.Console.WriteLine(
-                $"Starting SelfPlayLogGen: Games={games}, Seed={seed}, Out={outPath}, ProfileMode={profileMode}, Nodes=[{nodesMin},{nodesMax}], TopKSet={string.Join(",", topKSet)}, TempSet={string.Join(",", tempSet.Select(v => v.ToString("0.###", CultureInfo.InvariantCulture)))}, Epsilon=[{epsilonStart:0.###},{epsilonMid:0.###},{epsilonLate:0.###}]@Ply[{epsilonPly1},{epsilonPly2}], WeakSideChance={weakSideChance:0.###}, WeakSideNodesScale={weakSideNodesScale:0.###}, SymmetryMode={symmetryMode}, SamplesPerGame={samplesPerGame}, AiDepth={aiDepth}, LogGenMode={(logGenMode ? 1 : 0)}, UseOrthogonalOnlyCapture={(useOrthogonalOnlyCapture ? 1 : 0)}, UseMLRootOnly={(useMLRootOnly ? 1 : 0)}, DisableQuiescenceSearch={(disableQuiescence ? 1 : 0)}, DebugInit={(debugInit ? 1 : 0)}");
+                $"Starting SelfPlayLogGen: Games={games}, Seed={seed}, Out={outPath}, ProfileMode={profileMode}, Nodes=[{nodesMin},{nodesMax}], TopKSet={string.Join(",", topKSet)}, TempSet={string.Join(",", tempSet.Select(v => v.ToString("0.###", CultureInfo.InvariantCulture)))}, Epsilon=[{epsilonStart:0.###},{epsilonMid:0.###},{epsilonLate:0.###}]@Ply[{epsilonPly1},{epsilonPly2}], WeakSideChance={weakSideChance:0.###}, WeakSideNodesScale={weakSideNodesScale:0.###}, SymmetryMode={symmetryMode}, SamplesPerGame={samplesPerGame}, AiDepth={aiDepth}, LogGenMode={(logGenMode ? 1 : 0)}, UseMLRootOnly={(useMLRootOnly ? 1 : 0)}, DisableQuiescenceSearch={(disableQuiescence ? 1 : 0)}, DebugInit={(debugInit ? 1 : 0)}");
 
             // Red and Blue engines share an identical static config (only the per-engine seed and the
             // per-game profile node budget / topK / temp / weak-side scaling differ at runtime).
             string selfPlayPlayerConfig =
                 $"evaluator=heuristic, aiDepth={aiDepth}, trainingMode=1, useMLRootOnly={(useMLRootOnly ? 1 : 0)}, "
                 + $"disableQuiescence={(disableQuiescence ? 1 : 0)}, disableParallelRootSearch=1, timeManagement=0, "
-                + $"useOrthogonalOnlyCapture={(useOrthogonalOnlyCapture ? 1 : 0)}, logGenMode={(logGenMode ? 1 : 0)}";
+                + $"logGenMode={(logGenMode ? 1 : 0)}";
             System.Console.WriteLine($"[selfplay-config] Red : {selfPlayPlayerConfig}");
             System.Console.WriteLine($"[selfplay-config] Blue: {selfPlayPlayerConfig}");
 
@@ -208,7 +207,6 @@ namespace Attax.Console {
                         UseTimeManagement = false,
                         Seed = redSeed,
                         AiDepth = aiDepth,
-                        UseOrthogonalOnlyCapture = useOrthogonalOnlyCapture,
                         TrainingMode = true,
                         UseMLRootOnly = useMLRootOnly,
                         DisableQuiescenceSearch = disableQuiescence,
@@ -220,7 +218,6 @@ namespace Attax.Console {
                         UseTimeManagement = false,
                         Seed = blueSeed,
                         AiDepth = aiDepth,
-                        UseOrthogonalOnlyCapture = useOrthogonalOnlyCapture,
                         TrainingMode = true,
                         UseMLRootOnly = useMLRootOnly,
                         DisableQuiescenceSearch = disableQuiescence,
@@ -375,10 +372,8 @@ namespace Attax.Console {
                         }
                     }
 
-                    byte ruleFlags = (byte)(useOrthogonalOnlyCapture ? 0b_0000_0001 : 0);
-
                     lock (logLock) {
-                        logSink.LogGameStart(gameId, (ulong)gameSeed, ruleFlags, 7);
+                        logSink.LogGameStart(gameId, (ulong)gameSeed, 7);
                         foreach (var pos in sampleLogPositions) {
                             logSink.LogPosition(gameId, pos.ply, pos.board, pos.side);
                         }
@@ -764,7 +759,6 @@ namespace Attax.Console {
             int? maxNodesM1 = rawM1 == 0 ? (int?)null : rawM1;
             int? maxNodesM2 = rawM2 == 0 ? (int?)null : rawM2;
 
-            bool useOrthogonalOnlyCapture = opts.UseOrthogonalOnlyCapture;
             bool useMLRootOnly = opts.UseMLRootOnly;
             bool isModel1 = !model1Path.Equals("heuristic", StringComparison.OrdinalIgnoreCase);
             bool isModel2 = !model2Path.Equals("heuristic", StringComparison.OrdinalIgnoreCase);
@@ -822,7 +816,7 @@ namespace Attax.Console {
             string DescribePlayer(string path, bool isModel, bool disableQ, int depth, int? nodes) =>
                 $"evaluator={(isModel ? "onnx" : "heuristic")} ({path}), aiDepth={depth}, maxNodes={FormatNodes(nodes)}, "
                 + $"useMLRootOnly={(useMLRootOnly ? 1 : 0)}, disableQuiescence={(disableQ ? 1 : 0)}{(isModel && disableQ ? " (model)" : !isModel && disableQ ? " (flag)" : " (quiescence ON)")}, "
-                + $"useOrthogonalOnlyCapture={(useOrthogonalOnlyCapture ? 1 : 0)}, rootParallel={(engineRootParallel ? 1 : 0)}, "
+                + $"rootParallel={(engineRootParallel ? 1 : 0)}, "
                 + $"temp={(isModel && bothModels ? arenaTemp.ToString("0.###") : "0 (n/a)")}, topK={(isModel && bothModels ? arenaTopK.ToString() : "1 (n/a)")}, timeManagement=0";
             System.Console.WriteLine($"[arena-config] Model1: {DescribePlayer(model1Path, isModel1, disableQ1, model1Depth, maxNodesM1)}");
             System.Console.WriteLine($"[arena-config] Model2: {DescribePlayer(model2Path, isModel2, disableQ2, model2Depth, maxNodesM2)}");
@@ -868,7 +862,7 @@ namespace Attax.Console {
                 var warmEval = !model1Path.Equals("heuristic", StringComparison.OrdinalIgnoreCase) ? eval1 : eval2;
                 var warmBoard = CreateStandardInitialBoard();
                 var warmSw = Stopwatch.StartNew();
-                float warmVal = warmEval.Evaluate(warmBoard, AtaxxAIEngine.PlayerColor.Red, 0);
+                float warmVal = warmEval.Evaluate(warmBoard, AtaxxAIEngine.PlayerColor.Red);
                 warmSw.Stop();
                 System.Console.WriteLine($"[gpu-diag] warmup inference ok: value={warmVal:0.000}, time={warmSw.Elapsed.TotalMilliseconds:0.0} ms (provider={ortProvider})");
             }
@@ -902,7 +896,6 @@ namespace Attax.Console {
                 var config1 = new AtaxxAIEngine.AIEngineConfig {
                     UseTimeManagement = false,
                     AiDepth = p1Depth,
-                    UseOrthogonalOnlyCapture = useOrthogonalOnlyCapture,
                     Seed = i,
                     UseMLRootOnly = useMLRootOnly,
                     DisableQuiescenceSearch = p1DisableQ,
@@ -912,7 +905,6 @@ namespace Attax.Console {
                 var config2 = new AtaxxAIEngine.AIEngineConfig {
                     UseTimeManagement = false,
                     AiDepth = p2Depth,
-                    UseOrthogonalOnlyCapture = useOrthogonalOnlyCapture,
                     Seed = i,
                     UseMLRootOnly = useMLRootOnly,
                     DisableQuiescenceSearch = p2DisableQ,
@@ -1120,8 +1112,8 @@ namespace Attax.Console {
                 var board = CreateDeterministicMirrorTestBoard();
                 var mirrored = MirrorHorizontal(board);
 
-                float originalValue = evaluator.Evaluate(board, sideToMove, 0);
-                float mirroredValue = evaluator.Evaluate(mirrored, sideToMove, 0);
+                float originalValue = evaluator.Evaluate(board, sideToMove);
+                float mirroredValue = evaluator.Evaluate(mirrored, sideToMove);
 
                 bool originalFinite = !(float.IsNaN(originalValue) || float.IsInfinity(originalValue));
                 bool mirroredFinite = !(float.IsNaN(mirroredValue) || float.IsInfinity(mirroredValue));

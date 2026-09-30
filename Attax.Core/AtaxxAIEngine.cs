@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
@@ -20,7 +20,7 @@ namespace Attax.Core {
         #region Configurables
         public ILogSink ataxxLogger;
         public AtaxxThreadHelper ataxxHelper { get; set; }
-        public bool useOrthogonalOnlyCapture { get; set; }
+
         public int aiDepth { get; set; }
         public AILogCoordinator logCoordinator { get; set; }
 
@@ -111,7 +111,7 @@ namespace Attax.Core {
             public int TimeManagedExtraDepth;
             public long SearchTimeLimitMs;
             public int? Seed;
-            public bool UseOrthogonalOnlyCapture;
+
             public int AiDepth;
             public bool TrainingMode;
             public bool UseMLEvaluation;
@@ -151,7 +151,7 @@ namespace Attax.Core {
             this.TimeManagedExtraDepth = config.TimeManagedExtraDepth;
             this.SearchTimeLimitMs = config.SearchTimeLimitMs;
             this.seed = config.Seed;
-            this.useOrthogonalOnlyCapture = config.UseOrthogonalOnlyCapture;
+
             this.aiDepth = config.AiDepth;
             this.trainingMode = config.TrainingMode;
             this.evaluationScale = config.EvaluationScale != 0 ? config.EvaluationScale : DefaultEvaluationScale;
@@ -409,9 +409,7 @@ namespace Attax.Core {
 
             // Select the correct attack mask based on the capture rule.
             // We reuse SingleStepMoves for standard 8-directional captures.
-            ulong attackMask = useOrthogonalOnlyCapture
-                ? BoardLookup.OrthogonalStepMoves[toIndex]
-                : BoardLookup.SingleStepMoves[toIndex];
+            ulong attackMask = BoardLookup.SingleStepMoves[toIndex];
 
             // Find the opponent's pieces that are in the attack mask area.
             ulong flippedPieces = opponentPieces & attackMask;
@@ -650,7 +648,7 @@ namespace Attax.Core {
                                     rootBoards.Add(boardAfterMove);
                                 }
 
-                                var batchScores = batchEvaluator.EvaluateBatch(rootBoards, SwitchPlayer(player), 0);
+                                var batchScores = batchEvaluator.EvaluateBatch(rootBoards, SwitchPlayer(player));
                                 if (batchScores != null && batchScores.Length == allMoves.Count) {
                                     rootBatchScores = batchScores;
                                     helper.Evals += rootBatchScores.Length;
@@ -952,7 +950,7 @@ namespace Attax.Core {
                     };
 
                     if (!logCoordinator.GlobalLog.TryGetValue(logCoordinator.TurnIndex, out TurnLog currentTurn)) {
-                        currentTurn = new TurnLog(useOrthogonalOnlyCapture);
+                        currentTurn = new TurnLog();
                         logCoordinator.GlobalLog[logCoordinator.TurnIndex] = currentTurn;
                     }
 
@@ -1143,7 +1141,7 @@ namespace Attax.Core {
             playerPieces |= toMask;
             boardState.ZobristHash ^= ZobristHasher.GetPieceKey(move.ToX, move.ToY, GetPieceTypeIndex(player));
 
-            ulong attackMask = useOrthogonalOnlyCapture ? BoardLookup.OrthogonalStepMoves[toIndex] : BoardLookup.SingleStepMoves[toIndex];
+            ulong attackMask = BoardLookup.SingleStepMoves[toIndex];
             ulong flippedPieces = opponentPieces & attackMask;
             undoInfo.FlippedPiecesMask = flippedPieces;
 
@@ -1211,7 +1209,7 @@ namespace Attax.Core {
 
                 // Handle all captures at once.
                 // Select the correct attack mask based on the capture rule.
-                ulong attackMask = useOrthogonalOnlyCapture ? BoardLookup.OrthogonalStepMoves[toIndex] : BoardLookup.SingleStepMoves[toIndex];
+                ulong attackMask = BoardLookup.SingleStepMoves[toIndex];
 
                 // Find all opponent pieces to be flipped in a single operation.
                 ulong flippedPieces = opponentPieces & attackMask;
@@ -1259,7 +1257,7 @@ namespace Attax.Core {
 
             // Handle captures
             int toIndex = GetBitIndex(move.ToX, move.ToY);
-            ulong attackMask = useOrthogonalOnlyCapture ? BoardLookup.OrthogonalStepMoves[toIndex] : BoardLookup.SingleStepMoves[toIndex];
+            ulong attackMask = BoardLookup.SingleStepMoves[toIndex];
 
             // We must re-calculate flippedPieces here to know which hash keys to flip
             ref ulong opponentPieces = ref (player == PlayerColor.Red ? ref boardState.BluePieces : ref boardState.RedPieces);
@@ -1308,7 +1306,7 @@ namespace Attax.Core {
         private int Evaluate(BitboardState board, PlayerColor player, AtaxxThreadHelper helper = null) {
             if (helper != null) helper.Evals++;
             // Use root-only heuristic evaluator in search when configured.
-            return (int)(searchEvaluator.Evaluate(board, player, 0) * evaluationScale);
+            return (int)(searchEvaluator.Evaluate(board, player) * evaluationScale);
         }
 
         // Quiescence search using negamax. Uses per-ply buffers — zero GC allocation.
@@ -1359,7 +1357,7 @@ namespace Attax.Core {
         private bool IsCaptureMove(BitboardState boardState, Move move, PlayerColor player) {
             ulong opponentPieces = (player == PlayerColor.Red) ? boardState.BluePieces : boardState.RedPieces;
             int toIndex = GetBitIndex(move.ToX, move.ToY);
-            ulong attackMask = useOrthogonalOnlyCapture ? BoardLookup.OrthogonalStepMoves[toIndex] : BoardLookup.SingleStepMoves[toIndex];
+            ulong attackMask = BoardLookup.SingleStepMoves[toIndex];
             return (attackMask & opponentPieces) != 0;
         }
 
@@ -1370,7 +1368,7 @@ namespace Attax.Core {
         private ulong GetMoveDestinationsBitboard(BitboardState board, PlayerColor player)
             => BitboardFeatures.GetMoveDestinationsBitboard(board, player);
         private static int TrailingZeroCount(ulong value) => BitboardOps.TrailingZeroCount(value);
-        public bool IsOrthogonal(int x1, int y1, int x2, int y2) => (x1 == x2 && Math.Abs(y1 - y2) == 1) || (y1 == y2 && Math.Abs(x1 - x2) == 1);
+
         public bool IsAdjacent(int x1, int y1, int x2, int y2) => Math.Abs(x1 - x2) <= 1 && Math.Abs(y1 - y2) <= 1 && !(x1 == x2 && y1 == y2);
         public static PlayerColor SwitchPlayer(PlayerColor current) => current == AtaxxAIEngine.PlayerColor.Red ? AtaxxAIEngine.PlayerColor.Blue : current == AtaxxAIEngine.PlayerColor.Blue ? AtaxxAIEngine.PlayerColor.Red : AtaxxAIEngine.PlayerColor.None;
 
@@ -1586,7 +1584,7 @@ namespace Attax.Core {
             ulong validDestinations = allDestinations & emptySquares;
             while (validDestinations > 0) {
                 int toIndex = TrailingZeroCount(validDestinations);
-                ulong attackMask = useOrthogonalOnlyCapture ? BoardLookup.OrthogonalStepMoves[toIndex] : BoardLookup.SingleStepMoves[toIndex];
+                ulong attackMask = BoardLookup.SingleStepMoves[toIndex];
                 
                 int flips = PopCount(originalPlayerPieces & attackMask);
                 if (flips > maxFlip) {
@@ -1603,7 +1601,7 @@ namespace Attax.Core {
 
 
         public void Dispose() {
-            _parallelHelpers = null; // release 32 MB × N LOH TT arrays back to GC
+            _parallelHelpers = null; // release 32 MB x N LOH TT arrays back to GC
             if (searchEvaluator != null && !ReferenceEquals(searchEvaluator, evaluator) && searchEvaluator is IDisposable disposableSearchEvaluator) {
                 disposableSearchEvaluator.Dispose();
             }

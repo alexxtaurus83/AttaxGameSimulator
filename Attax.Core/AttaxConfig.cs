@@ -40,7 +40,7 @@ namespace Attax.Core {
             public string Magic { get; set; } = "ATLG";
 
             [JsonProperty("version")]
-            public int Version { get; set; } = 1;
+            public int Version { get; set; } = 2;
 
             [JsonProperty("sideEncoding")]
             public SideEncodingConfig SideEncoding { get; set; } = new SideEncodingConfig();
@@ -88,8 +88,8 @@ namespace Attax.Core {
                 throw new InvalidOperationException("Config model.inputChannels must be 4 for current feature encoder.");
             }
 
-            if (config.LogFormat.Version != 1 || !string.Equals(config.LogFormat.Magic, "ATLG", StringComparison.Ordinal)) {
-                throw new InvalidOperationException("Config logFormat must use magic='ATLG' and version=1.");
+            if (config.LogFormat.Version != 2 || !string.Equals(config.LogFormat.Magic, "ATLG", StringComparison.Ordinal)) {
+                throw new InvalidOperationException("Config logFormat must use magic='ATLG' and version=2.");
             }
         }
     }
