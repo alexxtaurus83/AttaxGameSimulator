@@ -72,8 +72,8 @@ namespace Attax.Core.Tests {
             off.GetBestMove(PlayerColor.Red);
             long offNodes = off.LastSearchStats.Nodes;
 
-            var cfg = new AIEngineConfig { AiDepth = 3, TrainingMode = true, DisableParallelRootSearch = true, DisableQuiescenceSearch = true, Seed = 1, IterativeDeepeningInTraining = true };
-            var on = new AtaxxAIEngine(new HeuristicEvaluator(), null, null, cfg);
+            var cfg = new AIEngineConfig { DisableRandomRootTies = true, AiDepth = 3, TrainingMode = true, DisableParallelRootSearch = true, DisableQuiescenceSearch = true, Seed = 1, IterativeDeepeningInTraining = true };
+            var on = new AtaxxAIEngine(Prm.Base(), cfg);
             TestBoards.SetBoard(on, Midgame(), PlayerColor.Red);
             on.AIPlayerColor = PlayerColor.Red;
             on.GetBestMove(PlayerColor.Red);

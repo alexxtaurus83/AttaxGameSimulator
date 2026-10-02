@@ -1,3 +1,5 @@
+This is not true. Bug fixed. need to test:
+
 AI search depth is capped at 3 (by design)
 The CPU opponent uses fixed‑depth alpha‑beta search with a hand‑crafted heuristic evaluation. Counter‑intuitively, depth 3 plays the strongest — depth 4, 5, and 6 play progressively worse, not better. We cap aiDepth at 3 deliberately.
 

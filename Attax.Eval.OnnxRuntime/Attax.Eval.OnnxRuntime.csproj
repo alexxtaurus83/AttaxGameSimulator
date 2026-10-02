@@ -1,21 +1,19 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <TargetFramework>net9.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <UseOnnxGpu>true</UseOnnxGpu>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Attax.Core\Attax.Core.csproj" />
+    <ProjectReference Include="..\Attax.Model\Attax.Model.csproj" />
   </ItemGroup>
 
-  <ItemGroup Condition="'$(UseOnnxGpu)' == 'true'">
-    <PackageReference Include="Microsoft.ML.OnnxRuntime.Gpu" Version="1.26.0" />
-  </ItemGroup>
-
-  <ItemGroup Condition="'$(UseOnnxGpu)' != 'true'">
+  <ItemGroup>
+    <!-- CPU build only: see OnnxPolicyValueModel. The GPU package (Microsoft.ML.OnnxRuntime.Gpu) ships CUDA provider DLLs
+         that were never used and made the published folder much larger. -->
     <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.26.0" />
   </ItemGroup>
 

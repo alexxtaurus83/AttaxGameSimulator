@@ -50,8 +50,8 @@ namespace Attax.Core.Tests {
         }
 
         private static AtaxxAIEngine Make(int seed) {
-            var cfg = new AIEngineConfig { AiDepth = 3, TrainingMode = true, DisableParallelRootSearch = true, DisableQuiescenceSearch = true, Seed = seed };
-            return new AtaxxAIEngine(new HeuristicEvaluator(), null, null, cfg);
+            var cfg = new AIEngineConfig { DisableRandomRootTies = true, AiDepth = 3, TrainingMode = true, DisableParallelRootSearch = true, DisableQuiescenceSearch = true, Seed = seed };
+            return new AtaxxAIEngine(Prm.Base(), cfg);
         }
     }
 }

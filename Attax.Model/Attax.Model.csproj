@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Everything that only training / log generation / evaluation needs: the policy action space, the model input encoding,
+       the model contract and its two consumers. Not part of the game: Unity never copies this project, and Attax.Core does
+       not reference it. -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <RootNamespace>Attax.Model</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Attax.Core\Attax.Core.csproj" />
+  </ItemGroup>
+
+</Project>

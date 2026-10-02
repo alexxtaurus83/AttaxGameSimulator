@@ -1,1020 +1,297 @@
-import argparse
-import glob
-import json
-import os
-import random
-import struct
-import time
-import zlib
-from dataclasses import dataclass
+"""Train the two-headed Ataxx policy/value network from v3 logs and export a versioned ONNX artifact.
 
-import lz4.block
+    python train.py --data logs/ --out models/gen1 --epochs 20
+
+Outputs in --out:
+    model.onnx        contract attax-pv-1 (inputs: board; outputs: policy_logits, value), validated against torch
+    checkpoint.pt     resumable state (model, optimizer, epoch, RNG, config); used by --resume and --init-from
+    report.json       data statistics, per-epoch losses/metrics, timings, artifact hash
+Nothing is overwritten silently: a non-empty --out is refused unless --resume or --overwrite is given.
+"""
+
+import argparse
+import json
+import math
+import os
+import shutil
+import time
+
 import numpy as np
 import torch
-import torch.nn as nn
-import torch.optim as optim
-from torch.utils.data import DataLoader, IterableDataset, TensorDataset, get_worker_info
 
-# --- Configuration ---
-BATCH_SIZE = 1024
-LEARNING_RATE = 0.001
-EPOCHS = 10
-BOARD_SIZE = 7
-INPUT_CHANNELS = 4  # Friendly, Enemy, Blocked, Constant
-MODEL_PATH = "ataxx_value.onnx"
-DATA_DIR = "."  # Directory containing .bin files
-
-SAMPLE_SIZE = 35
-SAMPLE_DTYPE = np.dtype(
-    [
-        ("gid", "<u4"),
-        ("ply", "<u2"),
-        ("red", "<u8"),
-        ("blue", "<u8"),
-        ("blocked", "<u8"),
-        ("side", "u1"),
-        ("reserved", "<f4"),  # v2: always 0, ignored; training targets come from GameResult
-    ]
-)
-
-# Precompute bit positions/masks for vectorized conversion.
-BIT_POSITIONS = np.arange(BOARD_SIZE * BOARD_SIZE, dtype=np.uint64)
-BIT_MASKS = (np.uint64(1) << BIT_POSITIONS)[None, :]
-
-
-def bitboards_to_numpy_batch(red, blue, blocked, side):
-    """Convert bitboards to model input array with shape [N, 4, 7, 7]."""
-    side = side.astype(np.uint8, copy=False)
-    friendly = np.where(side == 0, red, blue).astype(np.uint64, copy=False)
-    enemy = np.where(side == 0, blue, red).astype(np.uint64, copy=False)
-    blocked = blocked.astype(np.uint64, copy=False)
-
-    f_plane = ((friendly[:, None] & BIT_MASKS) != 0).astype(np.float32).reshape(-1, BOARD_SIZE, BOARD_SIZE)
-    e_plane = ((enemy[:, None] & BIT_MASKS) != 0).astype(np.float32).reshape(-1, BOARD_SIZE, BOARD_SIZE)
-    b_plane = ((blocked[:, None] & BIT_MASKS) != 0).astype(np.float32).reshape(-1, BOARD_SIZE, BOARD_SIZE)
-    c_plane = np.ones_like(f_plane, dtype=np.float32)
-
-    return np.stack([f_plane, e_plane, b_plane, c_plane], axis=1)
-
-
-def game_in_validation_split(game_id, val_fraction):
-    if val_fraction <= 0.0:
-        return False
-    if val_fraction >= 1.0:
-        return True
-
-    # Deterministic game-id based split.
-    gid_bytes = struct.pack("<I", game_id)
-    h = zlib.crc32(gid_bytes) & 0xFFFFFFFF
-    return (h / 4294967296.0) < val_fraction
-
-
-@dataclass
-class TrainerConfig:
-    board_size: int = BOARD_SIZE
-
-
-class AtaxxStreamingDataset(IterableDataset):
-    """Stream batches from binary training logs with vectorized parsing and expansion."""
-
-    def __init__(
-        self,
-        file_paths,
-        split="train",
-        val_fraction=0.05,
-        batch_size=BATCH_SIZE,
-        strict_metadata=True,
-        skip_bad_games=False,
-        trainer_config=None,
-        shuffle_buffer=0,
-    ):
-        super().__init__()
-        self.file_paths = list(file_paths)
-        self.split = split
-        self.val_fraction = float(val_fraction)
-        self.batch_size = max(1, int(batch_size))
-        self.strict_metadata = bool(strict_metadata)
-        self.skip_bad_games = bool(skip_bad_games)
-        self.trainer_config = trainer_config if trainer_config is not None else TrainerConfig()
-        self.shuffle_buffer = max(0, int(shuffle_buffer))
-
-    def _iter_file_samples(self, path):
-        # game_id -> list[np.ndarray[SAMPLE_DTYPE]]
-        file_samples = {}
-        # game_id -> board_size
-        game_headers = {}
-
-        board_bits = self.trainer_config.board_size * self.trainer_config.board_size
-        board_mask = np.uint64((1 << board_bits) - 1)
-
-        with open(path, "rb") as f:
-            # v2 header: [magic="ATLG"][version=ushort] = 6 bytes. Required.
-            maybe_magic = f.read(4)
-            if len(maybe_magic) < 4 or maybe_magic != b"ATLG":
-                raise ValueError(
-                    f"File {path} is missing the 'ATLG' header. "
-                    "Legacy v0 format is no longer supported."
-                )
-
-            version_bytes = f.read(2)
-            if len(version_bytes) != 2:
-                raise ValueError("Invalid file header: missing format version")
-
-            version = struct.unpack("<H", version_bytes)[0]
-            if version != 2:
-                raise ValueError(f"Unsupported training log format version: {version}")
-
-            while True:
-                type_byte = f.read(1)
-                if not type_byte:
-                    break
-
-                record_type = type_byte[0]
-
-                if record_type == 1:  # GameHeader
-                    # [GameId:4][Seed:8][BoardSize:1] = 13 bytes
-                    header = f.read(13)
-                    if len(header) < 13:
-                        raise ValueError("Invalid game header record: expected 13 bytes")
-
-                    game_id, _seed, board_size = struct.unpack("<IQB", header)
-                    game_headers[game_id] = board_size
-
-                    if board_size != self.trainer_config.board_size:
-                        msg = (
-                            f"Board size mismatch for game {game_id}: "
-                            f"header={board_size}, expected={self.trainer_config.board_size}"
-                        )
-                        if self.strict_metadata:
-                            raise ValueError(msg)
-                        if self.skip_bad_games:
-                            file_samples.pop(game_id, None)
-                            game_headers.pop(game_id, None)
-                    continue
-
-                if record_type == 2:  # CompressedSampleBlock
-                    header_data = f.read(16)
-                    if len(header_data) != 16:
-                        raise ValueError("Invalid compressed block header: expected 16 bytes")
-
-                    count, uncomp_size, comp_size, crc32 = struct.unpack("<IIII", header_data)
-
-                    compressed_data = f.read(comp_size)
-                    if len(compressed_data) != comp_size:
-                        raise ValueError("Invalid compressed block: unexpected end of file")
-
-                    actual_crc32 = zlib.crc32(compressed_data) & 0xFFFFFFFF
-                    expected_crc32 = crc32 & 0xFFFFFFFF
-                    if actual_crc32 != expected_crc32:
-                        raise ValueError(
-                            f"CRC32 mismatch in compressed block: expected {expected_crc32:#010x}, got {actual_crc32:#010x}"
-                        )
-
-                    raw_bytes = lz4.block.decompress(compressed_data, uncompressed_size=uncomp_size)
-                    expected_raw_size = count * SAMPLE_SIZE
-                    if len(raw_bytes) < expected_raw_size:
-                        raise ValueError(
-                            f"Invalid decompressed block size: expected at least {expected_raw_size} bytes, got {len(raw_bytes)}"
-                        )
-
-                    samples = np.frombuffer(raw_bytes, dtype=SAMPLE_DTYPE, count=count)
-                    if samples.size == 0:
-                        continue
-
-                    valid_mask = np.ones(samples.shape[0], dtype=np.bool_)
-
-                    side_ok = (samples["side"] == 0) | (samples["side"] == 1)
-                    if not np.all(side_ok):
-                        bad_idx = np.flatnonzero(~side_ok)[0]
-                        bad_gid = int(samples["gid"][bad_idx])
-                        bad_side = int(samples["side"][bad_idx])
-                        msg = f"Invalid side value {bad_side} in game {bad_gid}"
-                        if self.strict_metadata:
-                            raise ValueError(msg)
-                        if self.skip_bad_games:
-                            valid_mask &= side_ok
-
-                    red = samples["red"].astype(np.uint64, copy=False)
-                    blue = samples["blue"].astype(np.uint64, copy=False)
-                    blocked = samples["blocked"].astype(np.uint64, copy=False)
-
-                    overlap_ok = ((red & blue) == 0) & ((red & blocked) == 0) & ((blue & blocked) == 0)
-                    if not np.all(overlap_ok):
-                        bad_idx = np.flatnonzero(~overlap_ok)[0]
-                        bad_gid = int(samples["gid"][bad_idx])
-                        msg = f"Overlapping bitboards in game {bad_gid}"
-                        if self.strict_metadata:
-                            raise ValueError(msg)
-                        if self.skip_bad_games:
-                            valid_mask &= overlap_ok
-
-                    in_range_ok = (((red | blue | blocked) & ~board_mask) == 0)
-                    if not np.all(in_range_ok):
-                        bad_idx = np.flatnonzero(~in_range_ok)[0]
-                        bad_gid = int(samples["gid"][bad_idx])
-                        msg = f"Out-of-range bits found in game {bad_gid}"
-                        if self.strict_metadata:
-                            raise ValueError(msg)
-                        if self.skip_bad_games:
-                            valid_mask &= in_range_ok
-
-                    gids = samples["gid"]
-                    if gids.size > 0:
-                        for gid_u in np.unique(gids):
-                            gid = int(gid_u)
-                            if gid not in game_headers:
-                                continue
-
-                            header_board_size = game_headers[gid]
-                            gid_mask = gids == gid_u
-
-                            if header_board_size != self.trainer_config.board_size:
-                                msg = (
-                                    f"Game {gid} header board size mismatch: "
-                                    f"{header_board_size} vs expected {self.trainer_config.board_size}"
-                                )
-                                if self.strict_metadata:
-                                    raise ValueError(msg)
-                                if self.skip_bad_games:
-                                    valid_mask &= ~gid_mask
-                                continue
-
-                    if self.skip_bad_games:
-                        samples = samples[valid_mask]
-
-                    if samples.size == 0:
-                        continue
-
-                    for gid_u in np.unique(samples["gid"]):
-                        gid = int(gid_u)
-                        gid_samples = samples[samples["gid"] == gid_u]
-                        if gid_samples.size == 0:
-                            continue
-                        if gid not in file_samples:
-                            file_samples[gid] = []
-                        file_samples[gid].append(gid_samples)
-
-                        if len(file_samples) > 100:
-                            print(
-                                f"WARNING: {len(file_samples)} outstanding games in {path}. "
-                                "This suggests GameResult records are delayed or missing."
-                            )
-                    continue
-
-                if record_type == 3:  # GameResult
-                    data = f.read(7)
-                    if len(data) != 7:
-                        raise ValueError("Invalid game result record: expected 7 bytes")
-
-                    game_id, result_byte, total_plies = struct.unpack("<IbH", data)
-                    _ = total_plies
-
-                    if game_id not in file_samples:
-                        # Game had a header but no samples — valid for --samples 0 runs.
-                        game_headers.pop(game_id, None)
-                        continue
-
-                    is_val = game_in_validation_split(game_id, self.val_fraction)
-                    use_for_this_dataset = (self.split == "val" and is_val) or (
-                        self.split == "train" and not is_val
-                    )
-
-                    if use_for_this_dataset:
-                        game_chunks = file_samples[game_id]
-                        game_samples = game_chunks[0] if len(game_chunks) == 1 else np.concatenate(game_chunks, axis=0)
-
-                        x = bitboards_to_numpy_batch(
-                            game_samples["red"],
-                            game_samples["blue"],
-                            game_samples["blocked"],
-                            game_samples["side"],
-                        )
-                        final_result = np.float32(result_byte)
-                        y = np.where(game_samples["side"] == 0, final_result, -final_result).astype(np.float32).reshape(-1, 1)
-                        yield x, y
-
-                    del file_samples[game_id]
-                    game_headers.pop(game_id, None)
-                    continue
-
-                raise ValueError(f"Unknown record type byte: {record_type}")
-
-            if file_samples:
-                print(
-                    f"WARNING: {len(file_samples)} game(s) had samples but no GameResult "
-                    f"in {path} (game IDs: {sorted(file_samples.keys())[:20]}). "
-                    f"These samples were discarded."
-                )
-
-    def __iter__(self):
-        worker_info = get_worker_info()
-        if worker_info is None:
-            files = self.file_paths
-            worker_id = 0
-        else:
-            files = self.file_paths[worker_info.id :: worker_info.num_workers]
-            worker_id = int(worker_info.id)
-
-        def iter_batched_stream():
-            x_buffer = []
-            y_buffer = []
-            buffered = 0
-
-            for path in files:
-                if not os.path.exists(path):
-                    continue
-
-                for x_chunk, y_chunk in self._iter_file_samples(path):
-                    if x_chunk.size == 0:
-                        continue
-
-                    x_buffer.append(x_chunk)
-                    y_buffer.append(y_chunk)
-                    buffered += int(x_chunk.shape[0])
-
-                    while buffered >= self.batch_size:
-                        x_all = x_buffer[0] if len(x_buffer) == 1 else np.concatenate(x_buffer, axis=0)
-                        y_all = y_buffer[0] if len(y_buffer) == 1 else np.concatenate(y_buffer, axis=0)
-
-                        x_batch = x_all[: self.batch_size]
-                        y_batch = y_all[: self.batch_size]
-                        yield torch.from_numpy(x_batch), torch.from_numpy(y_batch)
-
-                        x_rem = x_all[self.batch_size :]
-                        y_rem = y_all[self.batch_size :]
-                        if x_rem.shape[0] > 0:
-                            x_buffer = [x_rem]
-                            y_buffer = [y_rem]
-                            buffered = int(x_rem.shape[0])
-                        else:
-                            x_buffer = []
-                            y_buffer = []
-                            buffered = 0
-
-            if buffered > 0:
-                x_all = x_buffer[0] if len(x_buffer) == 1 else np.concatenate(x_buffer, axis=0)
-                y_all = y_buffer[0] if len(y_buffer) == 1 else np.concatenate(y_buffer, axis=0)
-                yield torch.from_numpy(x_all), torch.from_numpy(y_all)
-
-        if self.shuffle_buffer <= 0:
-            yield from iter_batched_stream()
-            return
-
-        seed = (time.time_ns() + 0x9E3779B97F4A7C15 * (worker_id + 1)) & ((1 << 64) - 1)
-        rng = random.Random(seed)
-
-        shuffle_batches = []
-        shuffle_batch_sizes = []
-        shuffle_samples = 0
-
-        for batch in iter_batched_stream():
-            batch_size = int(batch[0].shape[0])
-            if shuffle_samples < self.shuffle_buffer:
-                shuffle_batches.append(batch)
-                shuffle_batch_sizes.append(batch_size)
-                shuffle_samples += batch_size
-                continue
-
-            i = rng.randrange(len(shuffle_batches))
-            yield shuffle_batches[i]
-            shuffle_samples -= shuffle_batch_sizes[i]
-            shuffle_batches[i] = batch
-            shuffle_batch_sizes[i] = batch_size
-            shuffle_samples += batch_size
-
-        while shuffle_batches:
-            i = rng.randrange(len(shuffle_batches))
-            yield shuffle_batches.pop(i)
-            shuffle_samples -= shuffle_batch_sizes.pop(i)
-
-
-def materialize_first_n(dataset, n):
-    """Collect first N samples from an iterable/batched dataset into a finite TensorDataset."""
-    xs = []
-    ys = []
-    collected = 0
-
-    for x_batch, y_batch in dataset:
-        if isinstance(x_batch, torch.Tensor):
-            x_np = x_batch.detach().cpu().numpy()
-        else:
-            x_np = np.asarray(x_batch)
-
-        if isinstance(y_batch, torch.Tensor):
-            y_np = y_batch.detach().cpu().numpy()
-        else:
-            y_np = np.asarray(y_batch)
-
-        take = min(int(n) - collected, int(x_np.shape[0]))
-        if take <= 0:
-            break
-
-        xs.append(np.ascontiguousarray(x_np[:take], dtype=np.float32))
-        ys.append(np.ascontiguousarray(y_np[:take], dtype=np.float32))
-        collected += take
-
-        if collected >= n:
-            break
-
-    if not xs:
-        return None
-
-    x_all = np.concatenate(xs, axis=0)
-    y_all = np.concatenate(ys, axis=0)
-    return TensorDataset(torch.from_numpy(x_all), torch.from_numpy(y_all))
-
-
-# --- Model Definition ---
-
-
-class AtaxxValueNet(nn.Module):
-    """Sentis-friendly model: No BatchNorm, uses GlobalAveragePool to reduce parameters."""
-
-    def __init__(self):
-        super(AtaxxValueNet, self).__init__()
-
-        self.conv1 = nn.Conv2d(INPUT_CHANNELS, 64, kernel_size=3, padding=1)
-        self.relu = nn.ReLU()
-
-        self.conv2 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
-        self.conv3 = nn.Conv2d(128, 128, kernel_size=3, padding=1)
-
-        # Global Average Pool: [Batch, 128, 7, 7] -> [Batch, 128, 1, 1]
-        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-
-        self.fc1 = nn.Linear(128, 64)
-        self.fc2 = nn.Linear(64, 1)
-        self.tanh = nn.Tanh()
-
-    def forward(self, x):
-        x = self.relu(self.conv1(x))
-        x = self.relu(self.conv2(x))
-        x = self.relu(self.conv3(x))
-
-        x = self.avgpool(x)
-        x = torch.flatten(x, 1)
-
-        x = self.relu(self.fc1(x))
-        x = self.tanh(self.fc2(x))
-        return x
-
-
-# --- Training Loop ---
-
-
-def load_trainer_config(config_path="attax.config.json"):
-    cfg = TrainerConfig()
-
-    if not os.path.exists(config_path):
-        return cfg
-
-    with open(config_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    board = data.get("board", {})
-
-    if "size" in board:
-        cfg.board_size = int(board["size"])
-
-    return cfg
-
-
-def parse_args():
-    parser = argparse.ArgumentParser(description="Train Ataxx value network")
-    parser.add_argument(
-        "--data",
-        type=str,
-        default=None,
-        help="Path to a specific .bin file or directory (default: scan current directory)",
-    )
-    parser.add_argument(
-        "--epochs",
-        type=int,
-        default=EPOCHS,
-        help=f"Number of training epochs (default: {EPOCHS})",
-    )
-    parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=BATCH_SIZE,
-        help=f"Batch size (default: {BATCH_SIZE})",
-    )
-    parser.add_argument(
-        "--device",
-        choices=["auto", "cpu", "cuda"],
-        default="auto",
-        help="Device selection (default: auto)",
-    )
-    parser.add_argument(
-        "--check-onnx",
-        action="store_true",
-        help="Validate exported ONNX model with ONNX checker and ONNX Runtime",
-    )
-    parser.add_argument(
-        "--num-workers",
-        type=int,
-        default=0,
-        help="DataLoader worker count (default: 0)",
-    )
-    parser.add_argument(
-        "--pin-memory",
-        action="store_true",
-        help="Enable DataLoader pinned memory",
-    )
-    parser.add_argument(
-        "--prefetch-factor",
-        type=int,
-        default=4,
-        help="DataLoader prefetch factor (default: 4, used when num_workers > 0)",
-    )
-    parser.add_argument(
-        "--shuffle-buffer",
-        type=int,
-        default=0,
-        help="Approximate samples to hold in stream shuffle buffer (0 disables)",
-    )
-
-    amp_group = parser.add_mutually_exclusive_group()
-    amp_group.add_argument(
-        "--amp",
-        dest="amp",
-        action="store_true",
-        help="Enable AMP (default: enabled on CUDA, disabled otherwise)",
-    )
-    amp_group.add_argument(
-        "--no-amp",
-        dest="amp",
-        action="store_false",
-        help="Disable AMP",
-    )
-    parser.set_defaults(amp=None)
-
-    parser.add_argument(
-        "--val-fraction",
-        type=float,
-        default=0.05,
-        help="Validation fraction in [0,1], split deterministically by game id hash",
-    )
-    parser.add_argument(
-        "--overfit-n",
-        type=int,
-        default=0,
-        help="Overfit sanity mode: train on first N samples only (0 disables)",
-    )
-
-    parser.add_argument(
-        "--strict-metadata",
-        type=int,
-        choices=[0, 1],
-        default=1,
-        help="Strict metadata checks while reading logs (default: 1)",
-    )
-    parser.add_argument(
-        "--skip-bad-games",
-        type=int,
-        choices=[0, 1],
-        default=0,
-        help="Skip bad samples/games on metadata mismatch instead of failing (default: 0)",
-    )
-
-
-    return parser.parse_args()
-
-
-def resolve_device(device_mode):
-    # CUDA-enabled PyTorch builds still support CPU execution, so --device cpu remains valid.
-    if device_mode == "cpu":
+import ataxx_common as C
+import ataxx_data as D
+import ataxx_gpu as G
+import ataxx_model as M
+
+
+def parse_args(argv=None):
+    p = argparse.ArgumentParser(description="Train the Ataxx policy/value network")
+    p.add_argument("--data", nargs="+", required=True, help="v3 .bin files and/or directories")
+    p.add_argument("--out", required=True, help="output directory for this model generation")
+    p.add_argument("--epochs", type=int, default=10)
+    p.add_argument("--batch-size", type=int, default=512)
+    p.add_argument("--lr", type=float, default=1e-3)
+    p.add_argument("--lr-schedule", choices=["constant", "cosine"], default="constant",
+                   help="cosine decays lr from --lr to --lr * --lr-min-ratio over --epochs (per optimizer step; stateless, so --resume "
+                        "is exact only if --epochs is unchanged)")
+    p.add_argument("--lr-min-ratio", type=float, default=0.02)
+    p.add_argument("--weight-decay", type=float, default=1e-4)
+    p.add_argument("--policy-weight", type=float, default=1.0)
+    p.add_argument("--value-weight", type=float, default=1.0)
+    p.add_argument("--value-target", choices=list(D.VALUE_MODES), default="score",
+                   help="what the value head learns: score = tanh(teacher search score / --score-scale) (default; needs labels written by this version of "
+                        "selfplay/relabel), outcome = the played game's result (noisy), mix = --value-mix * score + (1 - --value-mix) * outcome")
+    p.add_argument("--score-scale", type=float, default=D.DEFAULT_SCORE_SCALE,
+                   help="tanh scale for the score target, in engine units (heuristic points x 10,000). Ordinary positions are within about +/-1e7; "
+                        "the default 4e6 keeps them in the steep part of tanh and saturates decisive wins/losses to +/-1")
+    p.add_argument("--value-mix", type=float, default=0.5, help="weight of the score target in --value-target mix")
+    p.add_argument("--channels", type=int, default=64)
+    p.add_argument("--layers", type=int, default=5)
+    p.add_argument("--val-fraction", type=float, default=0.05, help="validation share of GAMES (by stable game uid)")
+    p.add_argument("--include-plycap", action="store_true", help="also use outcomes of ply-cap games (piece-count fallback, not a real result)")
+    p.add_argument("--no-augment", action="store_true", help="disable random 8-fold symmetry augmentation")
+    p.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
+    p.add_argument("--amp", action="store_true", help="mixed precision on CUDA")
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--max-samples", type=int, default=0, help="debug: stop loading after N samples")
+    p.add_argument("--resume", action="store_true", help="continue from <out>/checkpoint.pt")
+    p.add_argument("--init-from", default=None, help="warm start weights from another checkpoint.pt (fresh optimizer, epoch 0)")
+    p.add_argument("--overwrite", action="store_true", help="allow reusing a non-empty --out")
+    p.add_argument("--keep-best", action="store_true", help="export the epoch with the best validation loss instead of the last")
+    p.add_argument("--overfit-n", type=int, default=0, help="sanity mode: train on the first N samples only, no validation")
+    p.add_argument("--no-validate-onnx", action="store_true")
+    p.add_argument("--keep-unlabeled", action="store_true", help="keep rows that have neither a policy label nor a value target (they train nothing and only cost time)")
+    p.add_argument("--gpu-log", type=float, default=0.0,
+                   help="log GPU utilisation / memory / temperature / power every N seconds via NVML (0 = off, no thread started). "
+                        "Needs `pip install nvidia-ml-py`; disables itself if unavailable. Per-epoch GPU stats and PyTorch's own peak "
+                        "memory (free counter reads) go to report.json.")
+    return p.parse_args(argv)
+
+
+def lr_at(base, schedule, min_ratio, progress):
+    """Learning rate at training progress in [0, 1]."""
+    if schedule == "constant":
+        return base
+    progress = min(1.0, max(0.0, progress))
+    return base * (min_ratio + (1.0 - min_ratio) * 0.5 * (1.0 + math.cos(math.pi * progress)))
+
+
+def resolve_device(mode):
+    if mode == "cpu":
         return torch.device("cpu")
-
-    if device_mode == "cuda":
+    if mode == "cuda":
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA requested but not available")
         return torch.device("cuda")
-
     return torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
-def scan_training_data(file_paths):
-    """Quickly scan binary logs to report statistics and catch writer issues."""
-    print("=== Training Data Scan ===")
-    total_games = 0
-    total_samples = 0
-    games_with_results = set()
-
-    for path in file_paths:
-        if not os.path.exists(path):
-            continue
-        with open(path, "rb") as f:
-            maybe_magic = f.read(4)
-            if maybe_magic != b"ATLG":
-                print(f"WARNING: Skipping {path} - missing 'ATLG' header (unsupported legacy format).")
-                continue
-            version_bytes = f.read(2)
-            if len(version_bytes) != 2:
-                print(f"WARNING: Skipping {path} - truncated file header (missing format version).")
-                continue
-            version = struct.unpack("<H", version_bytes)[0]
-            if version != 2:
-                print(f"WARNING: Skipping {path} - unsupported log format version {version} (expected 2).")
-                continue
-
-            while True:
-                type_byte = f.read(1)
-                if not type_byte:
-                    break
-                record_type = type_byte[0]
-
-                if record_type == 1:  # GameHeader
-                    if len(f.read(13)) != 13:
-                        print(f"WARNING: {path} ends inside a game header record.")
-                        break
-                elif record_type == 2:  # CompressedSampleBlock
-                    header_data = f.read(16)
-                    if len(header_data) != 16:
-                        break
-                    count, uncomp_size, comp_size, crc32 = struct.unpack("<IIII", header_data)
-                    f.seek(comp_size, 1)  # Skip payload
-                    total_samples += count
-                elif record_type == 3:  # GameResult
-                    data = f.read(7)
-                    if len(data) == 7:
-                        game_id, result, plies = struct.unpack("<IbH", data)
-                        games_with_results.add(game_id)
-                        total_games += 1
-                else:
-                    break
-
-    print(f"Total games (with results): {total_games}")
-    print(f"Total samples: {total_samples}")
-    if total_games > 0:
-        print(f"Avg samples/game: {total_samples / total_games:.1f}")
-    print("==========================")
-
-
-def print_startup_diagnostics(device):
-    print("=== Startup Diagnostics ===")
-    print(f"torch.__version__: {torch.__version__}")
-    print(f"torch.version.cuda: {torch.version.cuda}")
-    print(f"torch.cuda.is_available(): {torch.cuda.is_available()}")
-
-    current_device_index = "n/a"
-    device_name = "n/a"
-    if torch.cuda.is_available():
-        current_device_index = torch.cuda.current_device()
-        device_name = torch.cuda.get_device_name(current_device_index)
-
-    print(f"Resolved device: {device}")
-    print(f"Current CUDA device index: {current_device_index}")
-    print(f"Current CUDA device name: {device_name}")
-
-    if device.type == "cuda":
-        cudnn_version = torch.backends.cudnn.version() if torch.backends.cudnn.is_available() else None
-        print(f"torch.backends.cudnn.enabled: {torch.backends.cudnn.enabled}")
-        print(f"torch.backends.cudnn.version(): {cudnn_version}")
-
-    print("===========================")
-
-
-def validate_onnx_export(model, model_path, batch_size=16, atol=1e-4, rtol=1e-3):
-    import onnx
-    import onnxruntime as ort
-
-    print("Validating exported ONNX model...")
-    onnx_model = onnx.load(model_path)
-    onnx.checker.check_model(onnx_model)
-    print("ONNX checker: OK")
-
-    model = model.to("cpu")
+@torch.no_grad()
+def evaluate(model, data, batch_size, device, weights):
     model.eval()
-
-    rng = np.random.default_rng(0)
-    x_np = rng.standard_normal((batch_size, INPUT_CHANNELS, BOARD_SIZE, BOARD_SIZE), dtype=np.float32)
-
-    with torch.no_grad():
-        x_torch = torch.from_numpy(x_np).to("cpu", non_blocking=False)
-        torch_out = model(x_torch).cpu().numpy()
-
-    session = ort.InferenceSession(model_path, providers=["CPUExecutionProvider"])
-    input_name = session.get_inputs()[0].name
-    output_name = session.get_outputs()[0].name
-    ort_out = session.run([output_name], {input_name: x_np})[0]
-
-    max_abs_diff = np.max(np.abs(torch_out - ort_out))
-    print(f"ONNX Runtime max abs diff: {max_abs_diff:.6e}")
-
-    if not np.allclose(torch_out, ort_out, atol=atol, rtol=rtol):
-        raise AssertionError(
-            f"ONNX Runtime output mismatch (atol={atol}, rtol={rtol}, max_abs_diff={max_abs_diff:.6e})"
-        )
-
-    print(f"ONNX Runtime consistency: OK (atol={atol}, rtol={rtol})")
-
-
-def train(
-    data_path=None,
-    epochs=EPOCHS,
-    batch_size=BATCH_SIZE,
-    device_mode="auto",
-    check_onnx=False,
-    num_workers=0,
-    pin_memory=False,
-    prefetch_factor=4,
-    amp=None,
-    val_fraction=0.05,
-    overfit_n=0,
-    strict_metadata=True,
-    skip_bad_games=False,
-    shuffle_buffer=0,
-):
-    device = resolve_device(device_mode)
-    print_startup_diagnostics(device)
-    print(f"Using device: {device}")
-
-    # Find data files
-    if data_path:
-        if os.path.isdir(data_path):
-            files = glob.glob(os.path.join(data_path, "*.bin"))
-        else:
-            files = [data_path]
-    else:
-        files = glob.glob(os.path.join(DATA_DIR, "*.bin"))
-
-    if not files:
-        print(f"No training data found. Run 'Attax.Console selfplayloggen' first.")
-        return
-
-    scan_training_data(files)
-
-    val_fraction = max(0.0, min(1.0, float(val_fraction)))
-    amp_enabled = (device.type == "cuda") if amp is None else bool(amp)
-    amp_enabled = amp_enabled and device.type == "cuda"
-
-    print(
-        f"DataLoader settings: num_workers={num_workers}, pin_memory={pin_memory}, "
-        f"prefetch_factor={prefetch_factor if num_workers > 0 else 'n/a'}, "
-        f"shuffle_buffer={shuffle_buffer}"
-    )
-    if num_workers > 0:
-        print(
-            f"NOTE: {num_workers} DataLoader workers will each maintain independent "
-            f"file buffers. Total RAM usage scales with worker count."
-        )
-    print(f"AMP enabled: {amp_enabled}")
-    print(f"Validation fraction: {val_fraction:.3f}")
-
-    trainer_config = load_trainer_config()
-
-    train_dataset = AtaxxStreamingDataset(
-        files,
-        split="train",
-        val_fraction=val_fraction,
-        batch_size=batch_size,
-        strict_metadata=strict_metadata,
-        skip_bad_games=skip_bad_games,
-        trainer_config=trainer_config,
-        shuffle_buffer=shuffle_buffer,
-    )
-    val_dataset = AtaxxStreamingDataset(
-        files,
-        split="val",
-        val_fraction=val_fraction,
-        batch_size=batch_size,
-        strict_metadata=strict_metadata,
-        skip_bad_games=skip_bad_games,
-        trainer_config=trainer_config,
-        shuffle_buffer=0,  # No shuffling needed for validation
-    )
-
-    if overfit_n > 0:
-        print(f"Overfit mode active: materializing first {overfit_n} training samples")
-        finite_train = materialize_first_n(train_dataset, overfit_n)
-        if finite_train is None or len(finite_train) == 0:
-            print("Dataset is empty.")
-            return
-        train_dataset = finite_train
-        val_dataset = None
-
-    train_loader_kwargs = {
-        "batch_size": None,
-        "num_workers": max(0, int(num_workers)),
-        "pin_memory": bool(pin_memory),
+    agg = {"loss": 0.0, "policy_loss": 0.0, "value_loss": 0.0, "n_policy": 0, "n_value": 0, "top1_hits": 0.0, "sign_hits": 0.0, "sign_n": 0,
+           "t_sum": 0.0, "t_sq": 0.0, "se": 0.0, "ord_hits": 0.0, "ord_n": 0}
+    for start in range(0, data.n, batch_size):
+        idx = torch.arange(start, min(data.n, start + batch_size), device=device)
+        b = data.batch(idx, augment=False)
+        out = model(b["x"])
+        _, m = M.compute_losses(out, b, *weights)
+        agg["policy_loss"] += m["policy_loss"] * m["n_policy"]
+        agg["value_loss"] += m["value_loss"] * m["n_value"]
+        agg["n_policy"] += m["n_policy"]
+        agg["n_value"] += m["n_value"]
+        if m["n_policy"]:
+            agg["top1_hits"] += m["policy_top1"] * m["n_policy"]
+        vv = b["value_valid"]
+        tgt = b["value"][vv]
+        nz = int((tgt != 0).sum())
+        if nz and m["n_value"]:
+            agg["sign_hits"] += m["value_sign_acc"] * nz
+            agg["sign_n"] += nz
+        if m["n_value"]:
+            # exact global sums so R^2 uses the variance of the whole validation set, not an average of per-batch variances
+            pred = out[1].float()[vv, 0].double(); td = tgt.double()
+            agg["t_sum"] += float(td.sum()); agg["t_sq"] += float((td * td).sum()); agg["se"] += float(((pred - td) ** 2).sum())
+            ordn = (td.abs() < 0.95) & (td != 0)
+            agg["ord_hits"] += float(((torch.sign(pred) == torch.sign(td)) & ordn).sum()); agg["ord_n"] += int(ordn.sum())
+    res = {
+        "policy_loss": agg["policy_loss"] / agg["n_policy"] if agg["n_policy"] else None,
+        "value_loss": agg["value_loss"] / agg["n_value"] if agg["n_value"] else None,
+        "policy_top1": agg["top1_hits"] / agg["n_policy"] if agg["n_policy"] else None,
+        "value_sign_acc": agg["sign_hits"] / agg["sign_n"] if agg["sign_n"] else None,
+        "value_r2": None,
+        "value_sign_acc_ordinary": agg["ord_hits"] / agg["ord_n"] if agg["ord_n"] else None,
+        "n_policy": agg["n_policy"],
+        "n_value": agg["n_value"],
     }
-    if train_loader_kwargs["num_workers"] > 0:
-        train_loader_kwargs["prefetch_factor"] = max(1, int(prefetch_factor))
-        train_loader_kwargs["persistent_workers"] = True
+    if agg["n_value"]:
+        mean = agg["t_sum"] / agg["n_value"]
+        var = agg["t_sq"] / agg["n_value"] - mean * mean
+        res["value_r2"] = 1.0 - (agg["se"] / agg["n_value"]) / max(var, 1e-8)
+        res["value_target_var"] = var
+    parts = []
+    if res["policy_loss"] is not None:
+        parts.append(weights[0] * res["policy_loss"])
+    if res["value_loss"] is not None:
+        parts.append(weights[1] * res["value_loss"])
+    res["loss"] = float(sum(parts)) if parts else None
+    return res
 
-    train_dataloader = DataLoader(train_dataset, **train_loader_kwargs)
 
-    val_dataloader = None
-    if val_dataset is not None and val_fraction > 0.0:
-        val_loader_kwargs = {
-            "batch_size": None,
-            "num_workers": max(0, int(num_workers)),
-            "pin_memory": bool(pin_memory),
-        }
-        if val_loader_kwargs["num_workers"] > 0:
-            val_loader_kwargs["prefetch_factor"] = max(1, int(prefetch_factor))
-            val_loader_kwargs["persistent_workers"] = True
-        val_dataloader = DataLoader(val_dataset, **val_loader_kwargs)
+def main(argv=None):
+    args = parse_args(argv)
+    torch.manual_seed(args.seed)
+    np.random.seed(args.seed)
+    device = resolve_device(args.device)
+    os.makedirs(args.out, exist_ok=True)
+    ckpt_path = os.path.join(args.out, "checkpoint.pt")
+    if os.listdir(args.out) and not (args.resume or args.overwrite):
+        raise SystemExit(f"--out {args.out} is not empty; use --resume to continue or --overwrite to reuse it")
+    if args.resume and not os.path.exists(ckpt_path):
+        raise SystemExit(f"--resume given but {ckpt_path} does not exist")
 
-    model = AtaxxValueNet().to(device)
+    t0 = time.perf_counter()
+    train_ds, val_ds = D.load_logs(args.data, args.val_fraction, args.include_plycap, max_samples=args.max_samples)
+    load_s = time.perf_counter() - t0
+    stats = dict(train_ds.stats)
+    print(f"[data] {stats} loaded+validated in {load_s:.1f}s", flush=True)
+    if args.overfit_n > 0:
+        train_ds = train_ds.subset(np.arange(len(train_ds)) < args.overfit_n)
+        val_ds = None
+    if int(train_ds.a["teacher_valid"].sum()) == 0 and int(train_ds.a["value_valid"].sum()) == 0 and int(train_ds.a["score_valid"].sum()) == 0:
+        raise SystemExit("No usable training targets (no valid teacher labels and no valid outcomes)")
+
+    tdargs = dict(value_mode=args.value_target, score_scale=args.score_scale, value_mix=args.value_mix)
+    train = D.TensorData(train_ds, device, **tdargs)
+    val = D.TensorData(val_ds, device, **tdargs) if val_ds is not None and len(val_ds) > 0 else None
+    if not args.keep_unlabeled:
+        # A row with no policy label and no value target contributes exactly nothing to the loss, but still costs a forward/backward pass
+        # every epoch. Logs that were only partly relabelled (for example 20% of positions) are mostly such rows.
+        train, dropped_train = train.drop_untargeted()
+        if val is not None:
+            val, _ = val.drop_untargeted()
+        print(f"[data] dropped {dropped_train} of {dropped_train + train.n} training rows that have no policy label and no value target "
+              f"(--keep-unlabeled to keep them); training on {train.n}", flush=True)
+        if train.n == 0:
+            raise SystemExit("No rows with a policy label or a value target are left to train on")
+    n_value_rows = int(train.value_valid.sum())
+    print(f"[value] target={args.value_target} scale={args.score_scale:g} rows with a value target: {n_value_rows} of {train.n}", flush=True)
+    if args.value_weight > 0 and n_value_rows == 0:
+        raise SystemExit(f"--value-target {args.value_target} has no usable rows in this data (score labels need logs written by the current "
+                         f"selfplay/relabel; use --value-target outcome for older data, or --value-weight 0 to train the policy only)")
+    weights = (args.policy_weight, args.value_weight)
+
+    model = M.AtaxxPolicyValueNet(channels=args.channels, layers=args.layers).to(device)
+    opt = torch.optim.AdamW(model.parameters(), lr=args.lr, weight_decay=args.weight_decay)
+    scaler = torch.amp.GradScaler("cuda", enabled=args.amp and device.type == "cuda")
+    start_epoch, history, best = 0, [], None
+
+    if args.resume:
+        ck = torch.load(ckpt_path, map_location=device, weights_only=False)
+        if ck["config"] != model.config:
+            raise SystemExit(f"Checkpoint architecture {ck['config']} differs from requested {model.config}")
+        model.load_state_dict(ck["model"])
+        opt.load_state_dict(ck["optimizer"])
+        start_epoch, history, best = ck["epoch"], ck["history"], ck.get("best")
+        torch.set_rng_state(ck["torch_rng"].cpu())
+        print(f"[resume] continuing from epoch {start_epoch}", flush=True)
+    elif args.init_from:
+        ck = torch.load(args.init_from, map_location=device, weights_only=False)
+        if ck["config"] != model.config:
+            raise SystemExit(f"--init-from architecture {ck['config']} differs from requested {model.config}")
+        model.load_state_dict(ck["model"])
+        print(f"[init] warm start from {args.init_from}", flush=True)
+
+    gen = torch.Generator(device=device)
+    gen.manual_seed(args.seed + start_epoch)
+    train_seconds = 0.0
     if device.type == "cuda":
-        first_param = next(model.parameters(), None)
-        if first_param is None:
-            raise RuntimeError("CUDA was selected but model has no parameters to validate device placement")
-        if not first_param.is_cuda:
-            raise RuntimeError(
-                "CUDA was selected but model parameters are not on CUDA "
-                f"(first parameter device: {first_param.device})"
-            )
+        torch.cuda.reset_peak_memory_stats(device)
+    # Optional NVML telemetry on its own thread (off unless --gpu-log N); never touches the training loop.
+    gpu = G.GpuMonitor(args.gpu_log if device.type == "cuda" else 0.0, label="train", log=lambda s: print(s, flush=True))
 
-    optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-4)
-    criterion = nn.SmoothL1Loss()
-    scaler = torch.amp.GradScaler("cuda", enabled=amp_enabled) if amp_enabled else None
-
-    monitor_interval = 10
-    log_interval_seconds = 2.0
-    cuda_utilization_fn = getattr(torch.cuda, "utilization", None) if device.type == "cuda" else None
-    if not callable(cuda_utilization_fn):
-        cuda_utilization_fn = None
-
-    last_train_loss = None
-
-    first_train_batch_verified = False
-
-    for epoch in range(int(epochs)):
+    for epoch in range(start_epoch, args.epochs):
         model.train()
-        total_loss = 0.0
-        count = 0
-        start = time.time()
-
-        running_data_ms = 0.0
-        running_compute_ms = 0.0
-        running_batches = 0
-
+        t1 = time.perf_counter()
+        perm = torch.randperm(train.n, device=device, generator=gen)
+        sums = {"policy_loss": 0.0, "value_loss": 0.0, "n_policy": 0, "n_value": 0}
+        steps_per_epoch = (train.n + args.batch_size - 1) // args.batch_size
+        for step_i, start in enumerate(range(0, train.n, args.batch_size)):
+            lr = lr_at(args.lr, args.lr_schedule, args.lr_min_ratio, (epoch * steps_per_epoch + step_i) / (args.epochs * steps_per_epoch))
+            for group in opt.param_groups:
+                group["lr"] = lr
+            idx = perm[start:start + args.batch_size]
+            b = train.batch(idx, augment=not args.no_augment, generator=gen)
+            opt.zero_grad(set_to_none=True)
+            with torch.autocast(device_type=device.type, enabled=args.amp and device.type == "cuda"):
+                out = model(b["x"])
+            loss, m = M.compute_losses(out, b, *weights)
+            if not torch.isfinite(loss):
+                raise RuntimeError(f"Non-finite loss at epoch {epoch + 1}, batch starting {start}: {m}")
+            scaler.scale(loss).backward()
+            scaler.step(opt)
+            scaler.update()
+            sums["policy_loss"] += m["policy_loss"] * m["n_policy"]
+            sums["value_loss"] += m["value_loss"] * m["n_value"]
+            sums["n_policy"] += m["n_policy"]
+            sums["n_value"] += m["n_value"]
         if device.type == "cuda":
-            torch.cuda.reset_peak_memory_stats(device)
+            torch.cuda.synchronize()
+        epoch_s = time.perf_counter() - t1
+        train_seconds += epoch_s
 
-        last_log_time = time.time()
+        rec = {
+            "epoch": epoch + 1,
+            "seconds": epoch_s,
+            "samples_per_s": train.n / epoch_s,
+            "train_policy_loss": sums["policy_loss"] / sums["n_policy"] if sums["n_policy"] else None,
+            "train_value_loss": sums["value_loss"] / sums["n_value"] if sums["n_value"] else None,
+        }
+        if val is not None:
+            rec["val"] = evaluate(model, val, args.batch_size, device, weights)
+        if gpu.enabled or gpu.summary():
+            rec["gpu"] = gpu.take_window()
+        history.append(rec)
+        print(f"[epoch {epoch + 1}/{args.epochs}] {json.dumps(rec)}", flush=True)
 
-        train_iter = iter(train_dataloader)
-        while True:
-            data_start = time.perf_counter()
-            try:
-                inputs, targets = next(train_iter)
-            except StopIteration:
-                break
-            data_ms = (time.perf_counter() - data_start) * 1000.0
-
-            compute_start = time.perf_counter()
-
-            inputs = inputs.to(device, non_blocking=pin_memory)
-            targets = targets.to(device, non_blocking=pin_memory)
-
-            if device.type == "cuda" and not first_train_batch_verified:
-                if not inputs.is_cuda:
-                    raise RuntimeError(
-                        "CUDA was selected but training input tensor remained on CPU "
-                        f"(tensor device: {inputs.device})"
-                    )
-                if not targets.is_cuda:
-                    raise RuntimeError(
-                        "CUDA was selected but training target tensor remained on CPU "
-                        f"(tensor device: {targets.device})"
-                    )
-                first_train_batch_verified = True
-
-            optimizer.zero_grad(set_to_none=True)
-            with torch.amp.autocast("cuda", enabled=amp_enabled):
-                outputs = model(inputs)
-                loss = criterion(outputs, targets)
-
-            if scaler is not None:
-                scaler.scale(loss).backward()
-                scaler.step(optimizer)
-                scaler.update()
-            else:
-                loss.backward()
-                optimizer.step()
-
-            needs_log = running_batches + 1 >= monitor_interval or (time.time() - last_log_time) >= log_interval_seconds
-            if device.type == "cuda" and needs_log:
-                torch.cuda.synchronize(device)
-            compute_ms = (time.perf_counter() - compute_start) * 1000.0
-
-            total_loss += loss.item()
-            count += 1
-
-            running_data_ms += data_ms
-            running_compute_ms += compute_ms
-            running_batches += 1
-
-            if running_batches > 0 and needs_log:
-                avg_data_ms = running_data_ms / running_batches
-                avg_compute_ms = running_compute_ms / running_batches
-
-                gpu_util = "n/a"
-                if cuda_utilization_fn is not None:
-                    try:
-                        gpu_util = f"{float(cuda_utilization_fn()):.1f}%"
-                    except Exception:
-                        gpu_util = "n/a"
-
-                mem_mb = 0.0
-                peak_mem_mb = 0.0
-                if device.type == "cuda":
-                    mem_mb = torch.cuda.memory_allocated(device) / (1024.0 * 1024.0)
-                    peak_mem_mb = torch.cuda.max_memory_allocated(device) / (1024.0 * 1024.0)
-
-                print(
-                    f"[Epoch {epoch + 1}, Batch {count}] Loss: {loss.item():.6f} | "
-                    f"Data: {avg_data_ms:.1f} ms | Compute: {avg_compute_ms:.1f} ms | "
-                    f"GPU Util: {gpu_util} | Mem: {mem_mb:.0f}/{peak_mem_mb:.0f} MB"
-                )
-
-                running_data_ms = 0.0
-                running_compute_ms = 0.0
-                running_batches = 0
-                last_log_time = time.time()
-
-        if count == 0:
-            print("Training dataset produced no batches.")
-            return
-
-        train_loss = total_loss / count
-        last_train_loss = train_loss
-
-        msg = f"Epoch {epoch + 1}/{epochs}, Train Loss: {train_loss:.6f}, Time: {time.time() - start:.2f}s"
-
-        if device.type == "cuda":
-            mem_mb = torch.cuda.memory_allocated(device) / (1024.0 * 1024.0)
-            peak_mem_mb = torch.cuda.max_memory_allocated(device) / (1024.0 * 1024.0)
-            msg += f", Mem: {mem_mb:.0f}/{peak_mem_mb:.0f} MB"
-
-        if val_dataloader is not None:
-            model.eval()
-            val_total = 0.0
-            val_count = 0
-            with torch.no_grad():
-                for inputs, targets in val_dataloader:
-                    inputs = inputs.to(device, non_blocking=pin_memory)
-                    targets = targets.to(device, non_blocking=pin_memory)
-                    with torch.amp.autocast("cuda", enabled=amp_enabled):
-                        outputs = model(inputs)
-                        loss = criterion(outputs, targets)
-                    val_total += loss.item()
-                    val_count += 1
-
-            if val_count > 0:
-                msg += f", Val Loss: {val_total / val_count:.6f}"
-            else:
-                msg += ", Val Loss: n/a (no validation batches)"
-
-        print(msg)
-
-    if overfit_n > 0 and last_train_loss is not None:
-        near_zero = last_train_loss < 1e-3
-        print(
-            f"Overfit sanity result: final_train_loss={last_train_loss:.6f}, "
-            f"near_zero={'YES' if near_zero else 'NO'}"
+        v = rec.get("val", {}).get("loss") if val is not None else None
+        if v is not None and (best is None or v < best["val_loss"]):
+            best = {"epoch": epoch + 1, "val_loss": v, "state": {k: t.detach().cpu().clone() for k, t in model.state_dict().items()}}
+        torch.save(
+            {"model": model.state_dict(), "optimizer": opt.state_dict(), "epoch": epoch + 1, "history": history, "best": best,
+             "config": model.config, "torch_rng": torch.get_rng_state(), "args": vars(args)},
+            ckpt_path + ".tmp",
         )
+        os.replace(ckpt_path + ".tmp", ckpt_path)
 
-    # Export to ONNX
-    print("Exporting to ONNX...")
-    model.cpu()
-    model.eval()
-    with torch.no_grad():
-        dummy_input = torch.randn(1, INPUT_CHANNELS, BOARD_SIZE, BOARD_SIZE, device="cpu")
-        torch.onnx.export(
-            model,
-            dummy_input,
-            MODEL_PATH,
-            input_names=["input"],
-            output_names=["output"],
-            dynamic_axes={"input": {0: "batch_size"}, "output": {0: "batch_size"}},
-            opset_version=15,
-        )
-    print(f"Model saved to {MODEL_PATH}")
+    if args.keep_best and best is not None:
+        model.load_state_dict(best["state"])
+        print(f"[export] using best epoch {best['epoch']} (val loss {best['val_loss']:.5f})", flush=True)
 
-    if check_onnx:
-        validate_onnx_export(model, MODEL_PATH)
+    gpu.close()
+    onnx_path = os.path.join(args.out, "model.onnx")
+    M.export_onnx(model, onnx_path, {"trained_epochs": len(history), "train_samples": len(train_ds), "data_files": len(args.data)})
+    parity = None if args.no_validate_onnx else M.validate_onnx(model, onnx_path)
+    report = {
+        "data": stats,
+        "args": vars(args),
+        "model_config": model.config,
+        "history": history,
+        "train_seconds": train_seconds,
+        "load_seconds": load_s,
+        "onnx": onnx_path,
+        "onnx_sha256": M.file_sha256(onnx_path),
+        "onnx_parity": parity,
+        # Free counters (no NVML): this process's own peak GPU memory, comparable to the card's total.
+        "torch_memory": G.torch_memory_stats(device),
+        "gpu_summary": gpu.summary(),
+    }
+    with open(os.path.join(args.out, "report.json"), "w") as f:
+        json.dump(report, f, indent=2, default=str)
+    print(f"[done] {onnx_path} sha256={report['onnx_sha256'][:16]} train={train_seconds:.1f}s parity={parity}", flush=True)
+    return report
 
 
 if __name__ == "__main__":
-    args = parse_args()
-    train(
-        data_path=args.data,
-        epochs=args.epochs,
-        batch_size=args.batch_size,
-        device_mode=args.device,
-        check_onnx=args.check_onnx,
-        num_workers=args.num_workers,
-        pin_memory=args.pin_memory,
-        prefetch_factor=args.prefetch_factor,
-        amp=args.amp,
-        val_fraction=args.val_fraction,
-        shuffle_buffer=args.shuffle_buffer,
-        overfit_n=args.overfit_n,
-        strict_metadata=bool(args.strict_metadata),
-        skip_bad_games=bool(args.skip_bad_games),
-    )
+    main()

@@ -21,8 +21,8 @@ namespace Attax.Core.Tests {
                 ".......", ".......", ".......", ".......", ".......");
 
             var coordinator = new AILogCoordinator();
-            var cfg = new AIEngineConfig { AiDepth = 2, TrainingMode = true, DisableParallelRootSearch = !parallelRoot, DisableQuiescenceSearch = true, Seed = 1 };
-            var e = new AtaxxAIEngine(new HeuristicEvaluator(), null, coordinator, cfg);
+            var cfg = new AIEngineConfig { DisableRandomRootTies = true, AiDepth = 2, TrainingMode = true, DisableParallelRootSearch = !parallelRoot, DisableQuiescenceSearch = true, Seed = 1 };
+            var e = new AtaxxAIEngine(Prm.Base(), cfg, null, null, coordinator);
             TestBoards.SetBoard(e, b, mover);
             e.AIPlayerColor = mover;
 

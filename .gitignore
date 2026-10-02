@@ -2,8 +2,14 @@
 /*.bin
 /*.onnx
 /.cr
-bin
-obj
+# build output anywhere in the tree (every project's bin/ and obj/, all configurations and frameworks)
+**/bin/
+**/obj/
 .vs
 .kilo
 __pycache__
+# generated pipeline output (see Readme: data/*.bin logs, models/<gen>/ checkpoints and ONNX)
+/data/
+/models/
+/runs/
+/old-data/

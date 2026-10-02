@@ -25,14 +25,21 @@ namespace Attax.Core.Tests {
         }
 
         public static AtaxxAIEngine NewEngine(int depth = 3, long? maxNodes = null, bool training = true, bool parallel = false) {
-            var cfg = new AtaxxAIEngine.AIEngineConfig {
+            var cfg = new AtaxxAIEngine.AIEngineConfig { DisableRandomRootTies = true,
                 AiDepth = depth,
                 TrainingMode = training,
                 DisableParallelRootSearch = !parallel,
                 DisableQuiescenceSearch = true,
                 Seed = 1
             };
-            return new AtaxxAIEngine(new HeuristicEvaluator(), null, null, cfg) { MaxNodes = maxNodes };
+            return new AtaxxAIEngine(Prm.Base(), cfg) { MaxNodes = maxNodes };
+        }
+
+        public static AtaxxAIEngine NewEngineWith(EngineParams p, int depth = 3, bool training = true) {
+            var cfg = new AtaxxAIEngine.AIEngineConfig { DisableRandomRootTies = true,
+                AiDepth = depth, TrainingMode = training, DisableParallelRootSearch = true, DisableQuiescenceSearch = true, Seed = 1
+            };
+            return new AtaxxAIEngine(p, cfg);
         }
 
         public static void SetBoard(AtaxxAIEngine e, BitboardState b, AtaxxAIEngine.PlayerColor side) {

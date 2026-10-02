@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net9.0</TargetFramework>
     <Nullable>disable</Nullable>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
@@ -14,7 +14,14 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Content Include="..\Attax.Core\engine-params.json" Link="engine-params.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\Attax.Core\Attax.Core.csproj" />
+    <ProjectReference Include="..\Attax.Model\Attax.Model.csproj" />
+    <ProjectReference Include="..\Attax.Data\Attax.Data.csproj" />
+    <ProjectReference Include="..\Attax.Play\Attax.Play.csproj" />
   </ItemGroup>
 
 </Project>

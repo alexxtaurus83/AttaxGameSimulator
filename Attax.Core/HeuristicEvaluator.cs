@@ -2,8 +2,24 @@ using System;
 using static Attax.Core.AtaxxAIEngine;
 
 namespace Attax.Core {
-    
+
+    /// <summary>
+    /// The hand-written leaf evaluator. It has no built-in values: the engine builds it from its own parameters
+    /// (<c>new AtaxxAIEngine(engineParams, config)</c> with no evaluator), so the evaluator and the root/search groups cannot disagree.
+    /// Constructing one directly from <see cref="EngineParams"/> is for tests and tools that evaluate positions without an engine.
+    /// </summary>
     public class HeuristicEvaluator : IValueEvaluator {
+        private readonly CompiledEngineParams p;
+
+        /// <param name="engineParams">Required. Validated; throws ArgumentException listing every problem.</param>
+        public HeuristicEvaluator(EngineParams engineParams) {
+            if (engineParams == null) throw new ArgumentNullException(nameof(engineParams), "HeuristicEvaluator needs the engine parameters (load engine-params.json).");
+            p = engineParams.Compile();
+        }
+
+        internal HeuristicEvaluator(CompiledEngineParams compiled) {
+            p = compiled ?? throw new ArgumentNullException(nameof(compiled));
+        }
 
         public float Evaluate(BitboardState board, PlayerColor sideToMove) {
             PlayerColor enemy = SwitchPlayer(sideToMove);
@@ -14,33 +30,33 @@ namespace Attax.Core {
             int emptyCount = PopCount(board.EmptySquares());
 
             // Material
-            finalEvaluationScore += (playerPieces - enemyPieces) * AttaxConstants.GetScaledMaterialWeight(totalPieces);
+            finalEvaluationScore += (playerPieces - enemyPieces) * p.MaterialWeight[totalPieces];
 
             // Corner and Edge
             finalEvaluationScore += GetCornerEdgeBonusEvaluation(board, sideToMove, enemy);
 
             // Phase Gating
-            if (emptyCount > 14) {
+            if (emptyCount > p.EndgameEmptyThreshold) {
                 // Midgame
                 ulong playerDestinations = GetMoveDestinationsBitboard(board, sideToMove);
                 ulong enemyDestinations = GetMoveDestinationsBitboard(board, enemy);
 
                 int mobility = PopCount(playerDestinations) - PopCount(enemyDestinations);
-                finalEvaluationScore += mobility * AttaxConstants.GetScaledMobilityWeight(totalPieces);
+                finalEvaluationScore += mobility * p.MobilityWeight[totalPieces];
 
                 int playerPotential = GetPotentialMobilityInternal(board, playerDestinations);
                 int enemyPotential = GetPotentialMobilityInternal(board, enemyDestinations);
-                finalEvaluationScore += (playerPotential - enemyPotential) * AttaxConstants.EvaluateHeuristicConst.PotentialMobilityWeight;
+                finalEvaluationScore += (playerPotential - enemyPotential) * p.PotentialMobilityWeight;
 
                 int centerControl = GetCenterControl(board, sideToMove) - GetCenterControl(board, enemy);
-                finalEvaluationScore += centerControl * AttaxConstants.EvaluateHeuristicConst.CenterControlWeight;
+                finalEvaluationScore += centerControl * p.CenterControlWeight;
             } else {
                 // Endgame
                 var playerStabilityBonus = GetStabilityBonus(board, sideToMove);
                 var enemyStabilityBonus = GetStabilityBonus(board, enemy);
 
                 int stability = playerStabilityBonus - enemyStabilityBonus;
-                finalEvaluationScore += stability * AttaxConstants.GetDynamicStabilityMult(totalPieces);
+                finalEvaluationScore += stability * p.StabilityMult[totalPieces];
             }
 
             return finalEvaluationScore;
@@ -50,10 +66,10 @@ namespace Attax.Core {
 
         private (int corner, int edge) EvaluateCornerEdge(ulong playerPieces) {
             int cornerCount = PopCount(playerPieces & BoardLookup.CornerMask);
-            int cornerScore = cornerCount * AttaxConstants.EvaluateCornerEdgeConst.cornerWeight;
+            int cornerScore = cornerCount * p.CornerWeight;
 
             int edgeCount = PopCount(playerPieces & BoardLookup.EdgeMask);
-            int edgeScore = edgeCount * AttaxConstants.EvaluateCornerEdgeConst.edgeWeight;
+            int edgeScore = edgeCount * p.EdgeWeight;
 
             return (cornerScore, edgeScore);
         }
@@ -74,19 +90,22 @@ namespace Attax.Core {
         private int GetPotentialMobilityInternal(BitboardState boardState, ulong destinationSquares)
             => BitboardFeatures.GetPotentialMobilityInternal(boardState, destinationSquares);
 
-        private int GetCenterControl(BitboardState boardState, PlayerColor player)
-            => BitboardFeatures.GetCenterControl(boardState, player);
+        // Same loop as BitboardFeatures.GetCenterControl, reading this evaluator's table instead of the static one.
+        private int GetCenterControl(BitboardState boardState, PlayerColor player) {
+            int controlScore = 0;
+            ulong remaining = (player == PlayerColor.Red) ? boardState.RedPieces : boardState.BluePieces;
+            var table = p.CenterControlTable;
+            while (remaining > 0) {
+                int pieceIndex = BitboardOps.TrailingZeroCount(remaining);
+                controlScore += table[pieceIndex];
+                remaining &= remaining - 1;
+            }
+            return controlScore;
+        }
 
         private int GetStabilityBonus(BitboardState boardState, PlayerColor player)
             => BitboardFeatures.GetStabilityBonus(boardState, player);
 
-        /*private bool IsStable(BitboardState boardState, int x, int y, PlayerColor player)
-            => BitboardFeatures.IsStable(boardState, x, y, player);
-
-        private bool HasAdjacentEmpty(BitboardState boardState, int x, int y)
-            => BitboardFeatures.HasAdjacentEmpty(boardState, x, y);
-
-        private int TrailingZeroCount(ulong value) => BitboardOps.TrailingZeroCount(value);*/
         private int PopCount(ulong value) => BitboardOps.PopCount(value);
 
         public (int p1Count, int p2Count) GetRedAndBlueCounts(BitboardState boardState, PlayerColor p1Color)

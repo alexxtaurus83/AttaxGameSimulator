@@ -25,16 +25,22 @@ namespace Attax.Core {
         public AILogCoordinator logCoordinator { get; set; }
 
         private IValueEvaluator evaluator;
-        private IValueEvaluator searchEvaluator;
         private float evaluationScale;
         private bool trainingMode;
         private bool disableParallelRootSearch;
-        private bool useMLRootOnly;
         private bool disableQuiescenceSearch;
         private bool disableNullMovePruning;
-        private bool logGenMode;
+        private bool disableRandomRootTies;
+        //private bool logGenMode;
         private bool iterativeDeepeningInTraining;
+        private double rootBonusScale = 1.0;
+        private double temperatureUnit = TemperatureDivisor;
+        private int? aspirationWindowOverride;
+        private bool throwOnSearchError;
+        private CompiledEngineParams prm;
         private readonly Random rng;
+        // Separate stream for root tie-breaks: drawing from it never shifts the main rng (blocked cells, temperature sampling), and a fixed Seed stays reproducible.
+        private readonly Random tieRng;
         // Pre-allocated parallel helper pool. Lazily initialized on first parallel search;
         // reused across all subsequent calls so the 32 MB TT per helper is only allocated once.
         private AtaxxThreadHelper[] _parallelHelpers;
@@ -118,14 +124,45 @@ namespace Attax.Core {
             public int AiDepth;
             public bool TrainingMode;
             public bool UseMLEvaluation;
-            public bool UseMLRootOnly;
             public float EvaluationScale;
             public bool DisableParallelRootSearch;
             public bool DisableQuiescenceSearch;
             public bool DisableNullMovePruning;
-            public bool LogGenMode;
+            // Root ties: when several root moves share the best score, the engine plays one of them at random (default) instead of always the first
+            // generated one. They are equally good for the search, so this only varies play. Set true for a deterministic engine (tests, teacher labels,
+            // A/B runs). The draw has its own stream seeded from Seed, so it never shifts blocked-cell placement or temperature sampling.
+            public bool DisableRandomRootTies;
+            //public bool LogGenMode;
             // Opt-in (default false keeps legacy behavior): in TrainingMode, iterate depth 1..AiDepth.
             public bool IterativeDeepeningInTraining;
+
+            // --- Score-scale overrides for model-value search. All null = legacy classic behaviour. ---
+            // Multiplies every root bonus component (clone/flip/risk/positional). Legacy 1.0. The bonuses are
+            // authored in heuristic points (opening clone bonus 6 => 60,000 at scale 10,000), which dwarfs a
+            // model value in [-1,1] (+-10,000), so model search should pass a calibrated value (0 disables).
+            public float? RootBonusScale;
+            // Score units per unit of temperature in root sampling: weight = exp((score - max) / (temp * unit)).
+            // Legacy 10.0 (a heuristic-point scale). For model search use ~EvaluationScale so temp is in value units.
+            public float? SelectionTemperatureUnit;
+            // Aspiration half-window in score units. Legacy EvaluationScale * 50 (effectively unbounded for a
+            // model whose whole range is EvaluationScale).
+            public int? AspirationWindow;
+            // When true, an exception inside GetBestMove is rethrown instead of being logged and turned into
+            // "no move" (default(Move)), which callers treat as a pass / random move. Required for data generation
+            // so a broken model can never silently produce training data.
+            public bool ThrowOnSearchError;
+
+        }
+
+        /// <summary>Per-root-move scores of the last completed search iteration (see CollectRootScores).</summary>
+        public struct RootScore {
+            public Move Move;
+            /// <summary>Score from the search/evaluator alone, in engine score units.</summary>
+            public int Strategic;
+            /// <summary>Root bonus in engine score units (after RootBonusScale).</summary>
+            public int Bonus;
+            /// <summary>Strategic + Bonus (or ImmediateWinScore), the value moves are ranked by.</summary>
+            public int Final;
         }
 
         #endregion
@@ -141,13 +178,25 @@ namespace Attax.Core {
         #endregion
 
         #region constructor
+        /// <summary>
+        /// There is no engine without parameters: <paramref name="engineParams"/> (the deserialised engine-params.json) is mandatory, validated
+        /// here (ArgumentException lists every problem) and copied, so later changes to the object do not affect a running engine.
+        /// </summary>
+        /// <param name="evaluator">Leaf evaluator. null = the heuristic evaluator built from <paramref name="engineParams"/>. A model evaluator
+        /// (IValueEvaluator, optionally IBatchValueEvaluator) REPLACES the heuristic at every leaf; the root and search groups of the parameters
+        /// still apply. Passing a HeuristicEvaluator is rejected: pass null, so the evaluator and the root/search groups cannot disagree.</param>
         public AtaxxAIEngine(
-            IValueEvaluator evaluator,
+            EngineParams engineParams,
+            AIEngineConfig config = default,
+            IValueEvaluator evaluator = null,
             ILogSink ataxxLogger = null,
-            AILogCoordinator coordinator = null,
-            AIEngineConfig config = default
+            AILogCoordinator coordinator = null
         ) {
-            this.evaluator = evaluator;
+            if (engineParams == null) throw new ArgumentNullException(nameof(engineParams), "The engine needs its parameters: load engine-params.json.");
+            this.prm = engineParams.Compile();
+            if (evaluator is HeuristicEvaluator)
+                throw new ArgumentException("Pass null as the evaluator to use the heuristic evaluator (it is built from the engine parameters).", nameof(evaluator));
+            this.evaluator = evaluator ?? new HeuristicEvaluator(this.prm);
             this.ataxxLogger = ataxxLogger;
             this.logCoordinator = coordinator;
 
@@ -161,13 +210,29 @@ namespace Attax.Core {
             this.trainingMode = config.TrainingMode;
             this.evaluationScale = config.EvaluationScale != 0 ? config.EvaluationScale : DefaultEvaluationScale;
             this.disableParallelRootSearch = config.DisableParallelRootSearch;
-            this.useMLRootOnly = config.UseMLRootOnly;
             this.disableQuiescenceSearch = config.DisableQuiescenceSearch;
             this.disableNullMovePruning = config.DisableNullMovePruning;
-            this.logGenMode = config.LogGenMode;
+            this.disableRandomRootTies = config.DisableRandomRootTies;
+            //this.logGenMode = config.LogGenMode;
             this.iterativeDeepeningInTraining = config.IterativeDeepeningInTraining;
+            if (config.RootBonusScale.HasValue) {
+                if (float.IsNaN(config.RootBonusScale.Value) || config.RootBonusScale.Value < 0f)
+                    throw new ArgumentException("RootBonusScale must be >= 0.", nameof(config));
+                this.rootBonusScale = config.RootBonusScale.Value;
+            }
+            if (config.SelectionTemperatureUnit.HasValue) {
+                if (!(config.SelectionTemperatureUnit.Value > 0f))
+                    throw new ArgumentException("SelectionTemperatureUnit must be > 0.", nameof(config));
+                this.temperatureUnit = config.SelectionTemperatureUnit.Value;
+            }
+            if (config.AspirationWindow.HasValue) {
+                if (config.AspirationWindow.Value <= 0)
+                    throw new ArgumentException("AspirationWindow must be > 0.", nameof(config));
+                this.aspirationWindowOverride = config.AspirationWindow.Value;
+            }
+            this.throwOnSearchError = config.ThrowOnSearchError;
             this.rng = config.Seed.HasValue ? new Random(config.Seed.Value) : new Random();
-            this.searchEvaluator = this.useMLRootOnly ? new HeuristicEvaluator() : this.evaluator;
+            this.tieRng = config.Seed.HasValue ? new Random(unchecked(config.Seed.Value * 31 + 17)) : new Random();
 
             this.Board = new BitboardState();
             SetupBoard(SwitchPlayer(AIPlayerColor));
@@ -479,7 +544,7 @@ namespace Attax.Core {
             }
 
             // --- Randomized positions with distance rule ---
-            var rng = seed.HasValue ? new Random(seed.Value) : new Random();
+            var rnd = seed.HasValue ? new Random(seed.Value) : new Random();
             var allPlacedChips = new List<(int x, int y)>();
             var allSquares = new List<(int x, int y)>();
             for (int x = 0; x < size; x++) {
@@ -492,7 +557,7 @@ namespace Attax.Core {
             for (int i = 0; i < 2; i++) {
                 var validSquares = allSquares.AsValueEnumerable().Except(allPlacedChips).ToList();
                 if (!validSquares.AsValueEnumerable().Any()) throw new InvalidOperationException("Could not find a valid spot for a Red piece.");
-                var pos = validSquares[rng.Next(validSquares.Count)];
+                var pos = validSquares[rnd.Next(validSquares.Count)];
                 positions[AtaxxAIEngine.PlayerColor.Red].Add(pos);
                 allPlacedChips.Add(pos);
             }
@@ -512,7 +577,7 @@ namespace Attax.Core {
                     if (!validSquares.AsValueEnumerable().Any()) throw new InvalidOperationException("Board is full, cannot place Blue piece.");
                 }
 
-                var pos = validSquares[rng.Next(validSquares.Count)];
+                var pos = validSquares[rnd.Next(validSquares.Count)];
                 positions[AtaxxAIEngine.PlayerColor.Blue].Add(pos);
                 allPlacedChips.Add(pos);
             }
@@ -535,7 +600,7 @@ namespace Attax.Core {
                 return new List<(int, int)>();
             }
 
-            var rng = seed.HasValue ? new Random(seed.Value) : new Random();
+            var rnd = seed.HasValue ? new Random(seed.Value) : new Random();
             var blockedPositions = new List<(int, int)>();
             int maxAttempts = MaxRandomBlockAttempts;
             int attempts = 0;
@@ -553,7 +618,7 @@ namespace Attax.Core {
                     zones.Add((zx, zy));
                 }
             }
-            zones = zones.AsValueEnumerable().OrderBy(_ => rng.Next()).ToList();
+            zones = zones.AsValueEnumerable().OrderBy(_ => rnd.Next()).ToList();
 
             while (blockedPositions.Count < blocksToPlace && attempts < maxAttempts) {
                 foreach (var zone in zones) {
@@ -565,8 +630,8 @@ namespace Attax.Core {
                     int maxY = Math.Min((zone.zy + 1) * zoneSize, AttaxConstants.BaseConst.BoardSize);
 
                     // Find a random position within this zone.
-                    int x = rng.Next(minX, maxX);
-                    int y = rng.Next(minY, maxY);
+                    int x = rnd.Next(minX, maxX);
+                    int y = rnd.Next(minY, maxY);
                     var pos = (x, y);
 
                     ulong posBit = 1UL << GetBitIndex(x, y);
@@ -614,12 +679,20 @@ namespace Attax.Core {
         public long LastFallbackNodes { get; private set; }
         /// <summary>True if the last GetBestMove ended because the node budget or time limit was hit.</summary>
         public bool LastSearchWasInterrupted { get; private set; }
+        /// <summary>
+        /// Opt-in (default false, zero cost): record every root move's score for the last completed iteration in
+        /// <see cref="LastRootScores"/>. Used for teacher labels, calibration and root-score diagnostics.
+        /// </summary>
+        public bool CollectRootScores { get; set; }
+        /// <summary>Root moves of the last completed iteration sorted by Final descending. Null unless CollectRootScores.</summary>
+        public IReadOnlyList<RootScore> LastRootScores { get; private set; }
 
         public Move GetBestMove(PlayerColor player, bool isHumanSimulation = false, float temperature = 0f, int topK = 1) {
-            try {
+                try {
                 this.currentSearchAge++; // Increment age for this new search
                 LastSearchStats = new SearchStats();
-                var debug = false;
+                LastRootScores = null;
+                //var debug = false;
                 var clock = System.Diagnostics.Stopwatch.StartNew();
                 long? effectiveTimeLimitMs = UseTimeManagement ? (long?)SearchTimeLimitMs : null;
                 BitboardState searchRootBoard = Board.Clone();
@@ -630,7 +703,7 @@ namespace Attax.Core {
                 // Root-only "comeback" aggression, computed once from the AI's (fixed root)
                 // perspective. >1 when the AI is behind. Used to modulate the root bonus only.
                 var (aiRootCount, oppRootCount) = GetRedAndBlueCounts(searchRootBoard, player);
-                double rootAggression = AttaxConstants.GetAggressionFactor(aiRootCount - oppRootCount);
+                double rootAggression = prm.Aggression(aiRootCount - oppRootCount);
 
                 Move bestMoveOverall = allMoves[0];
                 int previousScore = 0;
@@ -672,7 +745,7 @@ namespace Attax.Core {
                     // Keep alpha above int.MinValue so negamax window inversion (-alpha) cannot overflow.
                     int alpha = int.MinValue + 1;
                     int beta = int.MaxValue;
-                    int windowSize = (int)(evaluationScale * AspirationWindowMultiplier); // E.g., 500,000 if evaluationScale is 10000
+                    int windowSize = aspirationWindowOverride ?? (int)(evaluationScale * AspirationWindowMultiplier); // E.g., 500,000 if evaluationScale is 10000
                     if (currentDepth > 1) {
                         long calcAlpha = (long)previousScore - windowSize;
                         alpha = calcAlpha < int.MinValue + 1 ? int.MinValue + 1 : (int)calcAlpha;
@@ -684,11 +757,14 @@ namespace Attax.Core {
                     var scored = new ConcurrentBag<(Move move, int score)>();
                     ConcurrentDictionary<Move, int> evaluationDetails = null;
                     ConcurrentDictionary<int, AIMoveCandidates> aiMoveCandidatesDict = null;
+                    // Only allocated when CollectRootScores is on: move -> (strategic score, root bonus).
+                    ConcurrentDictionary<Move, (int strat, int bonus)> rootDetail = null;
                     int logIdCounter = -1;
 
                     // Root search with aspiration window
                     void PerformSearch(int currentAlpha, int currentBeta) {
                         scored = new ConcurrentBag<(Move move, int score)>();
+                        rootDetail = CollectRootScores ? new ConcurrentDictionary<Move, (int strat, int bonus)>() : null;
                         if (shouldCollectLogDetails) {
                             evaluationDetails = new ConcurrentDictionary<Move, int>();
                             aiMoveCandidatesDict = new ConcurrentDictionary<int, AIMoveCandidates>();
@@ -711,7 +787,7 @@ namespace Attax.Core {
 
                             float[] rootBatchScores = null;
                             var batchEvaluator = evaluator as IBatchValueEvaluator;
-                            if (batchEvaluator != null && (currentDepth == 1 || useMLRootOnly) && allMoves.Count > 1) {
+                            if (batchEvaluator != null && currentDepth == 1 && allMoves.Count > 1) {
                                 var rootBoards = new List<BitboardState>(allMoves.Count);
                                 for (int i = 0; i < allMoves.Count; i++) {
                                     var boardAfterMove = searchRootBoard.Clone();
@@ -742,8 +818,8 @@ namespace Attax.Core {
                                 int flipped = CountFlippedEnemies(searchRootBoard, move, player);
                                 int positionalBonus = 0;
                                 int totalPieces = PopCount(searchRootBoard.RedPieces | searchRootBoard.BluePieces);
-                                if (totalPieces <= AttaxConstants.ChipsCountConst.lateGame) {
-                                    positionalBonus = GetPositionalValue(move.ToX, move.ToY) * AttaxConstants.GetBestMoveConst.centerWeightMultiplier;
+                                if (totalPieces <= prm.PositionalMaxPieces) {
+                                    positionalBonus = GetPositionalValue(move.ToX, move.ToY);
                                 }
 
                                 MakeMove(helper.boardForThread, move, player);
@@ -754,10 +830,18 @@ namespace Attax.Core {
 
                                 int strategicScore;
                                 if (rootBatchScores != null && currentDepth == 1) {
-                                    strategicScore = -(int)(rootBatchScores[moveIndex] * evaluationScale);
+                                    // A model is never trained on game-over positions, so a terminal child must be scored by the
+                                    // game rule, exactly as AlphaBeta does at ply 1, not by the model's opinion of it.
+                                    // (Wins are overridden to ImmediateWinScore below; this covers a move that leaves the mover
+                                    // stuck or ends the game as a loss/draw.)
+                                    int childOutcome = IsGameOver(helper.boardForThread) ? GetTerminalOutcomeFor(helper.boardForThread, player) : 2;
+                                    if (childOutcome == 2) strategicScore = -(int)(rootBatchScores[moveIndex] * evaluationScale);
+                                    else if (childOutcome > 0) strategicScore = TerminalWinScore - 1;
+                                    else if (childOutcome < 0) strategicScore = -(TerminalWinScore - 1);
+                                    else strategicScore = 0;
                                 } else {
                                     bool allowNullMoveForSearch = !trainingMode;
-                                    bool shouldUseQuiescenceForSearch = !disableQuiescenceSearch && !trainingMode && currentDepth >= 3;
+                                    bool shouldUseQuiescenceForSearch = !disableQuiescenceSearch && !trainingMode && currentDepth >= prm.QuiescenceMinRootDepth;
 
                                     long shiftedAlpha = (long)currentAlpha - bonus.total;
                                     long shiftedBeta = (long)currentBeta - bonus.total;
@@ -797,6 +881,7 @@ namespace Attax.Core {
                                 }
 
                                 scored.Add((move, finalScore));
+                                rootDetail?.TryAdd(move, (strategicScore, bonus.total));
                             }
 
                             var stats = LastSearchStats;
@@ -850,8 +935,8 @@ namespace Attax.Core {
                                     int flipped = CountFlippedEnemies(searchRootBoard, move, player);
                                     int positionalBonus = 0;
                                     int totalPieces = PopCount(searchRootBoard.RedPieces | searchRootBoard.BluePieces);
-                                    if (totalPieces <= AttaxConstants.ChipsCountConst.lateGame) {
-                                        positionalBonus = GetPositionalValue(move.ToX, move.ToY) * AttaxConstants.GetBestMoveConst.centerWeightMultiplier;
+                                    if (totalPieces <= prm.PositionalMaxPieces) {
+                                        positionalBonus = GetPositionalValue(move.ToX, move.ToY);
                                     }
 
                                     MakeMove(ataxxThreadHelper.boardForThread, move, player);
@@ -860,7 +945,7 @@ namespace Attax.Core {
                                     RootBonusBreakdown bonus = ComputeRootBonus(isClone, flipped, opponentFlipRisk, positionalBonus, totalPieces, rootAggression);
 
                                     bool allowNullMoveForSearch = !trainingMode;
-                                    bool shouldUseQuiescenceForSearch = !disableQuiescenceSearch && !trainingMode && currentDepth >= 3;
+                                    bool shouldUseQuiescenceForSearch = !disableQuiescenceSearch && !trainingMode && currentDepth >= prm.QuiescenceMinRootDepth;
 
                                     long shiftedAlpha = (long)currentAlpha - bonus.total;
                                     long shiftedBeta = (long)currentBeta - bonus.total;
@@ -898,6 +983,7 @@ namespace Attax.Core {
                                     }
 
                                     scored.Add((move, finalScore));
+                                    rootDetail?.TryAdd(move, (strategicScore, bonus.total));
                                     return ataxxThreadHelper;
                                 },
                                 (ataxxThreadHelper) => {
@@ -918,9 +1004,7 @@ namespace Attax.Core {
 
                     PerformSearch(alpha, beta);
 
-                    if (!interrupted) {
-                        if (scored.IsEmpty) break;
-                    }
+                    if (!interrupted && scored.IsEmpty) break;
 
                     List<(Move move, int score)> currentScoredList = null;
                     int bestScoreThisDepth = 0;
@@ -962,16 +1046,31 @@ namespace Attax.Core {
                         maxDepthToSearch = Math.Min(maxDepthToSearch, 1);
                     }
 
-                    bestMoveOverall = currentScoredList[0].move;
+                    // Root ties: the list is sorted by score, so the moves tied for the best score are the first tiedCount entries.
+                    // Only counted when randomising, so DisableRandomRootTies does no extra work and draws nothing from tieRng.
+                    int tiedCount = 1;
+                    if (!disableRandomRootTies) {
+                        while (tiedCount < currentScoredList.Count && currentScoredList[tiedCount].score == bestScoreThisDepth) tiedCount++;
+                    }
+                    bestMoveOverall = tiedCount > 1 ? currentScoredList[tieRng.Next(tiedCount)].move : currentScoredList[0].move;
                     previousScore = bestScoreThisDepth;
                     finalDepthReached = currentDepth;
+
+                    if (rootDetail != null) {
+                        var rootScores = new List<RootScore>(currentScoredList.Count);
+                        foreach (var (mv, fin) in currentScoredList) {
+                            rootDetail.TryGetValue(mv, out var d);
+                            rootScores.Add(new RootScore { Move = mv, Strategic = d.strat, Bonus = d.bonus, Final = fin });
+                        }
+                        LastRootScores = rootScores;
+                    }
 
                     if (temperature > 0 && currentDepth == maxDepthToSearch) {
                         // Apply sampling at the final depth
                         var candidates = currentScoredList.Take(Math.Max(1, topK)).ToList();
                         if (candidates.Count > 1) {
                             double maxScore = candidates.Max(c => c.score);
-                            var weights = candidates.Select(c => Math.Exp((c.score - maxScore) / (temperature * TemperatureDivisor))).ToList();
+                            var weights = candidates.Select(c => Math.Exp((c.score - maxScore) / (temperature * temperatureUnit))).ToList();
 
                             double totalWeight = weights.Sum();
                             double r = rng.NextDouble() * totalWeight;
@@ -1022,8 +1121,8 @@ namespace Attax.Core {
                         bool isClone = IsCloneMove(bestMoveOverall);
                         int flipped = CountFlippedEnemies(searchRootBoard, bestMoveOverall, player);
                         int totalPieces = PopCount(searchRootBoard.RedPieces | searchRootBoard.BluePieces);
-                        int positionalBonus = totalPieces <= AttaxConstants.ChipsCountConst.lateGame
-                            ? GetPositionalValue(bestMoveOverall.ToX, bestMoveOverall.ToY) * AttaxConstants.GetBestMoveConst.centerWeightMultiplier
+                        int positionalBonus = totalPieces <= prm.PositionalMaxPieces
+                            ? GetPositionalValue(bestMoveOverall.ToX, bestMoveOverall.ToY)
                             : 0;
 
                         int opponentFlipRisk = 0;
@@ -1086,6 +1185,9 @@ namespace Attax.Core {
                 return bestMoveOverall;
             } catch (Exception ex) {
                 ataxxLogger?.LogError(ex.ToString());
+                // Data-generation callers opt in to fail loudly: a swallowed model error becomes default(Move),
+                // which self-play treats as a pass / random move and would silently corrupt the dataset.
+                if (throwOnSearchError) throw;
                 return default;
             }
         }
@@ -1147,7 +1249,7 @@ namespace Attax.Core {
 
             if (depth <= 0) {
                 if (shouldUseQuiescence)
-                    return Quiescence(ataxxThreadHelper, player, alpha, beta, 2, ply, timeLimitMs, clock);
+                    return Quiescence(ataxxThreadHelper, player, alpha, beta, prm.QuiescenceDepth, ply, timeLimitMs, clock);
                 else
                     return Evaluate(ataxxThreadHelper.boardForThread, player, ataxxThreadHelper);
             }
@@ -1157,13 +1259,13 @@ namespace Attax.Core {
             // Gated by disableNullMovePruning so depth-N play can be A/B tested without recompiling.
             ulong playerPiecesForNull = (player == PlayerColor.Red) ? ataxxThreadHelper.boardForThread.RedPieces : ataxxThreadHelper.boardForThread.BluePieces;
             bool nullMoveSafe = !disableNullMovePruning
-                && PopCount(ataxxThreadHelper.boardForThread.EmptySquares()) > 14
-                && PopCount(playerPiecesForNull) >= 3;
-            if (allowNullMove && nullMoveSafe && depth >= 3 && HasAnyLegalMove(ataxxThreadHelper.boardForThread, player)) {
+                && PopCount(ataxxThreadHelper.boardForThread.EmptySquares()) > prm.NullMoveMinEmpty
+                && PopCount(playerPiecesForNull) >= prm.NullMoveMinPieces;
+            if (allowNullMove && nullMoveSafe && depth >= prm.NullMoveMinDepth && HasAnyLegalMove(ataxxThreadHelper.boardForThread, player)) {
                 int staticEval = Evaluate(ataxxThreadHelper.boardForThread, player, ataxxThreadHelper);
                 if (staticEval >= beta) {
                     ataxxThreadHelper.boardForThread.ZobristHash ^= ZobristHasher.GetSideToMoveKey();
-                    int nullMoveReduction = 2;
+                    int nullMoveReduction = prm.NullMoveReduction;
                     int score = -AlphaBeta(ataxxThreadHelper, SwitchPlayer(player), depth - 1 - nullMoveReduction, -beta, -beta + 1, ply + 1, false, shouldUseQuiescence, timeLimitMs, clock);
                     ataxxThreadHelper.boardForThread.ZobristHash ^= ZobristHasher.GetSideToMoveKey();
                     if (ataxxThreadHelper.Interrupted) return 0;
@@ -1447,7 +1549,7 @@ namespace Attax.Core {
         private int Evaluate(BitboardState board, PlayerColor player, AtaxxThreadHelper helper = null) {
             if (helper != null) helper.Evals++;
             // Use root-only heuristic evaluator in search when configured.
-            return (int)(searchEvaluator.Evaluate(board, player) * evaluationScale);
+            return (int)(evaluator.Evaluate(board, player) * evaluationScale);
         }
 
         // Quiescence search using negamax. Uses per-ply buffers — zero GC allocation.
@@ -1506,19 +1608,17 @@ namespace Attax.Core {
             helper.perPlyMoveCount[ply] = noisyCount;
             return noisyCount;
         }
-        private bool IsCaptureMove(BitboardState boardState, Move move, PlayerColor player) {
+        /*private bool IsCaptureMove(BitboardState boardState, Move move, PlayerColor player) {
             ulong opponentPieces = (player == PlayerColor.Red) ? boardState.BluePieces : boardState.RedPieces;
             int toIndex = GetBitIndex(move.ToX, move.ToY);
             ulong attackMask = BoardLookup.SingleStepMoves[toIndex];
             return (attackMask & opponentPieces) != 0;
-        }
-
-        // De Bruijn lookup table for 64-bit TrailingZeroCount.
+        }*/
+               
 
 
         public static int PopCount(ulong value) => BitboardOps.PopCount(value);
-        private ulong GetMoveDestinationsBitboard(BitboardState board, PlayerColor player)
-            => BitboardFeatures.GetMoveDestinationsBitboard(board, player);
+        //private ulong GetMoveDestinationsBitboard(BitboardState board, PlayerColor player)  => BitboardFeatures.GetMoveDestinationsBitboard(board, player);
         private static int TrailingZeroCount(ulong value) => BitboardOps.TrailingZeroCount(value);
 
         public bool IsAdjacent(int x1, int y1, int x2, int y2) => Math.Abs(x1 - x2) <= 1 && Math.Abs(y1 - y2) <= 1 && !(x1 == x2 && y1 == y2);
@@ -1656,64 +1756,54 @@ namespace Attax.Core {
         // and passive clones less. This lives ONLY at the root, so it cannot break the negamax
         // antisymmetry of the leaf evaluator.
         private RootBonusBreakdown ComputeRootBonus(bool isClone, int flipped, int opponentFlipRisk, int positionalBonus, int totalPieces, double aggression) {
-            double clonePts = isClone ? AttaxConstants.GetCloneBonusPoints(totalPieces) / aggression : 0.0;
+            double clonePts = isClone ? prm.CloneBonus(totalPieces) / aggression : 0.0;
             // A jump that neither captures nor grows is almost always inferior to a clone; discourage
             // it on the growth axis so the engine prefers clones/captures over pure repositioning.
-            if (!isClone && flipped == 0) clonePts -= AttaxConstants.RootBonusConst.nonCapturingJumpPenalty;
-            double flipPts = flipped * AttaxConstants.RootBonusConst.flipPoints * aggression;
-            double riskPts = opponentFlipRisk * AttaxConstants.RootBonusConst.riskPoints / aggression;
-            double posPts = positionalBonus * AttaxConstants.RootBonusConst.positionalPoints;
+            if (!isClone && flipped == 0) clonePts -= prm.NonCapturingJumpPenalty;
+            double flipPts = flipped * prm.FlipPoints * aggression;
+            double riskPts = opponentFlipRisk * prm.RiskPoints / aggression;
+            double posPts = positionalBonus * prm.PositionalPoints;
 
+            // rootBonusScale is exactly 1.0 unless the caller opted in, and x * 1.0 == x in IEEE arithmetic,
+            // so classic behaviour is bit-identical.
             var b = new RootBonusBreakdown {
-                cloneScaled = (int)(clonePts * evaluationScale),
-                flipScaled = (int)(flipPts * evaluationScale),
-                riskScaled = (int)(riskPts * evaluationScale),
-                posScaled = (int)(posPts * evaluationScale)
+                cloneScaled = (int)(clonePts * evaluationScale * rootBonusScale),
+                flipScaled = (int)(flipPts * evaluationScale * rootBonusScale),
+                riskScaled = (int)(riskPts * evaluationScale * rootBonusScale),
+                posScaled = (int)(posPts * evaluationScale * rootBonusScale)
             };
             b.total = b.cloneScaled + b.flipScaled - b.riskScaled + b.posScaled;
             return b;
         }
 
-        // Immutable lookup, built once (was re-created on every call).
-        private static readonly int[,] PositionWeight = {
-            {1,2,3,3,3,2,1},{2,3,4,4,4,3,2},{3,4,5,6,5,4,3},
-            {3,4,6,7,6,4,3},{3,4,5,6,5,4,3},{2,3,4,4,4,3,2},{1,2,3,3,3,2,1}
-        };
+        // Positional value of a destination square (root bonus input); the table lives in the engine params.
+        private int GetPositionalValue(int x, int y) => prm.PositionalValue(x, y);
 
-        private int GetPositionalValue(int x, int y) {
-            int[,] positionWeight = PositionWeight;
-            if (y >= 0 && y < AttaxConstants.BaseConst.BoardSize && x >= 0 && x < AttaxConstants.BaseConst.BoardSize) return positionWeight[y, x];
-            return 0;
-        }
+        //private int GetPotentialMobilityInternal(BitboardState boardState, ulong destinationSquares) => BitboardFeatures.GetPotentialMobilityInternal(boardState, destinationSquares);
 
-        private int GetPotentialMobilityInternal(BitboardState boardState, ulong destinationSquares)
-            => BitboardFeatures.GetPotentialMobilityInternal(boardState, destinationSquares);
         /// <summary>
         /// Calculates potential mobility for a given list of moves.
         /// </summary>
         /// <param name="boardState">The current board state.</param>
         /// <param name="moves">The list of moves whose destinations will be analyzed.</param>
         /// <returns>The potential mobility score.</returns>
-        public int GetPotentialMobility(BitboardState boardState, List<Move> moves) {
+        /*public int GetPotentialMobility(BitboardState boardState, List<Move> moves) {
             // Convert the list of moves into a single bitboard of destination squares.
             ulong destinationSquares = 0UL;
             foreach (var move in moves) {
                 destinationSquares |= (1UL << GetBitIndex(move.ToX, move.ToY));
             }
             return GetPotentialMobilityInternal(boardState, destinationSquares);
-        }
+        }*/
 
-       /* private bool HasAdjacentEmpty(BitboardState boardState, int x, int y)
-            => BitboardFeatures.HasAdjacentEmpty(boardState, x, y);
+        //private bool HasAdjacentEmpty(BitboardState boardState, int x, int y) => BitboardFeatures.HasAdjacentEmpty(boardState, x, y);
 
-        private bool IsStable(BitboardState boardState, int x, int y, PlayerColor player)
-            => BitboardFeatures.IsStable(boardState, x, y, player);*/
+        //private bool IsStable(BitboardState boardState, int x, int y, PlayerColor player) => BitboardFeatures.IsStable(boardState, x, y, player);
 
-        public int GetStabilityBonus(BitboardState boardState, PlayerColor player)
-            => BitboardFeatures.GetStabilityBonus(boardState, player);
+        //public int GetStabilityBonus(BitboardState boardState, PlayerColor player)  => BitboardFeatures.GetStabilityBonus(boardState, player);
 
-        public int GetCenterControl(BitboardState boardState, PlayerColor player)
-            => BitboardFeatures.GetCenterControl(boardState, player);
+        //public int GetCenterControl(BitboardState boardState, PlayerColor player)  => BitboardFeatures.GetCenterControl(boardState, player);
+
         /// <summary>
         /// Calculates the maximum number of pieces the opponent can flip on their next turn.
         /// iterates through all possible opponent moves efficiently using bitboards.
@@ -1758,10 +1848,6 @@ namespace Attax.Core {
         public void Dispose() {
             _parallelHelpers = null; // release 32 MB x N LOH TT arrays back to GC
             _serialHelper = null;
-            if (searchEvaluator != null && !ReferenceEquals(searchEvaluator, evaluator) && searchEvaluator is IDisposable disposableSearchEvaluator) {
-                disposableSearchEvaluator.Dispose();
-            }
-
             if (evaluator is IDisposable disposableEvaluator) {
                 disposableEvaluator.Dispose();
             }
