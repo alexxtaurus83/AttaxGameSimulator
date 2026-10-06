@@ -88,8 +88,8 @@ namespace Attax.Console {
         private static string Pct(int d, int n) => n == 0 ? "na" : (100.0 * d / n).ToString("0.00", CultureInfo.InvariantCulture);
 
         private static string DescribeAction(int action, BitboardState b, PlayerColor side) {
-            if (!Attax.Model.ActionCodec.TryDecode(action, b, side, out var m)) return "?";
-            return $"({m.FromX},{m.FromY})->({m.ToX},{m.ToY}) {(Attax.Model.ActionCodec.IsClone(action) ? "clone" : "jump")}";
+            if (!Attax.Core.ActionCodec.TryDecode(action, b, side, out var m)) return "?";
+            return $"({m.FromX},{m.FromY})->({m.ToX},{m.ToY}) {(Attax.Core.ActionCodec.IsClone(action) ? "clone" : "jump")}";
         }
     }
 }

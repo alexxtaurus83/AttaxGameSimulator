@@ -2,7 +2,7 @@ using System;
 using Attax.Core;
 using static Attax.Core.AtaxxAIEngine;
 
-namespace Attax.Model {
+namespace Attax.Core {
     /// <summary>
     /// Model input encoding. One board becomes 4 planes of 7x7 in CHW order (index = channel * 49 + y * 7 + x):
     ///   0 friendly (side to move), 1 enemy, 2 blocked, 3 constant 1.0 (lets convolutions see the board edge).
