@@ -47,6 +47,10 @@ namespace Attax.Core {
         // returns immediately; results produced while it is set must not be trusted or cached.
         public bool Interrupted;
 
+        // Cooperative cancellation for hint searches (AtaxxAIEngine.Search). Default token = never cancelled, so GetBestMove is unaffected.
+        // A cancelled token behaves like Interrupted: every node unwinds immediately and the result must not be trusted.
+        public System.Threading.CancellationToken Cancellation;
+
         /// <summary>
         /// Clears the transposition table, killer and history tables so a reused helper searches exactly like a
         /// freshly constructed one. (Clearing still touches the memory; it only avoids reallocating it.)
