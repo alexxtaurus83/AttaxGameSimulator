@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading.Tasks;
 using ZLinq;
 using static Attax.Core.AILogCoordinator;
@@ -872,7 +871,7 @@ namespace Attax.Core {
 
                             int[] rootMoveOrder = null;
                             if (rootBatchScores != null) {
-                                rootMoveOrder = Enumerable.Range(0, allMoves.Count)
+                                rootMoveOrder = ValueEnumerable.Range(0, allMoves.Count)
                                     .OrderByDescending(i => rootBatchScores[i])
                                     .ToArray();
                             }
@@ -1075,7 +1074,7 @@ namespace Attax.Core {
                     List<(Move move, int score)> currentScoredList = null;
                     int bestScoreThisDepth = 0;
                     if (!interrupted) {
-                        currentScoredList = scored.ToList();
+                        currentScoredList = scored.AsValueEnumerable().ToList();
                         currentScoredList.Sort(byScoreDesc);
                         bestScoreThisDepth = currentScoredList[0].score;
 
@@ -1086,7 +1085,7 @@ namespace Attax.Core {
                             PerformSearch(int.MinValue + 1, int.MaxValue);
                             if (!interrupted) {
                                 if (scored.IsEmpty) break;
-                                currentScoredList = scored.ToList();
+                                currentScoredList = scored.AsValueEnumerable().ToList();
                                 currentScoredList.Sort(byScoreDesc);
                                 bestScoreThisDepth = currentScoredList[0].score;
                             }
@@ -1137,12 +1136,12 @@ namespace Attax.Core {
 
                     if (temperature > 0 && currentDepth == maxDepthToSearch) {
                         // Apply sampling at the final depth
-                        var candidates = currentScoredList.Take(Math.Max(1, topK)).ToList();
+                        var candidates = currentScoredList.AsValueEnumerable().Take(Math.Max(1, topK)).ToList();
                         if (candidates.Count > 1) {
-                            double maxScore = candidates.Max(c => c.score);
-                            var weights = candidates.Select(c => Math.Exp((c.score - maxScore) / (temperature * temperatureUnit))).ToList();
+                            double maxScore = candidates.AsValueEnumerable().Max(c => c.score);
+                            var weights = candidates.AsValueEnumerable().Select(c => Math.Exp((c.score - maxScore) / (temperature * temperatureUnit))).ToList();
 
-                            double totalWeight = weights.Sum();
+                            double totalWeight = weights.AsValueEnumerable().Sum();
                             double r = rng.NextDouble() * totalWeight;
                             double currentWeight = 0;
                             for (int i = 0; i < candidates.Count; i++) {
@@ -1157,11 +1156,11 @@ namespace Attax.Core {
                     }
 
                     if (shouldCollectLogDetails && evaluationDetails != null && aiMoveCandidatesDict != null) {
-                        finalEvaluationDetails = evaluationDetails.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
-                        finalAiMoveCandidatesDict = aiMoveCandidatesDict.ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+                        finalEvaluationDetails = evaluationDetails.AsValueEnumerable().ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
+                        finalAiMoveCandidatesDict = aiMoveCandidatesDict.AsValueEnumerable().ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
                     }
 
-                    if (ataxxLogger != null && !(optionsSearch && options.SuppressLogging)) {
+                    if (ataxxLogger != null && ataxxLogger.IsEnabled && !(optionsSearch && options.SuppressLogging)) {
                         ataxxLogger.LogInformation(
                             $"Depth {currentDepth} completed. Best move: {bestMoveOverall.FromX},{bestMoveOverall.FromY}->{bestMoveOverall.ToX},{bestMoveOverall.ToY} Score: {bestScoreThisDepth} " +
                             $"Elapsed: {clock.ElapsedMilliseconds}ms, TargetDepth: {aiDepth}, MaxDepth: {maxDepthToSearch}, TimeManagement: {UseTimeManagement}, TimeLimitMs: {(effectiveTimeLimitMs.HasValue ? effectiveTimeLimitMs.Value : -1)}");
@@ -1222,7 +1221,7 @@ namespace Attax.Core {
 
                         RootBonusBreakdown bonus = ComputeRootBonus(isClone, flipped, opponentFlipRisk, positionalBonus, totalPieces, rootAggression);
 
-                        selectedMoveId = finalAiMoveCandidatesDict.Count == 0 ? 0 : finalAiMoveCandidatesDict.Keys.Max() + 1;
+                        selectedMoveId = finalAiMoveCandidatesDict.Count == 0 ? 0 : ((IEnumerable<int>)finalAiMoveCandidatesDict.Keys).AsValueEnumerable().Max() + 1;
                         finalAiMoveCandidatesDict[selectedMoveId] = new AIMoveCandidates {
                             move = bestMoveOverall,
                             isClone = isClone,
