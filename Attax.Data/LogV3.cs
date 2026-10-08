@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using Attax.Core;
+using Attax.Core.Utils;
 using Attax.Model;
 using K4os.Compression.LZ4;
 
@@ -108,7 +109,7 @@ namespace Attax.Data {
         }
 
         public static BitboardState ToBoard(in Sample s) => new BitboardState { RedPieces = s.Red, BluePieces = s.Blue, BlockedSquares = s.Blocked };
-        public static AtaxxAIEngine.PlayerColor SideOf(in Sample s) => s.Side == 0 ? AtaxxAIEngine.PlayerColor.Red : AtaxxAIEngine.PlayerColor.Blue;
+        public static PlayerColor SideOf(in Sample s) => s.Side == 0 ? PlayerColor.Red : PlayerColor.Blue;
 
         private static uint[] crcTable;
         public static uint Crc32(byte[] bytes, int offset, int count) {

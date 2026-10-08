@@ -19,6 +19,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Attax.Core\Attax.Core.csproj" />
+    <ProjectReference Include="..\Attax.Core.Utils\Attax.Core.Utils.csproj" />
     <ProjectReference Include="..\Attax.Model\Attax.Model.csproj" />
     <ProjectReference Include="..\Attax.Data\Attax.Data.csproj" />
     <ProjectReference Include="..\Attax.Play\Attax.Play.csproj" />

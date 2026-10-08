@@ -1,10 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
-using System.Threading.Tasks;
-using static Attax.Core.AtaxxAIEngine;
+using System;
 
-namespace Attax.Core {
+namespace Attax.Core.Utils {
     public class BitboardState {
 
         /// <summary>
@@ -27,12 +23,13 @@ namespace Attax.Core {
         /// </summary>
         public ulong ZobristHash;
         // A mask representing all valid squares on the 7x7 board (bits 0-48).
-        private const ulong BoardMask = (1UL << 49) - 1;
+        public const ulong BoardMask = (1UL << 49) - 1;
 
         public BitboardState() {
             RedPieces = 0UL;
             BluePieces = 0UL;
             BlockedSquares = 0UL;
+            ZobristHash = 0UL;
         }
 
         /// <summary>
@@ -52,7 +49,6 @@ namespace Attax.Core {
 
         /// <summary>
         /// Creates an exact, deep copy of the current bitboard state.
-        /// This is essential for the parallel search.
         /// </summary>
         public BitboardState Clone() {
             return new BitboardState {

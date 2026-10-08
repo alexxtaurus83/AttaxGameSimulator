@@ -8,6 +8,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Attax.Core\Attax.Core.csproj" />
+    <ProjectReference Include="..\Attax.Core.Utils\Attax.Core.Utils.csproj" />
     <ProjectReference Include="..\Attax.Model\Attax.Model.csproj" />
   </ItemGroup>
 

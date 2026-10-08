@@ -1,6 +1,6 @@
 using System;
 
-namespace Attax.Core {
+namespace Attax.Core.Utils {
     public static class BitboardOps {
         // De Bruijn lookup table for 64-bit TrailingZeroCount.
         private static readonly int[] DeBruijnIndex64 = new int[64] {

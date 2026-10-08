@@ -1,4 +1,5 @@
 using Attax.Core;
+using Attax.Core.Utils;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Converters;
 using System;
@@ -14,7 +15,7 @@ namespace Attax.Core {
 
         [Serializable]
         public class AIMoveCandidates {
-            public AtaxxAIEngine.Move move { get; set; }
+            public Move move { get; set; }
             public bool isClone { get; set; }
             public int flipsCount { get; set; }
             public int opponentFlipRiskCount { get; set; }
@@ -43,9 +44,9 @@ namespace Attax.Core {
         }
         [Serializable]
         public class MoveDetails {
-            public AtaxxAIEngine.Move move { get; set; }
+            public Move move { get; set; }
             [JsonConverter(typeof(StringEnumConverter))]
-            public AtaxxAIEngine.PlayerColor PlayerColor { get; set; }
+            public PlayerColor PlayerColor { get; set; }
             public bool isClone { get; set; }
             public int flippedChips { get; set; }
             public string boardBeforeMove { get; set; }
@@ -54,7 +55,7 @@ namespace Attax.Core {
             public int blueCount { get; set; }
             public AIMoveDetails aIMoveDetails { get; set; }
             public MoveDetails() { }
-            public MoveDetails(AtaxxAIEngine.Move move, AtaxxAIEngine.PlayerColor playerColor, bool isClone, int flippedChips, string boardBeforeMove, bool isHuman = true, AIMoveDetails aIMoveDetails = null) {
+            public MoveDetails(Move move, PlayerColor playerColor, bool isClone, int flippedChips, string boardBeforeMove, bool isHuman = true, AIMoveDetails aIMoveDetails = null) {
                 this.move = move;
                 this.PlayerColor = playerColor;
                 this.isClone = isClone;
@@ -75,7 +76,7 @@ namespace Attax.Core {
         public class AIEffectiveness {
             public string PlayerDescription { get; set; } // Describes the AI being primarily evaluated (e.g., "Blue AI - Mobility On")
             public string OpponentDescription { get; set; }      // Describes the opponent AI (e.g., "Red AI - Baseline")
-            public AtaxxAIEngine.PlayerColor EvaluatedPlayerColor { get; set; }
+            public PlayerColor EvaluatedPlayerColor { get; set; }
             public int FinalPieceDifference { get; set; } // Piece difference from the EvaluatedPlayer's perspective (positive if EvaluatedPlayer has more pieces at the end)
             public string GameOutcome { get; set; } // e.g., "Evaluated AI Wins", "Opponent Wins", "Draw by Pieces", "Draw by Stalemate"
             public int TotalMovesByEvaluatedAI { get; set; }

@@ -13,6 +13,10 @@ namespace Attax.Core.Tests {
 
         private static int Cheb(Move m) => Math.Max(Math.Abs(m.ToX - m.FromX), Math.Abs(m.ToY - m.FromY));
 
+        // Only the super jump part of GetValidMovesFrom(..., superJump: true).
+        private static List<Move> SuperJumpOnly(AtaxxAIEngine e, BitboardState b, PlayerColor p, int x, int y) =>
+            e.GetValidMovesFrom(b, p, x, y, true).Where(IsSuperJump).ToList();
+
         private static ulong Bit(int x, int y) => 1UL << (y * 7 + x);
 
         private static BitboardState WithHash(AtaxxAIEngine e, BitboardState b, PlayerColor sideToMove) {
@@ -31,7 +35,7 @@ namespace Attax.Core.Tests {
                 ".......",
                 ".......",
                 ".......");
-            var moves = e.GetSuperJumpMovesFrom(b, PlayerColor.Red, 0, 0);
+            var moves = SuperJumpOnly(e, b, PlayerColor.Red, 0, 0);
 
             Assert.Equal(40, moves.Count);
             Assert.All(moves, m => {
@@ -59,7 +63,7 @@ namespace Attax.Core.Tests {
                 ".......",
                 ".......",
                 ".......");
-            var moves = e.GetSuperJumpMovesFrom(b, PlayerColor.Red, 0, 0);
+            var moves = SuperJumpOnly(e, b, PlayerColor.Red, 0, 0);
 
             Assert.DoesNotContain(new Move(0, 0, 3, 0), moves); // enemy
             Assert.DoesNotContain(new Move(0, 0, 5, 3), moves); // enemy
@@ -82,16 +86,16 @@ namespace Attax.Core.Tests {
                 "......B",
                 ".......",
                 ".......");
-            Assert.Empty(e.GetSuperJumpMovesFrom(b, PlayerColor.Red, 6, 4));  // enemy-owned
-            Assert.Empty(e.GetSuperJumpMovesFrom(b, PlayerColor.Blue, 0, 0)); // enemy-owned
-            Assert.Empty(e.GetSuperJumpMovesFrom(b, PlayerColor.Red, 3, 3));  // empty
-            Assert.Empty(e.GetSuperJumpMovesFrom(b, PlayerColor.Red, -1, 0));
-            Assert.Empty(e.GetSuperJumpMovesFrom(b, PlayerColor.Red, 0, 7));
-            Assert.Empty(e.GetSuperJumpMovesFrom(b, PlayerColor.Red, 7, 7));
+            Assert.Empty(SuperJumpOnly(e, b, PlayerColor.Red, 6, 4));  // enemy-owned
+            Assert.Empty(SuperJumpOnly(e, b, PlayerColor.Blue, 0, 0)); // enemy-owned
+            Assert.Empty(SuperJumpOnly(e, b, PlayerColor.Red, 3, 3));  // empty
+            Assert.Empty(SuperJumpOnly(e, b, PlayerColor.Red, -1, 0));
+            Assert.Empty(SuperJumpOnly(e, b, PlayerColor.Red, 0, 7));
+            Assert.Empty(SuperJumpOnly(e, b, PlayerColor.Red, 7, 7));
         }
 
         [Fact]
-        public void UnionWithValidMovesFromCoversAllEmptyCellsWithoutOverlap() {
+        public void SuperJumpFlag_ExtendsDefaultResultToAllEmptyCellsWithoutOverlap() {
             var e = Engine();
             var b = TestBoards.Parse(
                 "RR..B..",
@@ -103,13 +107,20 @@ namespace Attax.Core.Tests {
                 ".B....R");
             foreach (var (x, y) in new[] { (0, 0), (2, 2), (5, 4), (6, 6) }) {
                 var normal = e.GetValidMovesFrom(b, PlayerColor.Red, x, y);
-                var super = e.GetSuperJumpMovesFrom(b, PlayerColor.Red, x, y);
+                var normalExplicit = e.GetValidMovesFrom(b, PlayerColor.Red, x, y, false);
+                var all = e.GetValidMovesFrom(b, PlayerColor.Red, x, y, true);
 
-                Assert.Empty(normal.Intersect(super));
+                // Default and superJump = false are identical, and no standard move is a super jump.
+                Assert.Equal(normal, normalExplicit);
+                Assert.DoesNotContain(normal, IsSuperJump);
+                // superJump = true keeps the standard moves as a prefix and appends only super jumps.
+                Assert.Equal(normal, all.Take(normal.Count).ToList());
+                Assert.All(all.Skip(normal.Count), m => Assert.True(IsSuperJump(m)));
+
                 ulong union = 0;
-                foreach (var m in normal.Concat(super)) union |= Bit(m.ToX, m.ToY);
+                foreach (var m in all) union |= Bit(m.ToX, m.ToY);
                 Assert.Equal(b.EmptySquares() & ~Bit(x, y), union);
-                Assert.Equal(normal.Count + super.Count, System.Numerics.BitOperations.PopCount(union));
+                Assert.Equal(all.Count, System.Numerics.BitOperations.PopCount(union)); // no duplicates
             }
         }
 
@@ -262,7 +273,7 @@ namespace Attax.Core.Tests {
                 ".......",
                 ".......",
                 ".......");
-            var super = e.GetSuperJumpMovesFrom(b, PlayerColor.Red, 3, 3);
+            var super = SuperJumpOnly(e, b, PlayerColor.Red, 3, 3);
 
             // From the centre every cell is within distance 3, but nothing closer than 3 may be offered.
             Assert.All(super, m => Assert.True(Cheb(m) >= 3));
@@ -355,6 +366,99 @@ namespace Attax.Core.Tests {
             Assert.False(e.IsGameOver(b));
 
             Assert.True(e.TryConvertEnemyChip(b, PlayerColor.Red, 3, 3));
+
+            Assert.True(e.IsGameOver(b));
+            Assert.Equal(TerminalResult.RedWins, e.GetTerminalResult(b));
+        }
+
+        // ---- Block-enemy-chip cheat ---------------------------------------------------------------------------------------------
+
+        [Fact]
+        public void Block_TurnsEnemyChipIntoBlockedCellAndKeepsHashConsistent() {
+            var e = Engine();
+            var b = WithHash(e, TestBoards.Parse(
+                "R......",
+                ".......",
+                "..BB...",
+                "..BB...",
+                ".......",
+                ".......",
+                "......R"), PlayerColor.Red);
+
+            Assert.True(e.TryConvertEnemyChip(b, PlayerColor.Red, 2, 2, ChipConversion.ToBlocked));
+
+            Assert.Equal(Bit(2, 2), b.BlockedSquares);
+            Assert.Equal(0UL, b.BluePieces & Bit(2, 2));
+            Assert.Equal(0UL, b.RedPieces & Bit(2, 2));
+            // Neighbours untouched, own chips untouched.
+            Assert.Equal(Bit(3, 2) | Bit(2, 3) | Bit(3, 3), b.BluePieces);
+            Assert.Equal(Bit(0, 0) | Bit(6, 6), b.RedPieces);
+            Assert.Equal(e.ComputeZobristHash(b, PlayerColor.Red), b.ZobristHash);
+            Assert.Equal(0UL, b.EmptySquares() & Bit(2, 2));
+            // The new blocked cell is no longer a legal destination or a super jump target.
+            Assert.False(e.IsLegalMove(b, PlayerColor.Red, new Move(0, 0, 2, 2), true));
+        }
+
+        [Fact]
+        public void Block_WorksForBlueToo() {
+            var e = Engine();
+            var b = WithHash(e, TestBoards.Parse(
+                "R......",
+                ".......",
+                ".......",
+                "...B...",
+                ".......",
+                ".......",
+                "......."), PlayerColor.Blue);
+
+            Assert.True(e.TryConvertEnemyChip(b, PlayerColor.Blue, 0, 0, ChipConversion.ToBlocked));
+
+            Assert.Equal(0UL, b.RedPieces);
+            Assert.Equal(Bit(3, 3), b.BluePieces);
+            Assert.Equal(Bit(0, 0), b.BlockedSquares);
+            Assert.Equal(e.ComputeZobristHash(b, PlayerColor.Blue), b.ZobristHash);
+        }
+
+        [Fact]
+        public void Block_RejectsInvalidTargetsAndLeavesBoardUntouched() {
+            var e = Engine();
+            var b = WithHash(e, TestBoards.Parse(
+                "R..X...",
+                ".......",
+                ".......",
+                "...B...",
+                ".......",
+                ".......",
+                "......."), PlayerColor.Red);
+            ulong red = b.RedPieces, blue = b.BluePieces, blocked = b.BlockedSquares, hash = b.ZobristHash;
+
+            Assert.False(e.TryConvertEnemyChip(b, PlayerColor.Red, 0, 0, ChipConversion.ToBlocked));  // own chip
+            Assert.False(e.TryConvertEnemyChip(b, PlayerColor.Red, 3, 0, ChipConversion.ToBlocked));  // already blocked
+            Assert.False(e.TryConvertEnemyChip(b, PlayerColor.Red, 5, 5, ChipConversion.ToBlocked));  // empty
+            Assert.False(e.TryConvertEnemyChip(b, PlayerColor.Red, -1, 0, ChipConversion.ToBlocked));
+            Assert.False(e.TryConvertEnemyChip(b, PlayerColor.Red, 0, 7, ChipConversion.ToBlocked));
+            Assert.False(e.TryConvertEnemyChip(b, PlayerColor.None, 3, 3, ChipConversion.ToBlocked));
+
+            Assert.Equal(red, b.RedPieces);
+            Assert.Equal(blue, b.BluePieces);
+            Assert.Equal(blocked, b.BlockedSquares);
+            Assert.Equal(hash, b.ZobristHash);
+        }
+
+        [Fact]
+        public void Block_LastEnemyChip_EndsTheGame() {
+            var e = Engine();
+            var b = WithHash(e, TestBoards.Parse(
+                "R......",
+                ".......",
+                ".......",
+                "...B...",
+                ".......",
+                ".......",
+                "......."), PlayerColor.Red);
+            Assert.False(e.IsGameOver(b));
+
+            Assert.True(e.TryConvertEnemyChip(b, PlayerColor.Red, 3, 3, ChipConversion.ToBlocked));
 
             Assert.True(e.IsGameOver(b));
             Assert.Equal(TerminalResult.RedWins, e.GetTerminalResult(b));

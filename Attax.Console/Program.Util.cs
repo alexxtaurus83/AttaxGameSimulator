@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Attax.Core;
+using Attax.Core.Utils;
 using Attax.Play;
 
 namespace Attax.Console {
@@ -78,7 +79,7 @@ namespace Attax.Console {
             });   // hashing and move generation only
 
             int mismatches = 0, positionsChecked = 0;
-            void Check(string kind, int g, int ply, AtaxxAIEngine.PlayerColor side, BitboardState board, ulong expected) {
+            void Check(string kind, int g, int ply, PlayerColor side, BitboardState board, ulong expected) {
                 positionsChecked++;
                 if (board.ZobristHash == expected) return;
                 mismatches++;
@@ -91,7 +92,7 @@ namespace Attax.Console {
             try {
                 for (int g = 0; g < games; g++) {
                     var board = CreateStandardInitialBoard();
-                    var side = AtaxxAIEngine.PlayerColor.Red;
+                    var side = PlayerColor.Red;
                     board.ZobristHash = engine.ComputeZobristHash(board, side);
 
                     for (int ply = 0; ply < maxMoves; ply++) {
@@ -127,7 +128,7 @@ namespace Attax.Console {
         internal sealed class Observed {
             public ushort Ply;
             public BitboardState Board;
-            public AtaxxAIEngine.PlayerColor Side;
+            public PlayerColor Side;
             public int PlayedAction;
             public bool PlayedRandom;
             /// <summary>Action a teacher search would return for this exact position, known for free; -1 if unknown.</summary>

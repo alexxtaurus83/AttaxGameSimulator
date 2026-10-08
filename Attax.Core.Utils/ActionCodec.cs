@@ -1,9 +1,7 @@
 using System;
 using System.Collections.Generic;
-using Attax.Core;
-using static Attax.Core.AtaxxAIEngine;
 
-namespace Attax.Core {
+namespace Attax.Core.Utils {
     /// <summary>
     /// Policy action space shared by the engine, the log format, the trainer and the ONNX contract.
     ///

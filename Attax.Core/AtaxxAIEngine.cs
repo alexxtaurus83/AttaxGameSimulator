@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using Attax.Core.Utils;
 using ZLinq;
 using static Attax.Core.AILogCoordinator;
 
@@ -96,44 +97,6 @@ namespace Attax.Core {
 
         private int currentSearchAge = 0;
 
-        public struct MoveResult {
-            // --- For the UI/GameManager (Visuals) ---
-            public Move MoveMade;
-            public bool WasClone;
-            public List<(int x, int y)> FlippedPieces;
-            public UndoMoveInfo UndoInfo;
-        }
-        public struct UndoMoveInfo {
-            public ulong PreviousZobristHash;
-            public ulong FlippedPiecesMask;
-        }
-        public struct Move : IEquatable<Move> {
-            public int FromX, FromY, ToX, ToY;
-            public Move(int fx, int fy, int tx, int ty) {
-                FromX = fx; FromY = fy; ToX = tx; ToY = ty;
-            }
-
-            public bool Equals(Move other) {
-                return FromX == other.FromX && FromY == other.FromY && ToX == other.ToX && ToY == other.ToY;
-            }
-
-            public override bool Equals(object obj) {
-                return obj is Move other && Equals(other);
-            }
-
-            public override int GetHashCode() {
-                return HashCode.Combine(FromX, FromY, ToX, ToY);
-            }
-
-            public static bool operator ==(Move left, Move right) {
-                return left.Equals(right);
-            }
-
-            public static bool operator !=(Move left, Move right) {
-                return !(left == right);
-            }
-        }
-        public enum PlayerColor { None, Red, Blue, Blocked }
         public enum NodeType { Exact, LowerBound, UpperBound }
 
         public struct AIEngineConfig {
@@ -462,84 +425,20 @@ namespace Attax.Core {
         /// <summary>
         /// Checks for game-over conditions using fast bitboard operations.
         /// </summary>
-        /// <param name="boardState">The current bitboard state of the game.</param>
-        /// <returns>True if the game is over, otherwise false.</returns>
-        public bool IsGameOver(BitboardState boardState) {
-            // Check for win/loss/draw by piece count or full board.
-            // This is extremely fast using PopCount on the bitboards.
-            int redCount = PopCount(boardState.RedPieces);
-            int blueCount = PopCount(boardState.BluePieces);
-            int emptyCount = PopCount(boardState.EmptySquares());
-
-            if (redCount == 0 || blueCount == 0 || emptyCount == 0) {
-                return true;
-            }
-
-            // Check for stalemate (neither player has a valid move).
-            if (!HasAnyLegalMove(boardState, PlayerColor.Red) ||
-                !HasAnyLegalMove(boardState, PlayerColor.Blue)) {
-                return true;
-            }
-
-            return false;
-        }
-        public enum TerminalResult { NotOver, RedWins, BlueWins, Draw }
+        public bool IsGameOver(BitboardState boardState) => AttaxRules.IsGameOver(boardState);
 
         /// <summary>
-        /// Single source of truth for the game result. A player with no legal move (including a
-        /// wiped-out color) loses regardless of piece counts. If neither player can move (full board
-        /// or both blocked off), the side with more pieces wins and equal counts are a draw.
+        /// Single source of truth for the game result.
         /// </summary>
-        public TerminalResult GetTerminalResult(BitboardState boardState) {
-            if (!IsGameOver(boardState)) return TerminalResult.NotOver;
-
-            bool redCanMove = HasAnyLegalMove(boardState, PlayerColor.Red);
-            bool blueCanMove = HasAnyLegalMove(boardState, PlayerColor.Blue);
-            if (redCanMove && !blueCanMove) return TerminalResult.RedWins;
-            if (blueCanMove && !redCanMove) return TerminalResult.BlueWins;
-
-            int redCount = PopCount(boardState.RedPieces);
-            int blueCount = PopCount(boardState.BluePieces);
-            if (redCount > blueCount) return TerminalResult.RedWins;
-            if (blueCount > redCount) return TerminalResult.BlueWins;
-            return TerminalResult.Draw;
-        }
+        public TerminalResult GetTerminalResult(BitboardState boardState) => AttaxRules.GetTerminalResult(boardState);
 
         /// <summary>Result from the given player's perspective: +1 win, -1 loss, 0 draw or not over.</summary>
-        public int GetTerminalOutcomeFor(BitboardState boardState, PlayerColor player) {
-            switch (GetTerminalResult(boardState)) {
-                case TerminalResult.RedWins: return player == PlayerColor.Red ? 1 : -1;
-                case TerminalResult.BlueWins: return player == PlayerColor.Blue ? 1 : -1;
-                default: return 0;
-            }
-        }
+        public int GetTerminalOutcomeFor(BitboardState boardState, PlayerColor player) => AttaxRules.GetTerminalOutcomeFor(boardState, player);
 
         /// <summary>
         /// Counts how many enemy pieces are adjacent to a destination square, using bitboards.
         /// </summary>
-        /// <param name="boardState">The current bitboard state of the game.</param>
-        /// <param name="move">The move being made.</param>
-        /// <param name="player">The player making the move.</param>
-        /// <returns>The number of adjacent enemy pieces that will be flipped.</returns>
-        public int CountFlippedEnemies(BitboardState boardState, Move move, PlayerColor player) {
-            // Determine which bitboard holds the opponent's pieces.
-            ulong opponentPieces = (player == PlayerColor.Red)
-                ? boardState.BluePieces
-                : boardState.RedPieces;
-
-            // Get the index of the destination square.
-            int toIndex = GetBitIndex(move.ToX, move.ToY);
-
-            // Select the correct attack mask based on the capture rule.
-            // We reuse SingleStepMoves for standard 8-directional captures.
-            ulong attackMask = BoardLookup.SingleStepMoves[toIndex];
-
-            // Find the opponent's pieces that are in the attack mask area.
-            ulong flippedPieces = opponentPieces & attackMask;
-
-            // Return the count of those pieces using the fast PopCount helper.
-            return PopCount(flippedPieces);
-        }
+        public int CountFlippedEnemies(BitboardState boardState, Move move, PlayerColor player) => AttaxRules.CountFlippedEnemies(boardState, move, player);
 
 
 
@@ -549,18 +448,18 @@ namespace Attax.Core {
         #region inital chips setup
         public Dictionary<PlayerColor, List<(int x, int y)>> GetInitialChipPositions(bool randomize, int? seed) {
             var positions = new Dictionary<PlayerColor, List<(int x, int y)>> {
-                [AtaxxAIEngine.PlayerColor.Red] = new List<(int x, int y)>(),
-                [AtaxxAIEngine.PlayerColor.Blue] = new List<(int x, int y)>()
+                [PlayerColor.Red] = new List<(int x, int y)>(),
+                [PlayerColor.Blue] = new List<(int x, int y)>()
             };
 
             int size = AttaxConstants.BaseConst.BoardSize;
 
             if (!randomize) {
                 // Default corner positions inherently satisfy the distance rule on a 7x7 board.
-                positions[AtaxxAIEngine.PlayerColor.Red].Add((0, 0));
-                positions[AtaxxAIEngine.PlayerColor.Red].Add((size - 1, size - 1));
-                positions[AtaxxAIEngine.PlayerColor.Blue].Add((0, size - 1));
-                positions[AtaxxAIEngine.PlayerColor.Blue].Add((size - 1, 0));
+                positions[PlayerColor.Red].Add((0, 0));
+                positions[PlayerColor.Red].Add((size - 1, size - 1));
+                positions[PlayerColor.Blue].Add((0, size - 1));
+                positions[PlayerColor.Blue].Add((size - 1, 0));
                 return positions;
             }
 
@@ -579,7 +478,7 @@ namespace Attax.Core {
                 var validSquares = allSquares.AsValueEnumerable().Except(allPlacedChips).ToList();
                 if (!validSquares.AsValueEnumerable().Any()) throw new InvalidOperationException("Could not find a valid spot for a Red piece.");
                 var pos = validSquares[rnd.Next(validSquares.Count)];
-                positions[AtaxxAIEngine.PlayerColor.Red].Add(pos);
+                positions[PlayerColor.Red].Add(pos);
                 allPlacedChips.Add(pos);
             }
 
@@ -588,7 +487,7 @@ namespace Attax.Core {
                 // Find all squares that are not yet occupied AND are far enough from all enemy (Red) pieces.
                 var validSquares = allSquares
                     .AsValueEnumerable().Except(allPlacedChips)
-                    .Where(sq => positions[AtaxxAIEngine.PlayerColor.Red].AsValueEnumerable().All(redPos => IsSufficientlyDistant(sq, redPos, 3)))
+                    .Where(sq => positions[PlayerColor.Red].AsValueEnumerable().All(redPos => IsSufficientlyDistant(sq, redPos, 3)))
                     .ToList();
 
                 if (!validSquares.AsValueEnumerable().Any()) {
@@ -599,7 +498,7 @@ namespace Attax.Core {
                 }
 
                 var pos = validSquares[rnd.Next(validSquares.Count)];
-                positions[AtaxxAIEngine.PlayerColor.Blue].Add(pos);
+                positions[PlayerColor.Blue].Add(pos);
                 allPlacedChips.Add(pos);
             }
 
@@ -1523,72 +1422,9 @@ namespace Attax.Core {
         /// <param name=\"player\">The player making the move.</param>
         public MoveResult MakeMove(BitboardState boardState, Move move, PlayerColor player) {
             try {
-                var moveResult = new MoveResult {
-                    MoveMade = move,
-                    FlippedPieces = new List<(int, int)>(),
-                };
-                var undoInfo = new UndoMoveInfo { PreviousZobristHash = boardState.ZobristHash };
-
-                // Get bitmasks for the 'from' and 'to' squares of the move.
-                int fromIndex = GetBitIndex(move.FromX, move.FromY);
-                int toIndex = GetBitIndex(move.ToX, move.ToY);
-                ulong fromMask = 1UL << fromIndex;
-                ulong toMask = 1UL << toIndex;
-
-                if ((boardState.BlockedSquares & toMask) != 0) throw new InvalidOperationException("Moving to blocked square");
-
-                // Identify which bitboards we are working with.
-                // Using 'ref' locals allows us to modify the bitboards in boardState directly.
-                ref ulong playerPieces = ref (player == PlayerColor.Red ? ref boardState.RedPieces : ref boardState.BluePieces);
-                ref ulong opponentPieces = ref (player == PlayerColor.Red ? ref boardState.BluePieces : ref boardState.RedPieces);
-
-                // Update Zobrist hash for the player who is about to move.
-                // We always flip the side-to-move key.
-                boardState.ZobristHash ^= ZobristHasher.GetSideToMoveKey();
-
-                // Handle the move itself (clone vs. jump).
-                bool isClone = IsCloneMove(move);
-                if (!isClone) // It's a jump
-                {
-                    playerPieces &= ~fromMask; // Remove piece from the 'from' square.
-                    boardState.ZobristHash ^= ZobristHasher.GetPieceKey(move.FromX, move.FromY, GetPieceTypeIndex(player)); // XOR out the old piece position
-                }
-
-                playerPieces |= toMask; // Place piece at the 'to' square.
-                boardState.ZobristHash ^= ZobristHasher.GetPieceKey(move.ToX, move.ToY, GetPieceTypeIndex(player)); // XOR in the new piece position
-
-                // Handle all captures at once.
-                // Select the correct attack mask based on the capture rule.
-                ulong attackMask = BoardLookup.SingleStepMoves[toIndex];
-
-                // Find all opponent pieces to be flipped in a single operation.
-                ulong flippedPieces = opponentPieces & attackMask;
-                undoInfo.FlippedPiecesMask = flippedPieces;
-
-                if (flippedPieces > 0) {
-                    playerPieces |= flippedPieces;      // Add the flipped pieces to our bitboard.
-                    opponentPieces &= ~flippedPieces;   // Remove the flipped pieces from the opponent's bitboard.
-
-                    // Update Zobrist hash for each piece that was flipped.
-                    ulong remainingFlipped = flippedPieces;
-                    while (remainingFlipped > 0) {
-                        int flippedIndex = TrailingZeroCount(remainingFlipped);
-                        moveResult.FlippedPieces.Add((flippedIndex % AttaxConstants.BaseConst.BoardSize, flippedIndex / AttaxConstants.BaseConst.BoardSize));
-                        int flippedX = flippedIndex % AttaxConstants.BaseConst.BoardSize;
-                        int flippedY = flippedIndex / AttaxConstants.BaseConst.BoardSize;
-
-                        // XOR out the key for the opponent piece being removed.
-                        boardState.ZobristHash ^= ZobristHasher.GetPieceKey(flippedX, flippedY, GetPieceTypeIndex(SwitchPlayer(player)));
-                        // XOR in the key for our piece being added in its place.
-                        boardState.ZobristHash ^= ZobristHasher.GetPieceKey(flippedX, flippedY, GetPieceTypeIndex(player));
-
-                        remainingFlipped &= remainingFlipped - 1;
-                    }
-                }
-                moveResult.UndoInfo = undoInfo;
-                return moveResult;
+                return AttaxRules.MakeMove(boardState, move, player);
             } catch (Exception ex) {
-                ataxxLogger?.LogError(ex.ToString()); // Using ToString() for more details
+                ataxxLogger?.LogError(ex.ToString());
                 return default;
             }
         }
@@ -1733,7 +1569,7 @@ namespace Attax.Core {
         private static int TrailingZeroCount(ulong value) => BitboardOps.TrailingZeroCount(value);
 
         public bool IsAdjacent(int x1, int y1, int x2, int y2) => Math.Abs(x1 - x2) <= 1 && Math.Abs(y1 - y2) <= 1 && !(x1 == x2 && y1 == y2);
-        public static PlayerColor SwitchPlayer(PlayerColor current) => current == AtaxxAIEngine.PlayerColor.Red ? AtaxxAIEngine.PlayerColor.Blue : current == AtaxxAIEngine.PlayerColor.Blue ? AtaxxAIEngine.PlayerColor.Red : AtaxxAIEngine.PlayerColor.None;
+        public static PlayerColor SwitchPlayer(PlayerColor current) => current == PlayerColor.Red ? PlayerColor.Blue : current == PlayerColor.Blue ? PlayerColor.Red : PlayerColor.None;
 
         private int GetPieceTypeIndex(PlayerColor color) {
             switch (color) {

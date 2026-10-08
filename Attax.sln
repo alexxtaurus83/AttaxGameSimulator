@@ -17,6 +17,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Attax.Play", "Attax.Play\At
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Attax.Model", "Attax.Model\Attax.Model.csproj", "{22371710-63FC-45EA-9007-0F24EC52BAB3}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Attax.Core.Utils", "Attax.Core.Utils\Attax.Core.Utils.csproj", "{6C868B09-E396-4EE9-BF7D-DF8DC2C179AF}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -111,6 +113,18 @@ Global
 		{22371710-63FC-45EA-9007-0F24EC52BAB3}.Release|x64.Build.0 = Release|Any CPU
 		{22371710-63FC-45EA-9007-0F24EC52BAB3}.Release|x86.ActiveCfg = Release|Any CPU
 		{22371710-63FC-45EA-9007-0F24EC52BAB3}.Release|x86.Build.0 = Release|Any CPU
+		{6C868B09-E396-4EE9-BF7D-DF8DC2C179AF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{6C868B09-E396-4EE9-BF7D-DF8DC2C179AF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{6C868B09-E396-4EE9-BF7D-DF8DC2C179AF}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{6C868B09-E396-4EE9-BF7D-DF8DC2C179AF}.Debug|x64.Build.0 = Debug|Any CPU
+		{6C868B09-E396-4EE9-BF7D-DF8DC2C179AF}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{6C868B09-E396-4EE9-BF7D-DF8DC2C179AF}.Debug|x86.Build.0 = Debug|Any CPU
+		{6C868B09-E396-4EE9-BF7D-DF8DC2C179AF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{6C868B09-E396-4EE9-BF7D-DF8DC2C179AF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{6C868B09-E396-4EE9-BF7D-DF8DC2C179AF}.Release|x64.ActiveCfg = Release|Any CPU
+		{6C868B09-E396-4EE9-BF7D-DF8DC2C179AF}.Release|x64.Build.0 = Release|Any CPU
+		{6C868B09-E396-4EE9-BF7D-DF8DC2C179AF}.Release|x86.ActiveCfg = Release|Any CPU
+		{6C868B09-E396-4EE9-BF7D-DF8DC2C179AF}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

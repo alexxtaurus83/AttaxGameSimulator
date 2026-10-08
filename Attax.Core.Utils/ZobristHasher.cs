@@ -1,6 +1,6 @@
 using System;
 
-namespace Attax.Core {
+namespace Attax.Core.Utils {
     public static class ZobristHasher {
         private static readonly ulong[,,] Table = new ulong[AttaxConstants.BaseConst.BoardSize, AttaxConstants.BaseConst.BoardSize, 3];
         private static readonly ulong SideToMoveKey;
@@ -31,7 +31,7 @@ namespace Attax.Core {
             return SideToMoveKey;
         }
 
-        public static ulong ComputeHash(BitboardState board, AtaxxAIEngine.PlayerColor sideToMove) {
+        public static ulong ComputeHash(BitboardState board, PlayerColor sideToMove) {
             ulong hash = 0;
             
             // Red pieces
@@ -59,7 +59,7 @@ namespace Attax.Core {
             }
 
             // Side to move: XOR if it's Blue's turn (matching existing convention)
-            if (sideToMove == AtaxxAIEngine.PlayerColor.Blue) {
+            if (sideToMove == PlayerColor.Blue) {
                 hash ^= SideToMoveKey;
             }
 

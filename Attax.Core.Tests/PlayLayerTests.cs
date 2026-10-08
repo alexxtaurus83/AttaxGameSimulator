@@ -161,7 +161,7 @@ namespace Attax.Core.Tests {
             Assert.True(ActionCodecIsClone(m2.Action));
             Assert.Equal(m1.Action, plain.Choose(start, PlayerColor.Red).Action);   // the other player's params did not leak in
         }
-        private static bool ActionCodecIsClone(int action) => Attax.Core.ActionCodec.IsClone(action);
+        private static bool ActionCodecIsClone(int action) => ActionCodec.IsClone(action);
 
         [Fact]
         public void Describe_ShowsEffectiveModeQuiescenceAndParams() {

@@ -1,6 +1,6 @@
 using System;
 
-namespace Attax.Core {
+namespace Attax.Core.Utils {
     public static class BoardLookup {
         public static readonly ulong[] SingleStepMoves;
         public static readonly ulong[] TwoStepMoves;
@@ -31,14 +31,13 @@ namespace Attax.Core {
 
                             if (toX >= 0 && toX < boardSize && toY >= 0 && toY < boardSize) {
                                 int toIndex = toY * boardSize + toX;
-                                // The distance is the larger of the x or y change
                                 int distance = Math.Max(Math.Abs(dx), Math.Abs(dy));
 
                                 if (distance == 1) // Clone move distance
                                 {
                                     singleStepMask |= (1UL << toIndex);
                                 } else if (distance == 2) // Jump move distance
-                                  {
+                                {
                                     twoStepMask |= (1UL << toIndex);
                                 }
                             }

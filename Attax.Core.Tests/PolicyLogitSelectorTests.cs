@@ -8,7 +8,7 @@ namespace Attax.Core.Tests {
         public void SelectGreedy_NoLegalMoves_ReturnsHasMoveFalse() {
             var b = new BitboardState(); // completely empty, no pieces to move
             var logits = new float[ActionCodec.ActionCount];
-            var choice = PolicyLogitSelector.SelectGreedy(logits, b, AtaxxAIEngine.PlayerColor.Red);
+            var choice = PolicyLogitSelector.SelectGreedy(logits, b, PlayerColor.Red);
             Assert.False(choice.HasMove);
         }
 
@@ -29,7 +29,7 @@ namespace Attax.Core.Tests {
             // highest illegal logit
             logits[ActionCodec.Encode(2, 3)] = 100f; // not legal
             
-            var choice = PolicyLogitSelector.SelectGreedy(logits, b, AtaxxAIEngine.PlayerColor.Red);
+            var choice = PolicyLogitSelector.SelectGreedy(logits, b, PlayerColor.Red);
             Assert.True(choice.HasMove);
             Assert.Equal(a2, choice.Action);
             Assert.Equal(20f, logits[choice.Action]);
@@ -41,7 +41,7 @@ namespace Attax.Core.Tests {
             b.RedPieces |= 1UL;
             var logits = new float[ActionCodec.ActionCount];
             logits[0] = float.NaN;
-            Assert.Throws<InvalidOperationException>(() => PolicyLogitSelector.SelectGreedy(logits, b, AtaxxAIEngine.PlayerColor.Red));
+            Assert.Throws<InvalidOperationException>(() => PolicyLogitSelector.SelectGreedy(logits, b, PlayerColor.Red));
         }
     }
 }

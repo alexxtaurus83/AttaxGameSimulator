@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using Attax.Core.Utils;
 
 namespace Attax.Core {
     /// <summary>

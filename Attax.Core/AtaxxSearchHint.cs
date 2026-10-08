@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using Attax.Core.Utils;
 using static Attax.Core.AtaxxAIEngine;
 
 namespace Attax.Core {
@@ -46,122 +47,36 @@ namespace Attax.Core {
         /// <summary>
         /// All legal moves of the chip of <paramref name="player"/> on (<paramref name="x"/>, <paramref name="y"/>): every clone and every jump,
         /// WITHOUT the clone-destination canonicalisation GetAllValidMoves applies. Empty if the player has no chip there.
-        /// </summary>
-        public List<Move> GetValidMovesFrom(BitboardState board, PlayerColor player, int x, int y) {
-            var moves = new List<Move>();
-            int size = AttaxConstants.BaseConst.BoardSize;
-            if (x < 0 || y < 0 || x >= size || y >= size) return moves;
-            int fromIndex = GetBitIndex(x, y);
-            ulong playerPieces = (player == PlayerColor.Red) ? board.RedPieces : board.BluePieces;
-            if ((playerPieces & (1UL << fromIndex)) == 0) return moves;
-            ulong empty = board.EmptySquares();
-
-            ulong clones = BoardLookup.SingleStepMoves[fromIndex] & empty;
-            while (clones > 0) {
-                int toIndex = TrailingZeroCount(clones);
-                moves.Add(new Move(x, y, toIndex % size, toIndex / size));
-                clones &= clones - 1;
-            }
-            ulong jumps = BoardLookup.TwoStepMoves[fromIndex] & empty;
-            while (jumps > 0) {
-                int toIndex = TrailingZeroCount(jumps);
-                moves.Add(new Move(x, y, toIndex % size, toIndex / size));
-                jumps &= jumps - 1;
-            }
-            return moves;
-        }
-
-        /// <summary>
-        /// Client-side "super jump" ability: every empty cell at Chebyshev distance >= 3 from the chip of <paramref name="player"/> on
-        /// (<paramref name="x"/>, <paramref name="y"/>) (no upper limit). Disjoint from <see cref="GetValidMovesFrom"/> (distance 1 and 2).
-        /// Empty if the player has no chip there. A super jump behaves like a jump (the source is vacated, adjacent enemies are flipped),
-        /// so <see cref="MakeMove"/>, <see cref="MakeMoveFast"/> and <see cref="UnmakeMove"/> apply it unchanged.
+        /// With <paramref name="superJump"/> = true the client-side "super jump" ability is included as well: every other empty cell at
+        /// Chebyshev distance >= 3 (no upper limit), appended after the clones and jumps, so the result is every empty cell except the source.
+        /// Use <see cref="IsSuperJump"/> to tell them apart (highlight colour, animation). A super jump behaves like a jump (the source is
+        /// vacated, adjacent enemies are flipped), so <see cref="MakeMove"/>, <see cref="MakeMoveFast"/> and <see cref="UnmakeMove"/> apply it unchanged.
         /// Super jumps are NOT part of GetAllValidMoves, FillMoves, the AI search, <see cref="IsGameOver"/> or the training logs:
         /// a side without a standard move ends the game even if it could still super jump.
         /// </summary>
-        public List<Move> GetSuperJumpMovesFrom(BitboardState board, PlayerColor player, int x, int y) {
-            var moves = new List<Move>();
-            int size = AttaxConstants.BaseConst.BoardSize;
-            if (x < 0 || y < 0 || x >= size || y >= size) return moves;
-            int fromIndex = GetBitIndex(x, y);
-            ulong playerPieces = (player == PlayerColor.Red) ? board.RedPieces : board.BluePieces;
-            if ((playerPieces & (1UL << fromIndex)) == 0) return moves;
-
-            ulong far = board.EmptySquares()
-                & ~(BoardLookup.SingleStepMoves[fromIndex] | BoardLookup.TwoStepMoves[fromIndex])
-                & ~(1UL << fromIndex);
-            while (far > 0) {
-                int toIndex = TrailingZeroCount(far);
-                moves.Add(new Move(x, y, toIndex % size, toIndex / size));
-                far &= far - 1;
-            }
-            return moves;
-        }
+        public List<Move> GetValidMovesFrom(BitboardState board, PlayerColor player, int x, int y, bool superJump = false)
+            => AttaxRules.GetValidMovesFrom(board, player, x, y, superJump);
 
         /// <summary>true when <paramref name="m"/> is a super jump (Chebyshev distance >= 3), e.g. to pick an animation or highlight colour.</summary>
-        public static bool IsSuperJump(Move m) => Math.Max(Math.Abs(m.ToX - m.FromX), Math.Abs(m.ToY - m.FromY)) >= 3;
+        public static bool IsSuperJump(Move m) => AttaxRules.IsSuperJump(m);
 
         /// <summary>
-        /// Full legality check for a client move. Callers (UI/controller) MUST call this before <see cref="MakeMove"/>, because MakeMove
-        /// only rejects blocked destinations: it does not check that the source holds the mover's chip or that the destination is empty,
-        /// so an unchecked move can put both colours on one cell. Legal: in bounds, the source holds a chip of <paramref name="player"/>,
-        /// the destination is empty (not blocked, not occupied), and the Chebyshev distance is 1 or 2, or >= 3 when
-        /// <paramref name="allowSuperJump"/> is true.
+        /// Full legality check for a client move.
         /// </summary>
-        public bool IsLegalMove(BitboardState board, PlayerColor player, Move move, bool allowSuperJump) {
-            int size = AttaxConstants.BaseConst.BoardSize;
-            if (move.FromX < 0 || move.FromY < 0 || move.FromX >= size || move.FromY >= size) return false;
-            if (move.ToX < 0 || move.ToY < 0 || move.ToX >= size || move.ToY >= size) return false;
-            int fromIndex = GetBitIndex(move.FromX, move.FromY);
-            int toIndex = GetBitIndex(move.ToX, move.ToY);
-            if (fromIndex == toIndex) return false;
-            ulong playerPieces = (player == PlayerColor.Red) ? board.RedPieces : board.BluePieces;
-            if ((playerPieces & (1UL << fromIndex)) == 0) return false;
-            if ((board.EmptySquares() & (1UL << toIndex)) == 0) return false;
-            int d = Math.Max(Math.Abs(move.ToX - move.FromX), Math.Abs(move.ToY - move.FromY));
-            return d <= 2 || allowSuperJump;
-        }
+        public bool IsLegalMove(BitboardState board, PlayerColor player, Move move, bool allowSuperJump)
+            => AttaxRules.IsLegalMove(board, player, move, allowSuperJump);
 
         /// <summary>
-        /// Client-side "convert" cheat: the cells of every enemy chip of <paramref name="player"/>, i.e. every cell
-        /// <see cref="TryConvertEnemyChip"/> would accept. Intended for the UI highlight.
+        /// Client-side "convert" cheat: the cells of every enemy chip of <paramref name="player"/>.
         /// </summary>
-        public List<(int X, int Y)> GetConvertibleChips(BitboardState board, PlayerColor player) {
-            var cells = new List<(int X, int Y)>();
-            int size = AttaxConstants.BaseConst.BoardSize;
-            ulong enemy = (player == PlayerColor.Red) ? board.BluePieces : board.RedPieces;
-            while (enemy > 0) {
-                int index = TrailingZeroCount(enemy);
-                cells.Add((index % size, index / size));
-                enemy &= enemy - 1;
-            }
-            return cells;
-        }
+        public List<(int X, int Y)> GetConvertibleChips(BitboardState board, PlayerColor player)
+            => AttaxRules.GetConvertibleChips(board, player);
 
         /// <summary>
-        /// Client-side "convert" cheat: turns the enemy chip on (<paramref name="x"/>, <paramref name="y"/>) into a chip of
-        /// <paramref name="player"/>. Only that one cell changes owner: neighbouring enemy chips are NOT captured. Returns false and leaves the
-        /// board untouched when the cell is out of bounds or does not hold an enemy chip (empty, blocked or own chip).
-        /// The Zobrist hash is updated incrementally; the side-to-move key is not touched (this is an action, not a turn: the client decides
-        /// whether it consumes the turn). The caller MUST check <see cref="IsGameOver"/> / <see cref="GetTerminalResult"/> afterwards,
-        /// because converting the last enemy chip, or one that was the enemy's only mobile chip, ends the game.
-        /// Not part of the AI search, <see cref="ActionCodec"/> or the training logs: exclude these games from training data.
+        /// Converts the targeted enemy chip according to <paramref name="conversion"/>.
         /// </summary>
-        public bool TryConvertEnemyChip(BitboardState board, PlayerColor player, int x, int y) {
-            int size = AttaxConstants.BaseConst.BoardSize;
-            if (player != PlayerColor.Red && player != PlayerColor.Blue) return false;
-            if (x < 0 || y < 0 || x >= size || y >= size) return false;
-            ulong mask = 1UL << GetBitIndex(x, y);
-            ref ulong playerPieces = ref (player == PlayerColor.Red ? ref board.RedPieces : ref board.BluePieces);
-            ref ulong enemyPieces = ref (player == PlayerColor.Red ? ref board.BluePieces : ref board.RedPieces);
-            if ((enemyPieces & mask) == 0) return false;
-
-            enemyPieces &= ~mask;
-            playerPieces |= mask;
-            board.ZobristHash ^= ZobristHasher.GetPieceKey(x, y, GetPieceTypeIndex(SwitchPlayer(player)));
-            board.ZobristHash ^= ZobristHasher.GetPieceKey(x, y, GetPieceTypeIndex(player));
-            return true;
-        }
+        public bool TryConvertEnemyChip(BitboardState board, PlayerColor player, int x, int y, ChipConversion conversion = ChipConversion.ToPlayer)
+            => AttaxRules.TryConvertEnemyChip(board, player, x, y, conversion);
 
         /// <summary>
         /// Whether moving the chip on (<paramref name="fromX"/>, <paramref name="fromY"/>) to the destination of <paramref name="recommended"/>

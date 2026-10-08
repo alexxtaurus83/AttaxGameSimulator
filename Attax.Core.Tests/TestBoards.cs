@@ -42,7 +42,7 @@ namespace Attax.Core.Tests {
             return new AtaxxAIEngine(p, cfg);
         }
 
-        public static void SetBoard(AtaxxAIEngine e, BitboardState b, AtaxxAIEngine.PlayerColor side) {
+        public static void SetBoard(AtaxxAIEngine e, BitboardState b, PlayerColor side) {
             e.Board = b;
             e.Board.ZobristHash = e.ComputeZobristHash(b, side);
         }
