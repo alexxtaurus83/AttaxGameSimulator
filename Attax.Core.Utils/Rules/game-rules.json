@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "economy": {
+    "enabled": true,
+    "startingCredits": 0,
+    "maxCredits": 3000,
+    "captureReward": 10,
+    "footprintReward": 5,
+    "abilityCosts": {
+      "superJump": 100,
+      "convert": 100,
+      "block": 100,
+      "wall": 100,
+      "doubleMove": 100,
+      "spawn": 100,
+      "superClone": 100,
+      "unblock": 100,
+      "bomb": 100
+    }
+  },
+  "turn": {
+    "maxAbilityActionsPerTurn": 1
+  },
+  "playerAbilities": {
+    "red": {
+      "superJump": true,
+      "convert": true,
+      "block": true,
+      "wall": true,
+      "doubleMove": true,
+      "spawn": true,
+      "superClone": true,
+      "unblock": true,
+      "bomb": true
+    },
+    "blue": {
+      "superJump": true,
+      "convert": true,
+      "block": true,
+      "wall": true,
+      "doubleMove": true,
+      "spawn": true,
+      "superClone": true,
+      "unblock": true,
+      "bomb": true
+    }
+  }
+}

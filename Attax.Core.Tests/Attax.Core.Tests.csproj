@@ -15,6 +15,7 @@
 
   <ItemGroup>
     <Content Include="..\Attax.Core\engine-params.json" Link="engine-params.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Fixtures\*" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

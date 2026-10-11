@@ -81,7 +81,7 @@ namespace Attax.Core {
         // eval (heuristic * evaluationScale is at most ~30M) so wins/losses always dominate, and
         // ply-adjusted so the search prefers faster wins / slower losses.
         private const int TerminalWinScore = 1_000_000_000;
-        private const int MaxRandomBlockAttempts = 1000;
+        private const int MaxRandomBlockAttempts = StartPosition.MaxRandomBlockAttempts;
         #endregion
 
         #region enums
@@ -516,53 +516,8 @@ namespace Attax.Core {
         /// <param name="seed">An optional seed for the random number generator.</param>
         /// <returns>A list of (x,y) coordinates for the new blocked cells.</returns>
         public List<(int x, int y)> GenerateRandomBlockedCellPositions(int blocksToPlace, BitboardState currentBoardState, int? seed = null) {
-            if (blocksToPlace <= 0) {
-                return new List<(int, int)>();
-            }
-
             var rnd = seed.HasValue ? new Random(seed.Value) : new Random();
-            var blockedPositions = new List<(int, int)>();
-            int maxAttempts = MaxRandomBlockAttempts;
-            int attempts = 0;
-
-            // Get a bitboard of all currently empty squares.
-            ulong emptySquares = currentBoardState.EmptySquares();
-
-            // The zoning logic for spreading out blocks remains the same.
-            int zoneCount = (int)Math.Ceiling(Math.Sqrt(blocksToPlace));
-            int zoneSize = AttaxConstants.BaseConst.BoardSize / zoneCount;
-
-            var zones = new List<(int zx, int zy)>();
-            for (int zx = 0; zx < zoneCount; zx++) {
-                for (int zy = 0; zy < zoneCount; zy++) {
-                    zones.Add((zx, zy));
-                }
-            }
-            zones = zones.AsValueEnumerable().OrderBy(_ => rnd.Next()).ToList();
-
-            while (blockedPositions.Count < blocksToPlace && attempts < maxAttempts) {
-                foreach (var zone in zones) {
-                    if (blockedPositions.Count >= blocksToPlace) break;
-
-                    int minX = zone.zx * zoneSize;
-                    int maxX = Math.Min((zone.zx + 1) * zoneSize, AttaxConstants.BaseConst.BoardSize);
-                    int minY = zone.zy * zoneSize;
-                    int maxY = Math.Min((zone.zy + 1) * zoneSize, AttaxConstants.BaseConst.BoardSize);
-
-                    // Find a random position within this zone.
-                    int x = rnd.Next(minX, maxX);
-                    int y = rnd.Next(minY, maxY);
-                    var pos = (x, y);
-
-                    ulong posBit = 1UL << GetBitIndex(x, y);
-                    if ((emptySquares & posBit) != 0 && !blockedPositions.Contains(pos)) {
-                        blockedPositions.Add(pos);
-                    }
-                }
-                attempts++;
-            }
-
-            return blockedPositions;
+            return StartPosition.GenerateBlockedCellPositions(blocksToPlace, currentBoardState, rnd);
         }
         #endregion
 

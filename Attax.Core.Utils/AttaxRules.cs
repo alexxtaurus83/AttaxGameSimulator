@@ -50,61 +50,162 @@ namespace Attax.Core.Utils {
         }
 
         /// <summary>
-        /// Executes a validated move on the bitboard state, flips adjacent enemy pieces, and updates Zobrist hash.
+        /// Allocation-free move execution on the bitboard state, flips adjacent enemy pieces, and updates Zobrist hash.
         /// </summary>
-        public static MoveResult MakeMove(BitboardState boardState, Move move, PlayerColor player) {
-            var moveResult = new MoveResult {
-                MoveMade = move,
-                FlippedPieces = new List<(int, int)>(),
-            };
-            var undoInfo = new UndoMoveInfo { PreviousZobristHash = boardState.ZobristHash };
-
+        public static void MakeMoveMasks(BitboardState board, Move move, PlayerColor player, out ulong flippedMask) {
             int fromIndex = GetBitIndex(move.FromX, move.FromY);
             int toIndex = GetBitIndex(move.ToX, move.ToY);
             ulong fromMask = 1UL << fromIndex;
             ulong toMask = 1UL << toIndex;
 
-            if ((boardState.BlockedSquares & toMask) != 0)
+            if ((board.BlockedSquares & toMask) != 0)
                 throw new InvalidOperationException("Moving to blocked square");
 
-            ref ulong playerPieces = ref (player == PlayerColor.Red ? ref boardState.RedPieces : ref boardState.BluePieces);
-            ref ulong opponentPieces = ref (player == PlayerColor.Red ? ref boardState.BluePieces : ref boardState.RedPieces);
+            ref ulong playerPieces = ref (player == PlayerColor.Red ? ref board.RedPieces : ref board.BluePieces);
+            ref ulong opponentPieces = ref (player == PlayerColor.Red ? ref board.BluePieces : ref board.RedPieces);
 
-            boardState.ZobristHash ^= ZobristHasher.GetSideToMoveKey();
+            board.ZobristHash ^= ZobristHasher.GetSideToMoveKey();
 
             bool isClone = IsCloneMove(move);
-            moveResult.WasClone = isClone;
             if (!isClone) {
                 playerPieces &= ~fromMask;
-                boardState.ZobristHash ^= ZobristHasher.GetPieceKey(move.FromX, move.FromY, GetPieceTypeIndex(player));
+                board.ZobristHash ^= ZobristHasher.GetPieceKey(move.FromX, move.FromY, GetPieceTypeIndex(player));
             }
 
             playerPieces |= toMask;
-            boardState.ZobristHash ^= ZobristHasher.GetPieceKey(move.ToX, move.ToY, GetPieceTypeIndex(player));
+            board.ZobristHash ^= ZobristHasher.GetPieceKey(move.ToX, move.ToY, GetPieceTypeIndex(player));
 
             ulong attackMask = BoardLookup.SingleStepMoves[toIndex];
-            ulong flippedPieces = opponentPieces & attackMask;
-            undoInfo.FlippedPiecesMask = flippedPieces;
+            flippedMask = opponentPieces & attackMask;
 
-            if (flippedPieces > 0) {
-                playerPieces |= flippedPieces;
-                opponentPieces &= ~flippedPieces;
+            if (flippedMask > 0) {
+                ApplyFlips(board, player, flippedMask);
+            }
+        }
 
-                ulong remainingFlipped = flippedPieces;
-                while (remainingFlipped > 0) {
-                    int flippedIndex = BitboardOps.TrailingZeroCount(remainingFlipped);
-                    int flippedX = flippedIndex % AttaxConstants.BaseConst.BoardSize;
-                    int flippedY = flippedIndex / AttaxConstants.BaseConst.BoardSize;
-                    moveResult.FlippedPieces.Add((flippedX, flippedY));
+        private static void ApplyFlips(BitboardState board, PlayerColor player, ulong flippedMask) {
+            ref ulong playerPieces = ref (player == PlayerColor.Red ? ref board.RedPieces : ref board.BluePieces);
+            ref ulong opponentPieces = ref (player == PlayerColor.Red ? ref board.BluePieces : ref board.RedPieces);
 
-                    boardState.ZobristHash ^= ZobristHasher.GetPieceKey(flippedX, flippedY, GetPieceTypeIndex(SwitchPlayer(player)));
-                    boardState.ZobristHash ^= ZobristHasher.GetPieceKey(flippedX, flippedY, GetPieceTypeIndex(player));
+            playerPieces |= flippedMask;
+            opponentPieces &= ~flippedMask;
 
-                    remainingFlipped &= remainingFlipped - 1;
+            ulong remainingFlipped = flippedMask;
+            int opponentPieceType = GetPieceTypeIndex(SwitchPlayer(player));
+            int playerPieceType = GetPieceTypeIndex(player);
+
+            while (remainingFlipped > 0) {
+                int flippedIndex = BitboardOps.TrailingZeroCount(remainingFlipped);
+                int flippedX = flippedIndex % AttaxConstants.BaseConst.BoardSize;
+                int flippedY = flippedIndex / AttaxConstants.BaseConst.BoardSize;
+
+                board.ZobristHash ^= ZobristHasher.GetPieceKey(flippedX, flippedY, opponentPieceType);
+                board.ZobristHash ^= ZobristHasher.GetPieceKey(flippedX, flippedY, playerPieceType);
+
+                remainingFlipped &= remainingFlipped - 1;
+            }
+        }
+
+        /// <summary>
+        /// Executes a validated move on the bitboard state, flips adjacent enemy pieces, and updates Zobrist hash.
+        /// </summary>
+        public static MoveResult MakeMove(BitboardState boardState, Move move, PlayerColor player) {
+            ulong prevHash = boardState.ZobristHash;
+            MakeMoveMasks(boardState, move, player, out ulong flippedMask);
+            var moveResult = new MoveResult {
+                MoveMade = move,
+                WasClone = IsCloneMove(move),
+                FlippedPieces = new List<(int, int)>(),
+                UndoInfo = new UndoMoveInfo {
+                    PreviousZobristHash = prevHash,
+                    FlippedPiecesMask = flippedMask
+                }
+            };
+            ulong remainingFlipped = flippedMask;
+            while (remainingFlipped > 0) {
+                int flippedIndex = BitboardOps.TrailingZeroCount(remainingFlipped);
+                int flippedX = flippedIndex % AttaxConstants.BaseConst.BoardSize;
+                int flippedY = flippedIndex / AttaxConstants.BaseConst.BoardSize;
+                moveResult.FlippedPieces.Add((flippedX, flippedY));
+                remainingFlipped &= remainingFlipped - 1;
+            }
+            return moveResult;
+        }
+
+        /// <summary>
+        /// Places a wall on an empty square, making it a blocked square. Does not touch side-to-move key.
+        /// </summary>
+        public static bool TryPlaceWall(BitboardState board, int x, int y) {
+            int size = AttaxConstants.BaseConst.BoardSize;
+            if (x < 0 || y < 0 || x >= size || y >= size) return false;
+            ulong mask = 1UL << GetBitIndex(x, y);
+            if ((board.EmptySquares() & mask) == 0) return false;
+
+            board.BlockedSquares |= mask;
+            board.ZobristHash ^= ZobristHasher.GetPieceKey(x, y, GetPieceTypeIndex(PlayerColor.Blocked));
+            return true;
+        }
+
+        /// <summary>
+        /// Unblocks a blocked square, making it empty. Does not touch side-to-move key.
+        /// </summary>
+        public static bool TryUnblock(BitboardState board, int x, int y) {
+            int size = AttaxConstants.BaseConst.BoardSize;
+            if (x < 0 || y < 0 || x >= size || y >= size) return false;
+            ulong mask = 1UL << GetBitIndex(x, y);
+            if ((board.BlockedSquares & mask) == 0) return false;
+
+            board.BlockedSquares &= ~mask;
+            board.ZobristHash ^= ZobristHasher.GetPieceKey(x, y, GetPieceTypeIndex(PlayerColor.Blocked));
+            return true;
+        }
+
+        /// <summary>
+        /// Removes an enemy chip from the board, leaving the cell empty (Bomb). Does not touch side-to-move key.
+        /// </summary>
+        public static bool TryRemoveEnemyChip(BitboardState board, PlayerColor player, int x, int y) {
+            int size = AttaxConstants.BaseConst.BoardSize;
+            if (player != PlayerColor.Red && player != PlayerColor.Blue) return false;
+            if (x < 0 || y < 0 || x >= size || y >= size) return false;
+
+            ulong mask = 1UL << GetBitIndex(x, y);
+            ref ulong enemyPieces = ref (player == PlayerColor.Red ? ref board.BluePieces : ref board.RedPieces);
+            if ((enemyPieces & mask) == 0) return false;
+
+            enemyPieces &= ~mask;
+            board.ZobristHash ^= ZobristHasher.GetPieceKey(x, y, GetPieceTypeIndex(SwitchPlayer(player)));
+            return true;
+        }
+
+        /// <summary>
+        /// Places a chip of the given player on an empty square (Spawn or SuperClone).
+        /// If capture is true, flips adjacent enemy pieces. Does not touch side-to-move key.
+        /// </summary>
+        public static bool TryPlaceChip(BitboardState board, PlayerColor player, int x, int y, bool capture, out ulong flippedMask) {
+            flippedMask = 0;
+            int size = AttaxConstants.BaseConst.BoardSize;
+            if (player != PlayerColor.Red && player != PlayerColor.Blue) return false;
+            if (x < 0 || y < 0 || x >= size || y >= size) return false;
+
+            int targetIndex = GetBitIndex(x, y);
+            ulong mask = 1UL << targetIndex;
+            if ((board.EmptySquares() & mask) == 0) return false;
+
+            ref ulong playerPieces = ref (player == PlayerColor.Red ? ref board.RedPieces : ref board.BluePieces);
+            ref ulong enemyPieces = ref (player == PlayerColor.Red ? ref board.BluePieces : ref board.RedPieces);
+
+            playerPieces |= mask;
+            board.ZobristHash ^= ZobristHasher.GetPieceKey(x, y, GetPieceTypeIndex(player));
+
+            if (capture) {
+                ulong attackMask = BoardLookup.SingleStepMoves[targetIndex];
+                flippedMask = enemyPieces & attackMask;
+                if (flippedMask > 0) {
+                    ApplyFlips(board, player, flippedMask);
                 }
             }
-            moveResult.UndoInfo = undoInfo;
-            return moveResult;
+
+            return true;
         }
 
         /// <summary>

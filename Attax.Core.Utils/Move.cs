@@ -15,7 +15,7 @@ namespace Attax.Core.Utils {
             return FromX == other.FromX && FromY == other.FromY && ToX == other.ToX && ToY == other.ToY;
         }
 
-        public override bool Equals(object? obj) {
+        public override bool Equals(object obj) {
             return obj is Move other && Equals(other);
         }
 
