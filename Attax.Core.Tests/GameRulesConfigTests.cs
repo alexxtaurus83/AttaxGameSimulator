@@ -260,32 +260,14 @@ namespace Attax.Core.Tests {
             Assert.Throws<ArgumentException>(() => GameState.Restore(1UL, 2UL, 0UL, 4UL, 0UL, PlayerColor.Red, 0, 0, 0, 0, 1, 0, disabledRules));
         }
 
+        private static GameRulesConfig _cachedShippedRules;
+
         public static GameRulesConfig ValidTestRules() {
-            return new GameRulesConfig {
-                schemaVersion = 1,
-                economy = new EconomyRules {
-                    enabled = true,
-                    startingCredits = 0,
-                    maxCredits = 3000,
-                    captureReward = 10,
-                    footprintReward = 5,
-                    abilityCosts = new AbilityCosts {
-                        superJump = 100, convert = 100, block = 100, wall = 100,
-                        doubleMove = 100, spawn = 100, superClone = 100, unblock = 100, bomb = 100
-                    }
-                },
-                turn = new TurnRules { maxAbilityActionsPerTurn = 1 },
-                playerAbilities = new PlayerAbilitiesConfig {
-                    red = new AbilityToggles {
-                        superJump = true, convert = true, block = true, wall = true,
-                        doubleMove = true, spawn = true, superClone = true, unblock = true, bomb = true
-                    },
-                    blue = new AbilityToggles {
-                        superJump = true, convert = true, block = true, wall = true,
-                        doubleMove = true, spawn = true, superClone = true, unblock = true, bomb = true
-                    }
-                }
-            };
+            if (_cachedShippedRules == null) {
+                string path = GetRulesJsonPath();
+                _cachedShippedRules = JsonConvert.DeserializeObject<GameRulesConfig>(File.ReadAllText(path));
+            }
+            return _cachedShippedRules.Clone();
         }
     }
 }

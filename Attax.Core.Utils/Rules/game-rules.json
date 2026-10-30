@@ -44,5 +44,52 @@
       "unblock": true,
       "bomb": true
     }
+  },
+  "abilityTexts": {
+    "superJump": {
+      "name": "Super Jump",
+      "description": "Jump an owned chip to any distant empty cell (3+ steps away).",
+      "instruction": "Select an owned chip to jump, then choose a distant destination."
+    },
+    "convert": {
+      "name": "Chief",
+      "description": "Convert an enemy chip directly to your color without capturing neighbors.",
+      "instruction": "Select an enemy chip to convert."
+    },
+    "block": {
+      "name": "Block",
+      "description": "Remove an enemy chip and turn its cell into a blocked obstacle.",
+      "instruction": "Select an enemy chip to block."
+    },
+    "wall": {
+      "name": "Wall",
+      "description": "Turn any empty cell into a blocked obstacle.",
+      "instruction": "Select an empty cell to place a wall."
+    },
+    "doubleMove": {
+      "name": "Double Move",
+      "description": "Take two moves this turn instead of one.",
+      "instruction": ""
+    },
+    "spawn": {
+      "name": "Spawn",
+      "description": "Place a new chip on any empty cell without capturing neighbors.",
+      "instruction": "Select an empty cell to spawn a chip."
+    },
+    "superClone": {
+      "name": "Super Clone",
+      "description": "Place a new chip on any empty cell and capture all adjacent enemy chips.",
+      "instruction": "Select an empty cell for Super Clone."
+    },
+    "unblock": {
+      "name": "Unblock",
+      "description": "Remove a blocked obstacle, opening the cell for moves.",
+      "instruction": "Select a blocked obstacle to unblock."
+    },
+    "bomb": {
+      "name": "Bomb",
+      "description": "Destroy an enemy chip and clear all marks from its cell.",
+      "instruction": "Select an enemy chip to bomb."
+    }
   }
 }

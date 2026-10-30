@@ -5,31 +5,10 @@ using Xunit;
 namespace Attax.Core.Tests {
     public class AttaxGameEconomyTests {
         private static GameRulesConfig CreateEconomyRules(int startingCredits = 0, int maxCredits = 3000) {
-            return new GameRulesConfig {
-                schemaVersion = 1,
-                economy = new EconomyRules {
-                    enabled = true,
-                    startingCredits = startingCredits,
-                    maxCredits = maxCredits,
-                    captureReward = 10,
-                    footprintReward = 5,
-                    abilityCosts = new AbilityCosts {
-                        superJump = 100, convert = 100, block = 100, wall = 100,
-                        doubleMove = 100, spawn = 100, superClone = 100, unblock = 100, bomb = 100
-                    }
-                },
-                turn = new TurnRules { maxAbilityActionsPerTurn = 1 },
-                playerAbilities = new PlayerAbilitiesConfig {
-                    red = new AbilityToggles {
-                        superJump = true, convert = true, block = true, wall = true,
-                        doubleMove = true, spawn = true, superClone = true, unblock = true, bomb = true
-                    },
-                    blue = new AbilityToggles {
-                        superJump = true, convert = true, block = true, wall = true,
-                        doubleMove = true, spawn = true, superClone = true, unblock = true, bomb = true
-                    }
-                }
-            };
+            var rules = GameRulesConfigTests.ValidTestRules();
+            rules.economy.startingCredits = startingCredits;
+            rules.economy.maxCredits = maxCredits;
+            return rules;
         }
 
         [Fact]
@@ -140,31 +119,14 @@ namespace Attax.Core.Tests {
         #region Unity V1 to V8 Parity Vectors
 
         private static GameRulesConfig UnityVectorRules() {
-            return new GameRulesConfig {
-                schemaVersion = 1,
-                economy = new EconomyRules {
-                    enabled = true,
-                    startingCredits = 0,
-                    maxCredits = 3000,
-                    captureReward = 10,
-                    footprintReward = 5,
-                    abilityCosts = new AbilityCosts {
-                        superJump = 0, convert = 0, block = 0, wall = 0, doubleMove = 0,
-                        spawn = 0, superClone = 0, unblock = 0, bomb = 0
-                    }
-                },
-                turn = new TurnRules { maxAbilityActionsPerTurn = 1 },
-                playerAbilities = new PlayerAbilitiesConfig {
-                    red = new AbilityToggles {
-                        superJump = true, convert = true, block = true, wall = true,
-                        doubleMove = true, spawn = true, superClone = true, unblock = true, bomb = true
-                    },
-                    blue = new AbilityToggles {
-                        superJump = true, convert = true, block = true, wall = true,
-                        doubleMove = true, spawn = true, superClone = true, unblock = true, bomb = true
-                    }
-                }
+            var rules = GameRulesConfigTests.ValidTestRules();
+            rules.economy.startingCredits = 0;
+            rules.economy.maxCredits = 3000;
+            rules.economy.abilityCosts = new AbilityCosts {
+                superJump = 0, convert = 0, block = 0, wall = 0, doubleMove = 0,
+                spawn = 0, superClone = 0, unblock = 0, bomb = 0
             };
+            return rules;
         }
 
         [Fact]

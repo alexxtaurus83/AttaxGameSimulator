@@ -5,31 +5,9 @@ using Xunit;
 namespace Attax.Core.Tests {
     public class AttaxGameAbilityTests {
         private static GameRulesConfig CreateTestRules(int startingCredits = 1000) {
-            return new GameRulesConfig {
-                schemaVersion = 1,
-                economy = new EconomyRules {
-                    enabled = true,
-                    startingCredits = startingCredits,
-                    maxCredits = 3000,
-                    captureReward = 10,
-                    footprintReward = 5,
-                    abilityCosts = new AbilityCosts {
-                        superJump = 100, convert = 100, block = 100, wall = 100,
-                        doubleMove = 100, spawn = 100, superClone = 100, unblock = 100, bomb = 100
-                    }
-                },
-                turn = new TurnRules { maxAbilityActionsPerTurn = 1 },
-                playerAbilities = new PlayerAbilitiesConfig {
-                    red = new AbilityToggles {
-                        superJump = true, convert = true, block = true, wall = true,
-                        doubleMove = true, spawn = true, superClone = true, unblock = true, bomb = true
-                    },
-                    blue = new AbilityToggles {
-                        superJump = true, convert = true, block = true, wall = true,
-                        doubleMove = true, spawn = true, superClone = true, unblock = true, bomb = true
-                    }
-                }
-            };
+            var rules = GameRulesConfigTests.ValidTestRules();
+            rules.economy.startingCredits = startingCredits;
+            return rules;
         }
 
         [Fact]

@@ -7,31 +7,13 @@ using Xunit;
 namespace Attax.Core.Tests {
     public class AttaxGameInvariantAndAllocationTests {
         private static GameRulesConfig CreateRichRules() {
-            return new GameRulesConfig {
-                schemaVersion = 1,
-                economy = new EconomyRules {
-                    enabled = true,
-                    startingCredits = 1500,
-                    maxCredits = 3000,
-                    captureReward = 10,
-                    footprintReward = 5,
-                    abilityCosts = new AbilityCosts {
-                        superJump = 20, convert = 20, block = 20, wall = 20, doubleMove = 20,
-                        spawn = 20, superClone = 20, unblock = 20, bomb = 20
-                    }
-                },
-                turn = new TurnRules { maxAbilityActionsPerTurn = 1 },
-                playerAbilities = new PlayerAbilitiesConfig {
-                    red = new AbilityToggles {
-                        superJump = true, convert = true, block = true, wall = true,
-                        doubleMove = true, spawn = true, superClone = true, unblock = true, bomb = true
-                    },
-                    blue = new AbilityToggles {
-                        superJump = true, convert = true, block = true, wall = true,
-                        doubleMove = true, spawn = true, superClone = true, unblock = true, bomb = true
-                    }
-                }
+            var rules = GameRulesConfigTests.ValidTestRules();
+            rules.economy.startingCredits = 1500;
+            rules.economy.abilityCosts = new AbilityCosts {
+                superJump = 20, convert = 20, block = 20, wall = 20, doubleMove = 20,
+                spawn = 20, superClone = 20, unblock = 20, bomb = 20
             };
+            return rules;
         }
 
         [Fact]
