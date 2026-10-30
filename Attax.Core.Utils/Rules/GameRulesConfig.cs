@@ -9,6 +9,7 @@ namespace Attax.Core.Utils {
         public EconomyRules economy;
         public TurnRules turn;
         public PlayerAbilitiesConfig playerAbilities;
+        public AbilityTexts abilityTexts;
 
         public GameRulesConfig Clone() {
             GameRulesConfig copy = new GameRulesConfig();
@@ -16,7 +17,12 @@ namespace Attax.Core.Utils {
             copy.economy = this.economy != null ? this.economy.Clone() : null;
             copy.turn = this.turn != null ? this.turn.Clone() : null;
             copy.playerAbilities = this.playerAbilities != null ? this.playerAbilities.Clone() : null;
+            copy.abilityTexts = this.abilityTexts != null ? this.abilityTexts.Clone() : null;
             return copy;
+        }
+
+        public AbilityText GetAbilityText(AbilityKind kind) {
+            return abilityTexts != null ? abilityTexts.Get(kind) : null;
         }
 
         public bool IsAbilityEnabled(PlayerColor player, AbilityKind kind) {
@@ -85,7 +91,37 @@ namespace Attax.Core.Utils {
                 }
             }
 
+            if (abilityTexts == null) {
+                errors.Add("abilityTexts group is missing");
+            } else {
+                ValidateAbilityText(errors, "superJump", abilityTexts.superJump, requireInstruction: true);
+                ValidateAbilityText(errors, "convert", abilityTexts.convert, requireInstruction: true);
+                ValidateAbilityText(errors, "block", abilityTexts.block, requireInstruction: true);
+                ValidateAbilityText(errors, "wall", abilityTexts.wall, requireInstruction: true);
+                ValidateAbilityText(errors, "doubleMove", abilityTexts.doubleMove, requireInstruction: false);
+                ValidateAbilityText(errors, "spawn", abilityTexts.spawn, requireInstruction: true);
+                ValidateAbilityText(errors, "superClone", abilityTexts.superClone, requireInstruction: true);
+                ValidateAbilityText(errors, "unblock", abilityTexts.unblock, requireInstruction: true);
+                ValidateAbilityText(errors, "bomb", abilityTexts.bomb, requireInstruction: true);
+            }
+
             return errors;
+        }
+
+        private static void ValidateAbilityText(List<string> errors, string key, AbilityText text, bool requireInstruction) {
+            if (text == null) {
+                errors.Add("abilityTexts." + key + " is missing");
+                return;
+            }
+            if (string.IsNullOrWhiteSpace(text.name)) {
+                errors.Add("abilityTexts." + key + ".name cannot be empty");
+            }
+            if (string.IsNullOrWhiteSpace(text.description)) {
+                errors.Add("abilityTexts." + key + ".description cannot be empty");
+            }
+            if (requireInstruction && string.IsNullOrWhiteSpace(text.instruction)) {
+                errors.Add("abilityTexts." + key + ".instruction cannot be empty");
+            }
         }
 
         public ulong Fingerprint() {
