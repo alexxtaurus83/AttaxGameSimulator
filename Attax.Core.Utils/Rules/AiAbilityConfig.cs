@@ -11,6 +11,7 @@ namespace Attax.Core.Utils {
         public int creditReserve;
         public int maxUsesPerGame;
         public bool safetyFilter;
+        public string targetSelection;
 
         public AiAbilityConfig Clone() {
             AiAbilityConfig copy = new AiAbilityConfig();
@@ -20,6 +21,7 @@ namespace Attax.Core.Utils {
             copy.creditReserve = this.creditReserve;
             copy.maxUsesPerGame = this.maxUsesPerGame;
             copy.safetyFilter = this.safetyFilter;
+            copy.targetSelection = this.targetSelection;
             return copy;
         }
 
@@ -37,6 +39,12 @@ namespace Attax.Core.Utils {
             }
             if (maxUsesPerGame < 0) {
                 errors.Add("maxUsesPerGame cannot be negative");
+            }
+            if (!string.IsNullOrEmpty(targetSelection) &&
+                !string.Equals(targetSelection, "random", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(targetSelection, "scored", StringComparison.OrdinalIgnoreCase) &&
+                !string.Equals(targetSelection, "engine", StringComparison.OrdinalIgnoreCase)) {
+                errors.Add("targetSelection must be 'random', 'scored', 'engine', or empty/null: " + targetSelection);
             }
 
             return errors;

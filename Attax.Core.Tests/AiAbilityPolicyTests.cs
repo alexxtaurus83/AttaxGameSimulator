@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using Attax.Core;
 using Attax.Core.Utils;
 using Newtonsoft.Json;
 using Xunit;
@@ -18,14 +19,15 @@ namespace Attax.Core.Tests {
             throw new FileNotFoundException("ai-ability-config.json not found");
         }
 
-        private static AiAbilityConfig TestConfig(bool enabled = true, int chance = 100, int reserve = 0, int maxUses = 0, bool safety = true) {
+        private static AiAbilityConfig TestConfig(bool enabled = true, int chance = 100, int reserve = 0, int maxUses = 0, bool safety = true, string targetSelection = null) {
             return new AiAbilityConfig {
                 schemaVersion = 1,
                 aiAbilitiesEnabled = enabled,
                 useChancePercent = chance,
                 creditReserve = reserve,
                 maxUsesPerGame = maxUses,
-                safetyFilter = safety
+                safetyFilter = safety,
+                targetSelection = targetSelection
             };
         }
 
@@ -71,6 +73,7 @@ namespace Attax.Core.Tests {
             Assert.Equal(0, cfg.creditReserve);
             Assert.Equal(0, cfg.maxUsesPerGame);
             Assert.True(cfg.safetyFilter);
+            Assert.Equal("engine", cfg.targetSelection);
         }
 
         [Fact]
@@ -384,6 +387,158 @@ namespace Attax.Core.Tests {
             }
 
             Assert.True(totalAbilitiesUsed > 50, $"Expected abilities to be actively used across 100 games, got {totalAbilitiesUsed}");
+        }
+
+        [Fact]
+        public void TargetSelection_Validate_And_Clone() {
+            var cfg = TestConfig();
+            cfg.targetSelection = "invalid_mode";
+            var errors = cfg.Validate();
+            Assert.Single(errors);
+            Assert.Contains("targetSelection", errors[0]);
+
+            foreach (var valid in new[] { null, "", "random", "RANDOM", "scored", "SCORED", "engine", "ENGINE" }) {
+                cfg.targetSelection = valid;
+                Assert.Empty(cfg.Validate());
+            }
+
+            cfg.targetSelection = "engine";
+            var clone = cfg.Clone();
+            Assert.Equal("engine", clone.targetSelection);
+        }
+
+        [Fact]
+        public void Bomb_ScoredMode_PicksMiddleEnemyChipWithHighFollowUpConversion() {
+            // Position:
+            // Red has a chip at (2, 3).
+            // Blue has a cluster centered at (3, 3) with (3, 2), (3, 4), (4, 3) as neighbors.
+            // Blue also has an isolated chip at (0, 0).
+            // Bombing (3, 3) enables Red at (2, 3) to clone to (3, 3), converting (3, 2), (3, 4), and (4, 3) to Red (+4 piece diff).
+            // Bombing (0, 0) or perimeter chips yields far fewer pieces.
+            ulong redPieces = 1UL << BoardLookup.GetBitIndex(2, 3);
+            ulong bluePieces = (1UL << BoardLookup.GetBitIndex(0, 0))
+                             | (1UL << BoardLookup.GetBitIndex(3, 3))
+                             | (1UL << BoardLookup.GetBitIndex(3, 2))
+                             | (1UL << BoardLookup.GetBitIndex(3, 4))
+                             | (1UL << BoardLookup.GetBitIndex(4, 3));
+
+            var rules = TestRules(1000);
+            rules.playerAbilities.red = new AbilityToggles { bomb = true };
+
+            var state = GameState.Restore(
+                redPieces, bluePieces, 0UL, 0UL, 0UL, PlayerColor.Red, 1000, 1000, 0, 0, 1, 0, rules
+            );
+
+            // In scored mode, Bomb must consistently target (3, 3) across seeds
+            for (int seed = 1; seed <= 5; seed++) {
+                var cfg = TestConfig(chance: 100, targetSelection: "scored");
+                var policy = new AiAbilityPolicy(cfg, seed: seed, enabled: true);
+
+                bool chosen = policy.TryChoose(state, PlayerColor.Red, out var choice);
+                Assert.True(chosen);
+                Assert.Equal(AbilityKind.Bomb, choice.Ability);
+                Assert.Equal(ActionKind.Bomb, choice.Action.Kind);
+                Assert.Equal(3, choice.Action.X);
+                Assert.Equal(3, choice.Action.Y);
+            }
+
+            // In random mode across multiple seeds, target selection is uniform among the 5 blue chips
+            int nonCenterPicks = 0;
+            for (int seed = 1; seed <= 20; seed++) {
+                var cfgRandom = TestConfig(chance: 100, targetSelection: "random");
+                var policyRandom = new AiAbilityPolicy(cfgRandom, seed: seed, enabled: true);
+                if (policyRandom.TryChoose(state, PlayerColor.Red, out var choice)) {
+                    if (choice.Action.X != 3 || choice.Action.Y != 3) {
+                        nonCenterPicks++;
+                    }
+                }
+            }
+            Assert.True(nonCenterPicks > 0, "Random mode should pick non-optimal targets across seeds");
+        }
+
+        [Fact]
+        public void SuperClone_ScoredMode_PicksMaxFlipsCell() {
+            // Position:
+            // Red at (0, 0).
+            // Blue has 4 chips around (3, 3): (3, 2), (3, 4), (2, 3), (4, 3).
+            // (3, 3) is empty. SuperClone landing at (3, 3) converts all 4 blue chips!
+            // Landing at (6, 6) converts 0 blue chips.
+            ulong redPieces = 1UL << BoardLookup.GetBitIndex(0, 0);
+            ulong bluePieces = (1UL << BoardLookup.GetBitIndex(3, 2))
+                             | (1UL << BoardLookup.GetBitIndex(3, 4))
+                             | (1UL << BoardLookup.GetBitIndex(2, 3))
+                             | (1UL << BoardLookup.GetBitIndex(4, 3));
+
+            var rules = TestRules(1000);
+            rules.playerAbilities.red = new AbilityToggles { superClone = true };
+
+            var state = GameState.Restore(
+                redPieces, bluePieces, 0UL, 0UL, 0UL, PlayerColor.Red, 1000, 1000, 0, 0, 1, 0, rules
+            );
+
+            var cfg = TestConfig(chance: 100, targetSelection: "scored");
+            var policy = new AiAbilityPolicy(cfg, seed: 42, enabled: true);
+
+            bool chosen = policy.TryChoose(state, PlayerColor.Red, out var choice);
+            Assert.True(chosen);
+            Assert.Equal(AbilityKind.SuperClone, choice.Ability);
+            Assert.Equal(3, choice.Action.X);
+            Assert.Equal(3, choice.Action.Y);
+            Assert.True(choice.EndsTurn);
+        }
+
+        [Fact]
+        public void EngineMode_FallbackToScoredWhenEvaluatorNull() {
+            ulong redPieces = 1UL << BoardLookup.GetBitIndex(2, 3);
+            ulong bluePieces = (1UL << BoardLookup.GetBitIndex(0, 0))
+                             | (1UL << BoardLookup.GetBitIndex(3, 3))
+                             | (1UL << BoardLookup.GetBitIndex(3, 2))
+                             | (1UL << BoardLookup.GetBitIndex(3, 4))
+                             | (1UL << BoardLookup.GetBitIndex(4, 3));
+
+            var rules = TestRules(1000);
+            rules.playerAbilities.red = new AbilityToggles { bomb = true };
+            var state = GameState.Restore(
+                redPieces, bluePieces, 0UL, 0UL, 0UL, PlayerColor.Red, 1000, 1000, 0, 0, 1, 0, rules
+            );
+
+            // targetSelection is "engine", but TargetEvaluator is null -> must fall back to scored mode cleanly
+            var cfg = TestConfig(chance: 100, targetSelection: "engine");
+            var policy = new AiAbilityPolicy(cfg, seed: 10, enabled: true);
+            Assert.Null(policy.TargetEvaluator);
+
+            bool chosen = policy.TryChoose(state, PlayerColor.Red, out var choice);
+            Assert.True(chosen);
+            Assert.Equal(AbilityKind.Bomb, choice.Ability);
+            Assert.Equal(3, choice.Action.X);
+            Assert.Equal(3, choice.Action.Y);
+        }
+
+        [Fact]
+        public void EngineMode_WithEngineEvaluator_ExecutesCleanly() {
+            ulong redPieces = 1UL << BoardLookup.GetBitIndex(2, 3);
+            ulong bluePieces = (1UL << BoardLookup.GetBitIndex(0, 0))
+                             | (1UL << BoardLookup.GetBitIndex(3, 3))
+                             | (1UL << BoardLookup.GetBitIndex(3, 2))
+                             | (1UL << BoardLookup.GetBitIndex(3, 4))
+                             | (1UL << BoardLookup.GetBitIndex(4, 3));
+
+            var rules = TestRules(1000);
+            rules.playerAbilities.red = new AbilityToggles { bomb = true };
+            var state = GameState.Restore(
+                redPieces, bluePieces, 0UL, 0UL, 0UL, PlayerColor.Red, 1000, 1000, 0, 0, 1, 0, rules
+            );
+
+            var cfg = TestConfig(chance: 100, targetSelection: "engine");
+            var policy = new AiAbilityPolicy(cfg, seed: 10, enabled: true);
+            policy.UseEngineEvaluator(Prm.Base());
+
+            Assert.NotNull(policy.TargetEvaluator);
+            bool chosen = policy.TryChoose(state, PlayerColor.Red, out var choice);
+            Assert.True(chosen);
+            Assert.Equal(AbilityKind.Bomb, choice.Ability);
+            Assert.Equal(3, choice.Action.X);
+            Assert.Equal(3, choice.Action.Y);
         }
     }
 }

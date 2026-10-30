@@ -4,5 +4,6 @@
   "useChancePercent": 35,
   "creditReserve": 0,
   "maxUsesPerGame": 0,
-  "safetyFilter": true
+  "safetyFilter": true,
+  "targetSelection": "engine"
 }
