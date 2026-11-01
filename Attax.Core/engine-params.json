@@ -1,0 +1,43 @@
+{
+  "schemaVersion": 1,
+  "eval": {
+    "materialEarly": 30,
+    "materialLate": 40,
+    "mobilityEarly": 3,
+    "mobilityLate": 4,
+    "scaleStartPieces": 4,
+    "scaleEndPieces": 49,
+    "potentialMobilityWeight": 3,
+    "centerControlWeight": 2,
+    "cornerWeight": 5,
+    "edgeWeight": 2,
+    "endgameEmptyThreshold": 14,
+    "stabilityWeight": 14,
+    "stabilityFullMinPieces": 35,
+    "stabilityLowMult": 1,
+    "centerControlTable": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 5, 4, 0, 0, 0, 0, 5, 6, 5, 0, 0, 0, 0, 4, 5, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+  },
+  "root": {
+    "cloneOpening": 6.0,
+    "cloneMid": 3.0,
+    "cloneLate": 1.0,
+    "openingMax": 8,
+    "midMax": 20,
+    "flipPoints": 0.0,
+    "riskPoints": 0.8,
+    "positionalPoints": 0.3,
+    "positionalMaxPieces": 35,
+    "nonCapturingJumpPenalty": 6.0,
+    "aggressionMinLead": [-2, -5, -8],
+    "aggressionFactor": [1.0, 1.5, 2.0, 2.5],
+    "positionalTable": [1, 2, 3, 3, 3, 2, 1, 2, 3, 4, 4, 4, 3, 2, 3, 4, 5, 6, 5, 4, 3, 3, 4, 6, 7, 6, 4, 3, 3, 4, 5, 6, 5, 4, 3, 2, 3, 4, 4, 4, 3, 2, 1, 2, 3, 3, 3, 2, 1]
+  },
+  "search": {
+    "nullMoveMinEmpty": 14,
+    "nullMoveMinPieces": 3,
+    "nullMoveMinDepth": 3,
+    "nullMoveReduction": 2,
+    "quiescenceMinRootDepth": 3,
+    "quiescenceDepth": 2
+  }
+}

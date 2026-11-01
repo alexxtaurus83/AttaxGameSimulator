@@ -1,0 +1,95 @@
+{
+  "schemaVersion": 1,
+  "economy": {
+    "enabled": true,
+    "startingCredits": 0,
+    "maxCredits": 3000,
+    "captureReward": 10,
+    "footprintReward": 5,
+    "abilityCosts": {
+      "superJump": 100,
+      "convert": 100,
+      "block": 100,
+      "wall": 100,
+      "doubleMove": 100,
+      "spawn": 100,
+      "superClone": 100,
+      "unblock": 100,
+      "bomb": 100
+    }
+  },
+  "turn": {
+    "maxAbilityActionsPerTurn": 1
+  },
+  "playerAbilities": {
+    "red": {
+      "superJump": true,
+      "convert": true,
+      "block": true,
+      "wall": true,
+      "doubleMove": true,
+      "spawn": true,
+      "superClone": true,
+      "unblock": true,
+      "bomb": true
+    },
+    "blue": {
+      "superJump": true,
+      "convert": true,
+      "block": true,
+      "wall": true,
+      "doubleMove": true,
+      "spawn": true,
+      "superClone": true,
+      "unblock": true,
+      "bomb": true
+    }
+  },
+  "abilityTexts": {
+    "superJump": {
+      "name": "Super Jump",
+      "description": "Jump an owned chip to any distant empty cell (3+ steps away).",
+      "instruction": "Select an owned chip to jump, then choose a distant destination."
+    },
+    "convert": {
+      "name": "Chief",
+      "description": "Convert an enemy chip directly to your color without capturing neighbors.",
+      "instruction": "Select an enemy chip to convert."
+    },
+    "block": {
+      "name": "Block",
+      "description": "Remove an enemy chip and turn its cell into a blocked obstacle.",
+      "instruction": "Select an enemy chip to block."
+    },
+    "wall": {
+      "name": "Wall",
+      "description": "Turn any empty cell into a blocked obstacle.",
+      "instruction": "Select an empty cell to place a wall."
+    },
+    "doubleMove": {
+      "name": "Double Move",
+      "description": "Take two moves this turn instead of one.",
+      "instruction": ""
+    },
+    "spawn": {
+      "name": "Spawn",
+      "description": "Place a new chip on any empty cell without capturing neighbors.",
+      "instruction": "Select an empty cell to spawn a chip."
+    },
+    "superClone": {
+      "name": "Super Clone",
+      "description": "Place a new chip on any empty cell and capture all adjacent enemy chips.",
+      "instruction": "Select an empty cell for Super Clone."
+    },
+    "unblock": {
+      "name": "Unblock",
+      "description": "Remove a blocked obstacle, opening the cell for moves.",
+      "instruction": "Select a blocked obstacle to unblock."
+    },
+    "bomb": {
+      "name": "Bomb",
+      "description": "Destroy an enemy chip and clear all marks from its cell.",
+      "instruction": "Select an enemy chip to bomb."
+    }
+  }
+}

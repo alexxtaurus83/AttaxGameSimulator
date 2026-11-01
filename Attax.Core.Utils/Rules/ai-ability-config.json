@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "aiAbilitiesEnabled": false,
+  "useChancePercent": 35,
+  "creditReserve": 0,
+  "maxUsesPerGame": 0,
+  "safetyFilter": true,
+  "targetSelection": "engine"
+}
