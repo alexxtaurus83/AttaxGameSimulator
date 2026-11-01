@@ -104,6 +104,7 @@ random
 | `temp`, `topk` | all but random | sampling. Units: classic = engine units, value = value units (1.0 = a full win/loss swing), policy = logit units |
 | `train`, `id` | classic, value | engine training mode; iterative deepening in training mode |
 | `quiescence` | classic, value | capture-only leaf extension. Default **on** in the arena (what the game ships), irrelevant in self-play (training mode never uses it) |
+| `cores` | classic, value, policy | root search parallelism (classic, value) or model intra-op threads (policy), 1..64. Default absent = serial root search |
 | `params` | classic, value | path of an engine-parameter JSON file (see "Engine parameters") |
 | `p.<group>.<name>` | classic, value | one parameter override on top of the file, e.g. `p.root.riskPoints=1.2`, `p.eval.centerControlTable.24=4`. Names and syntax are checked when the spec is parsed |
 

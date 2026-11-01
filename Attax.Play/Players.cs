@@ -78,7 +78,8 @@ namespace Attax.Play {
             var resolved = spec.ResolveParams();
             string fp = EngineParamsFile.Fingerprint(resolved);
             string p = fp + (fp == EngineParamsFile.Fingerprint(EngineParamsFile.LoadBase()) ? " (= engine-params.json)" : "");
-            return $"{spec} => engine mode={(train ? "training (no null-move, no quiescence)" : "normal (null-move pruning on)")}, quiescence={(train ? "n/a" : q ? "on" : "off")}, root ties={(EffectiveRandomTies(spec) ? "random" : "first")}, params={p}";
+            string cores = spec.Cores.HasValue ? $", cores={spec.Cores.Value}" : "";
+            return $"{spec} => engine mode={(train ? "training (no null-move, no quiescence)" : "normal (null-move pruning on)")}, quiescence={(train ? "n/a" : q ? "on" : "off")}, root ties={(EffectiveRandomTies(spec) ? "random" : "first")}, params={p}{cores}";
         }
 
         private static IPolicyValueModel RequireModel(PlayerSpec spec, IModelSource models) {
@@ -130,7 +131,8 @@ namespace Attax.Play {
                 AiDepth = spec.Depth,
                 TrainingMode = train,
                 Seed = seed,
-                DisableParallelRootSearch = true,   // games run in parallel; serial search is deterministic
+                DisableParallelRootSearch = !(spec.Cores > 1),
+                MaxRootParallelism = spec.Cores ?? 0,
                 // Capture-only quiescence extension. Default ON for normal-mode (arena) play, which is what the game ships; it has no
                 // effect in training mode (self-play), where the engine never uses it. Model search never uses it unless asked.
                 DisableQuiescenceSearch = !(spec.Quiescence ?? (!train && !model)),

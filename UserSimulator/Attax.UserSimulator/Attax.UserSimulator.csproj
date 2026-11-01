@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AttaxServerRepoPath Condition="'$(AttaxServerRepoPath)' == ''">..\..\..\merge-conflict-server</AttaxServerRepoPath>
+  </PropertyGroup>
+
+  <Target Name="CheckServerRepoPath" BeforeTargets="BeforeBuild">
+    <Error Condition="!Exists('$(AttaxServerRepoPath)\Attax.Server.Contracts\Attax.Server.Contracts.csproj')"
+           Text="Cannot find Attax.Server.Contracts at '$(AttaxServerRepoPath)\Attax.Server.Contracts\Attax.Server.Contracts.csproj'. Please specify -p:AttaxServerRepoPath=&lt;path&gt;." />
+  </Target>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Attax.Agents\Attax.Agents.csproj" />
+    <ProjectReference Include="..\..\Attax.Play\Attax.Play.csproj" />
+    <ProjectReference Include="..\..\Attax.Core\Attax.Core.csproj" />
+    <ProjectReference Include="..\..\Attax.Core.Utils\Attax.Core.Utils.csproj" />
+    <ProjectReference Include="..\..\Attax.Eval.OnnxRuntime\Attax.Eval.OnnxRuntime.csproj" />
+    <ProjectReference Include="$(AttaxServerRepoPath)\Attax.Server.Contracts\Attax.Server.Contracts.csproj" />
+    <ProjectReference Include="$(AttaxServerRepoPath)\Attax.Client.Sync\Attax.Client.Sync.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="CommandLineParser" />
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
+    <PackageReference Include="Serilog" />
+    <PackageReference Include="Serilog.Sinks.Console" />
+    <PackageReference Include="Serilog.Sinks.File" />
+    <PackageReference Include="Serilog.Formatting.Compact" />
+    <PackageReference Include="Serilog.Extensions.Logging" />
+    <PackageReference Include="Newtonsoft.Json" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\..\Attax.Core\engine-params.json" Link="engine-params.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

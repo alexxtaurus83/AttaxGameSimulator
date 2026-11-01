@@ -16,13 +16,13 @@ namespace Attax.Console {
             foreach (var kv in model.Metadata.OrderBy(k => k.Key)) System.Console.WriteLine($"[verify]   {kv.Key} = {kv.Value}");
 
             var rng = new Random(1);
-            var referee = NewReferee();
+            var referee = LocalGameRunner.NewReferee();
             var boards = new List<BitboardState>();
             var b = CreateStandardInitialBoard();
             var side = PlayerColor.Red;
             for (int ply = 0; ply < 60 && !referee.IsGameOver(b); ply++) {
                 boards.Add(b.Clone());
-                var d = RandomDecision(referee, b, side, rng);
+                var d = LocalGameRunner.RandomDecision(referee, b, side, rng);
                 referee.MakeMove(b, d.Move, side);
                 side = SwitchPlayer(side);
             }
@@ -64,7 +64,7 @@ namespace Attax.Console {
         /// </summary>
         static void RunFixtures(FixturesOptions o) {
             var rng = new Random(o.Seed);
-            var referee = NewReferee();
+            var referee = LocalGameRunner.NewReferee();
             var inv = CultureInfo.InvariantCulture;
             OnnxPolicyValueModel? model = o.Model == null ? null : new OnnxPolicyValueModel(o.Model, 1);
 
@@ -78,7 +78,7 @@ namespace Attax.Console {
                 var side = PlayerColor.Red;
                 int plies = rng.Next(0, 70);
                 for (int ply = 0; ply < plies && !referee.IsGameOver(b); ply++) {
-                    var d = RandomDecision(referee, b, side, rng);
+                    var d = LocalGameRunner.RandomDecision(referee, b, side, rng);
                     if (!d.HasMove) break;
                     referee.MakeMove(b, d.Move, side);
                     side = SwitchPlayer(side);

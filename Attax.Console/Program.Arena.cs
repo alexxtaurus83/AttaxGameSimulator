@@ -79,7 +79,7 @@ namespace Attax.Console {
             while (finished < o.Pairs && decision == SprtDecision.Continue) {
                 int start = finished, end = Math.Min(o.Pairs, finished + batch);
                 Parallel.For(start, end, new ParallelOptions { MaxDegreeOfParallelism = parallel }, pi => {
-                    using var referee = NewReferee();
+                    using var referee = LocalGameRunner.NewReferee();
                     // The opening is generated once and played twice, swapping colours: luck of the opening cancels inside a pair.
                     var openRng = new Random(CombineSeed(o.Seed, pi * 7919 + 1));
                     // Blocks first (as in the game), then the random opening plies. Own rng, consulted only when blocks are requested.
@@ -89,7 +89,7 @@ namespace Attax.Console {
                     for (; played < o.OpeningPlies; played++) {
                         if (referee.IsGameOver(opening)) break;
                         var side = played % 2 == 0 ? PlayerColor.Red : PlayerColor.Blue;
-                        var d = RandomDecision(referee, opening, side, openRng);
+                        var d = LocalGameRunner.RandomDecision(referee, opening, side, openRng);
                         if (!d.HasMove) break;
                         referee.MakeMove(opening, d.Move, side);
                     }
@@ -104,7 +104,7 @@ namespace Attax.Console {
                         var l1 = new PlayerStats(); var l2 = new PlayerStats();
 
                         var b = opening.Clone();
-                        var end2 = RunGame(referee, b, played, o.MaxPlies,
+                        var end2 = LocalGameRunner.RunGame(referee, b, played, o.MaxPlies,
                             chooser: (ply, side, board) => {
                                 bool isP1 = (side == PlayerColor.Red) == p1IsRed;
                                 var d = (isP1 ? p1 : p2).Choose(board, side);

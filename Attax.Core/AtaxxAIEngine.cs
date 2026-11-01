@@ -28,6 +28,7 @@ namespace Attax.Core {
         private float evaluationScale;
         private bool trainingMode;
         private bool disableParallelRootSearch;
+        private int maxRootParallelism;
         private bool disableQuiescenceSearch;
         private bool disableNullMovePruning;
         private bool disableRandomRootTies;
@@ -62,6 +63,8 @@ namespace Attax.Core {
             }
             return pool;
         }
+
+        private int RootParallelism(int moves) => Math.Min(moves, maxRootParallelism > 0 ? maxRootParallelism : Environment.ProcessorCount);
 
         /// <summary>Frees the memory held by hint searches. Not thread-safe: call only while no search is running.</summary>
         public void ReleaseHintMemory() {
@@ -110,6 +113,8 @@ namespace Attax.Core {
             public bool UseMLEvaluation;
             public float EvaluationScale;
             public bool DisableParallelRootSearch;
+            // 0 = Environment.ProcessorCount (default, unchanged)
+            public int MaxRootParallelism;
             public bool DisableQuiescenceSearch;
             public bool DisableNullMovePruning;
             // Root ties: when several root moves share the best score, the engine plays one of them at random (default) instead of always the first
@@ -194,6 +199,7 @@ namespace Attax.Core {
             this.trainingMode = config.TrainingMode;
             this.evaluationScale = config.EvaluationScale != 0 ? config.EvaluationScale : DefaultEvaluationScale;
             this.disableParallelRootSearch = config.DisableParallelRootSearch;
+            this.maxRootParallelism = config.MaxRootParallelism;
             this.disableQuiescenceSearch = config.DisableQuiescenceSearch;
             this.disableNullMovePruning = config.DisableNullMovePruning;
             this.disableRandomRootTies = config.DisableRandomRootTies;
@@ -636,7 +642,7 @@ namespace Attax.Core {
                 if (optionsSearch && !serialRoot) {
                     // Parallel hint search: dedicated hint helpers, cleared once so every hint starts cold and deterministic.
                     // The AI's helpers are never touched, so its persistent table survives hint requests.
-                    int hintParallelism = Math.Min(allMoves.Count, Environment.ProcessorCount);
+                    int hintParallelism = RootParallelism(allMoves.Count);
                     var hintPool = EnsureHelperPool(true, hintParallelism);
                     for (int pi = 0; pi < hintParallelism; pi++) hintPool[pi].ClearSearchMemory();
                 }
@@ -812,7 +818,7 @@ namespace Attax.Core {
                             return;
                         }
 
-                        int parallelism = Math.Min(allMoves.Count, Environment.ProcessorCount);
+                        int parallelism = RootParallelism(allMoves.Count);
                         var helperPool = EnsureHelperPool(optionsSearch, parallelism);
 
                         // Exclusive leases: a helper is owned by exactly one live worker at a time.

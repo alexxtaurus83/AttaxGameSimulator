@@ -47,7 +47,7 @@ namespace Attax.Console {
                 int gameSeed = CombineSeed(o.Seed, i);
                 ulong uid = MakeGameUid(o.Generation, o.Seed, i);
                 var rng = new Random(gameSeed);
-                using var referee = NewReferee();
+                using var referee = LocalGameRunner.NewReferee();
                 // Movers keep their root scores only when a heuristic teacher exists: a free label then carries the mover's own search value.
                 bool keepScores = teacherSpec != null && teacherSpec.Kind == PlayerKind.Classic;
                 using var red = PlayerFactory.Create(redSpec, models, CombineSeed(gameSeed, 0x13579BDF), defaultTrain: true, collectScore: keepScores);
@@ -62,10 +62,10 @@ namespace Attax.Console {
                 var board = StartBoard.Create(referee, blockMin, blockMax, new Random(CombineSeed(gameSeed, 0xB10C)));
                 board.ZobristHash = referee.ComputeZobristHash(board, PlayerColor.Red);
 
-                var end = RunGame(referee, board, 0, o.MaxPlies,
+                var end = LocalGameRunner.RunGame(referee, board, 0, o.MaxPlies,
                     chooser: (ply, side, b) => {
                         double eps = GetScheduledEpsilon(ply, o.EpsilonPly1, o.EpsilonPly2, o.EpsilonStart, o.EpsilonMid, o.EpsilonLate);
-                        if (rng.NextDouble() < eps) { gRandom++; return RandomDecision(referee, b, side, rng); }
+                        if (rng.NextDouble() < eps) { gRandom++; return LocalGameRunner.RandomDecision(referee, b, side, rng); }
                         var d = (side == PlayerColor.Red ? red : blue).Choose(b, side);
                         if (d.IsExploration) gRandom++;
                         if (d.Nodes > 0) { gNodes += d.Nodes; gSearchMoves++; if (d.UsedFallback) gFallbacks++; }

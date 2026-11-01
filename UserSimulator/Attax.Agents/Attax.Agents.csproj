@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Attax.Core\Attax.Core.csproj" />
+    <ProjectReference Include="..\..\Attax.Core.Utils\Attax.Core.Utils.csproj" />
+    <ProjectReference Include="..\..\Attax.Play\Attax.Play.csproj" />
+  </ItemGroup>
+
+</Project>

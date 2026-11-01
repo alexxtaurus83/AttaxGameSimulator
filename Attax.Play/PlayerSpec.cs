@@ -18,6 +18,7 @@ namespace Attax.Play {
     ///       bonus (root-bonus scale, >= 0), temp, topk, train (true/false), id (true/false, iterative deepening in train mode),
     ///       quiescence (true/false: capture-only leaf extension; default true in the arena, false in self-play),
     ///       ties (true/false: pick at random among equally scored root moves; default true = the engine default, false = always the first),
+    ///       cores (1..64: root parallelism for search and model threads for policy; absent = serial root search),
     ///       params (path of an engine-parameter JSON file) and p.&lt;group&gt;.&lt;name&gt; (single parameter overrides applied on top of
     ///       the file, e.g. p.root.riskPoints=1.2 or p.eval.centerControlTable.24=4; names are checked when the spec is parsed).
     /// Keys that do not apply to a kind are rejected instead of being ignored, so a typo or a misplaced
@@ -39,6 +40,8 @@ namespace Attax.Play {
         public bool? Quiescence { get; private set; }
         /// <summary>null = the engine default (random root ties on); false = deterministic (the first of the tied moves); true = explicitly on.</summary>
         public bool? RandomTies { get; private set; }
+        /// <summary>null = serial root search (default); 1..64 = root parallelism or model threads.</summary>
+        public int? Cores { get; private set; }
         public string ParamsPath { get; private set; }
         /// <summary>Canonical (path, value) overrides in the order given.</summary>
         public List<KeyValuePair<string, string>> Overrides { get; private set; } = new List<KeyValuePair<string, string>>();
@@ -50,9 +53,9 @@ namespace Attax.Play {
         public float EffectiveBonus => Bonus ?? (Kind == PlayerKind.Value ? 0f : 1f);
 
         private static readonly Dictionary<PlayerKind, string[]> Allowed = new Dictionary<PlayerKind, string[]> {
-            { PlayerKind.Classic, new[] { "depth", "nodes", "time", "bonus", "temp", "topk", "train", "id", "quiescence", "ties", "params", "p.<group>.<name>" } },
-            { PlayerKind.Value,   new[] { "model", "depth", "nodes", "time", "bonus", "temp", "topk", "train", "id", "quiescence", "ties", "params", "p.<group>.<name>" } },
-            { PlayerKind.Policy,  new[] { "model", "temp", "topk" } },
+            { PlayerKind.Classic, new[] { "depth", "nodes", "time", "bonus", "temp", "topk", "train", "id", "quiescence", "ties", "params", "p.<group>.<name>", "cores" } },
+            { PlayerKind.Value,   new[] { "model", "depth", "nodes", "time", "bonus", "temp", "topk", "train", "id", "quiescence", "ties", "params", "p.<group>.<name>", "cores" } },
+            { PlayerKind.Policy,  new[] { "model", "temp", "topk", "cores" } },
             { PlayerKind.Random,  new string[0] },
         };
 
@@ -128,6 +131,7 @@ namespace Attax.Play {
                 case "id": IterativeDeepening = ParseBool(key, value, whole); break;
                 case "quiescence": Quiescence = ParseBool(key, value, whole); break;
                 case "ties": RandomTies = ParseBool(key, value, whole); break;
+                case "cores": Cores = ParseInt(key, value, 1, 64, whole); break;
                 case "params": ParamsPath = value; break;
             }
         }
@@ -171,12 +175,16 @@ namespace Attax.Play {
                 if (IterativeDeepening) parts.Add("id=true");
                 if (Quiescence.HasValue) parts.Add("quiescence=" + (Quiescence.Value ? "true" : "false"));
                 if (RandomTies == false) parts.Add("ties=false");   // true is the engine default, so "ties=true" and no key are the same spec
+                if (Cores.HasValue) parts.Add("cores=" + Cores.Value.ToString(inv));
                 if (ParamsPath != null) parts.Add("params=" + ParamsPath);
                 foreach (var o in Overrides) parts.Add("p." + o.Key + "=" + o.Value);
             }
             if (includeSampling && (IsSearch || Kind == PlayerKind.Policy)) {
                 if (Temp > 0) parts.Add("temp=" + Temp.ToString("R", inv));
                 if (TopK > 1) parts.Add("topk=" + TopK.ToString(inv));
+            }
+            if (Kind == PlayerKind.Policy && Cores.HasValue) {
+                parts.Add("cores=" + Cores.Value.ToString(inv));
             }
             string name = Kind.ToString().ToLowerInvariant();
             return parts.Count == 0 ? name : name + ":" + string.Join(",", parts);

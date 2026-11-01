@@ -7,6 +7,7 @@
     <ProjectReference Include="..\Attax.Data\Attax.Data.csproj" />
     <ProjectReference Include="..\Attax.Play\Attax.Play.csproj" />
     <ProjectReference Include="..\Attax.Eval.OnnxRuntime\Attax.Eval.OnnxRuntime.csproj" />
+    <ProjectReference Include="..\UserSimulator\Attax.Agents\Attax.Agents.csproj" />
   </ItemGroup>
 
   <ItemGroup>

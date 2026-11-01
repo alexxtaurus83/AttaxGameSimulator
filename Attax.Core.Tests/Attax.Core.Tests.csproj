@@ -32,6 +32,7 @@
     <ProjectReference Include="..\Attax.Model\Attax.Model.csproj" />
     <ProjectReference Include="..\Attax.Data\Attax.Data.csproj" />
     <ProjectReference Include="..\Attax.Play\Attax.Play.csproj" />
+    <ProjectReference Include="..\UserSimulator\Attax.Agents\Attax.Agents.csproj" />
   </ItemGroup>
 
 </Project>

@@ -21,7 +21,7 @@ namespace Attax.Console {
             using var models = CreateModelSource(parallel, a, b);
 
             // Reservoir sample (algorithm R) of distinct positions with at least two legal moves.
-            var referee = NewReferee();
+            var referee = LocalGameRunner.NewReferee();
             var rng = new Random(o.Seed);
             var seen = new HashSet<(ulong, ulong, ulong, byte)>();
             var picked = new List<(BitboardState b, PlayerColor side)>(o.Count);
