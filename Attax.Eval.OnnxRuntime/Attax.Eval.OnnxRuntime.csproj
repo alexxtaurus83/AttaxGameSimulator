@@ -15,7 +15,7 @@
   <ItemGroup>
     <!-- CPU build only: see OnnxPolicyValueModel. The GPU package (Microsoft.ML.OnnxRuntime.Gpu) ships CUDA provider DLLs
          that were never used and made the published folder much larger. -->
-    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.31.1" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" />
   </ItemGroup>
 
 </Project>
