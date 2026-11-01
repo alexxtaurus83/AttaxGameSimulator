@@ -518,5 +518,44 @@ namespace Attax.Core.Tests {
             Assert.Equal(3, choice.Action.X);
             Assert.Equal(3, choice.Action.Y);
         }
+
+        [Fact]
+        public void UseEngineEvaluator_EngineParams_NullPolicy_ThrowsArgumentNullException() {
+            AiAbilityPolicy policy = null;
+            var ex = Assert.Throws<ArgumentNullException>(() => policy.UseEngineEvaluator(Prm.Base()));
+            Assert.Equal("policy", ex.ParamName);
+        }
+
+        [Fact]
+        public void UseEngineEvaluator_EngineParams_NullParams_ThrowsArgumentNullException() {
+            var policy = new AiAbilityPolicy(TestConfig(), seed: 1, enabled: true);
+            var ex = Assert.Throws<ArgumentNullException>(() => policy.UseEngineEvaluator((EngineParams)null));
+            Assert.Equal("engineParams", ex.ParamName);
+        }
+
+        [Fact]
+        public void UseEngineEvaluator_IValueEvaluator_NullPolicy_ThrowsArgumentNullException() {
+            AiAbilityPolicy policy = null;
+            IValueEvaluator evaluator = new HeuristicEvaluator(Prm.Base());
+            var ex = Assert.Throws<ArgumentNullException>(() => policy.UseEngineEvaluator(evaluator));
+            Assert.Equal("policy", ex.ParamName);
+        }
+
+        [Fact]
+        public void UseEngineEvaluator_IValueEvaluator_NullEvaluator_ThrowsArgumentNullException() {
+            var policy = new AiAbilityPolicy(TestConfig(), seed: 1, enabled: true);
+            var ex = Assert.Throws<ArgumentNullException>(() => policy.UseEngineEvaluator((IValueEvaluator)null));
+            Assert.Equal("evaluator", ex.ParamName);
+        }
+
+        [Fact]
+        public void UseEngineEvaluator_IValueEvaluator_ConfiguresTargetEvaluatorAndReturnsPolicy() {
+            var policy = new AiAbilityPolicy(TestConfig(), seed: 1, enabled: true);
+            var evaluator = new HeuristicEvaluator(Prm.Base());
+            var returned = policy.UseEngineEvaluator(evaluator);
+
+            Assert.Same(policy, returned);
+            Assert.NotNull(policy.TargetEvaluator);
+        }
     }
 }
