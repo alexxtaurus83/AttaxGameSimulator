@@ -1,8 +1,6 @@
 using System;
 using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Attax.Agents;
@@ -39,14 +37,14 @@ namespace Attax.UserSimulator {
             using (LogContext.PushProperty("Color", myColor.ToString())) {
                 _log.Information("Starting gameplay loop as {Color} in game {GameId}", myColor, gameId);
 
-                var reconciler = new GameSyncReconciler<JsonElement>();
+                var reconciler = new GameSyncReconciler<Newtonsoft.Json.Linq.JToken>();
                 bool isSubmitting = false;
                 bool needsResync = false;
 
                 Action<string, GameEventEnvelopeDto> onEvent = (gId, env) => {
                     if (gId != gameId) return;
                     _log.Information("GameEvent received: v{Version} {Type}", env.ServerVersion, env.Type);
-                    var decision = reconciler.OnEvent(new SyncEvent<JsonElement>(env.ServerVersion, env.Payload, env.IsTerminal));
+                    var decision = reconciler.OnEvent(new SyncEvent<Newtonsoft.Json.Linq.JToken>(env.ServerVersion, env.Payload, env.IsTerminal));
                     if (decision.Action == SyncAction.ResyncRequired) {
                         _log.Warning("Reconciler resync required: {Reason}", decision.ResyncReason);
                         needsResync = true;
@@ -143,7 +141,7 @@ namespace Attax.UserSimulator {
 
             var resp = await _connection.Http.SendAsync(msg, ct);
             resp.EnsureSuccessStatusCode();
-            return (await resp.Content.ReadFromJsonAsync<GameSnapshotDto>(cancellationToken: ct))!;
+            return (await ServerJson.ReadJsonAsync<GameSnapshotDto>(resp.Content, ct))!;
         }
     }
 

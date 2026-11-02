@@ -1,22 +1,34 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Text.Json;
+using Attax.Server.Contracts.Serialization;
+using Newtonsoft.Json;
 
 namespace Attax.UserSimulator {
     public sealed class RoomCodeFile {
+        [JsonProperty("roomCode")]
         public string RoomCode { get; set; } = string.Empty;
+
+        [JsonProperty("roomId")]
         public string RoomId { get; set; } = string.Empty;
+
+        [JsonProperty("hostName")]
         public string HostName { get; set; } = string.Empty;
+
+        [JsonProperty("createdAtUtc")]
         public DateTimeOffset CreatedAtUtc { get; set; }
+
+        [JsonProperty("expiresAtUtc")]
         public DateTimeOffset ExpiresAtUtc { get; set; }
     }
 
     public static class RoomCodeFolder {
+        private static readonly JsonSerializerSettings Settings = AttaxJsonSettings.Create();
+
         public static string Write(string roomsDir, RoomCodeFile file) {
             Directory.CreateDirectory(roomsDir);
             string path = Path.Combine(roomsDir, $"{file.RoomCode}.json");
-            string json = JsonSerializer.Serialize(file, new JsonSerializerOptions { WriteIndented = true });
+            string json = JsonConvert.SerializeObject(file, Formatting.Indented, Settings);
             File.WriteAllText(path, json);
             return path;
         }
@@ -35,7 +47,7 @@ namespace Attax.UserSimulator {
             foreach (var file in Directory.GetFiles(roomsDir, "*.json")) {
                 try {
                     string json = File.ReadAllText(file);
-                    var item = JsonSerializer.Deserialize<RoomCodeFile>(json);
+                    var item = JsonConvert.DeserializeObject<RoomCodeFile>(json, Settings);
                     if (item == null) continue;
 
                     if (item.ExpiresAtUtc <= now) {

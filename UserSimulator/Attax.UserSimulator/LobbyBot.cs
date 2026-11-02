@@ -2,7 +2,6 @@ using System;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Attax.Core;
@@ -95,7 +94,7 @@ namespace Attax.UserSimulator {
                 var resp = await _connection.Http.SendAsync(msg, ct);
                 if (!resp.IsSuccessStatusCode) return;
 
-                var lobby = await resp.Content.ReadFromJsonAsync<LobbySummaryDto>(cancellationToken: ct);
+                var lobby = await ServerJson.ReadJsonAsync<LobbySummaryDto>(resp.Content, ct);
                 if (lobby == null || lobby.Players.Count == 0) return;
 
                 var candidates = lobby.Players.Where(p => p.PlayerId != _connection.PlayerId && p.IsAvailable).ToList();

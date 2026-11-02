@@ -2,15 +2,16 @@ using System;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Net.Http.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Attax.Server.Contracts.Common;
+using Attax.Server.Contracts.Serialization;
 using Attax.Server.Contracts.Sessions;
 using Attax.Server.Contracts.Sync;
 using Attax.Server.Contracts.Transport;
 using Microsoft.AspNetCore.Http.Connections;
 using Microsoft.AspNetCore.SignalR.Client;
+using Microsoft.Extensions.DependencyInjection;
 using Serilog;
 
 namespace Attax.UserSimulator {
@@ -87,13 +88,13 @@ namespace Attax.UserSimulator {
                 };
 
                 using var msg = new HttpRequestMessage(HttpMethod.Post, "/api/sessions/recover") {
-                    Content = JsonContent.Create(recoverReq)
+                    Content = ServerJson.ToJsonContent(recoverReq)
                 };
                 AddHeaders(msg);
 
                 var resp = await _http.SendAsync(msg, ct);
                 if (resp.IsSuccessStatusCode) {
-                    var recovered = (await resp.Content.ReadFromJsonAsync<RecoverSessionResponse>(cancellationToken: ct))!;
+                    var recovered = (await ServerJson.ReadJsonAsync<RecoverSessionResponse>(resp.Content, ct))!;
                     _playerId = recovered.PlayerId;
                     _recoverySecret = existing.RecoverySecret;
                     _accessToken = recovered.AccessToken;
@@ -109,14 +110,14 @@ namespace Attax.UserSimulator {
                 ClientVersion = _options.ClientVersion
             };
             using var createMsg = new HttpRequestMessage(HttpMethod.Post, "/api/sessions") {
-                Content = JsonContent.Create(createReq)
+                Content = ServerJson.ToJsonContent(createReq)
             };
             AddHeaders(createMsg);
 
             var createResp = await _http.SendAsync(createMsg, ct);
             createResp.EnsureSuccessStatusCode();
 
-            var created = (await createResp.Content.ReadFromJsonAsync<CreateSessionResponse>(cancellationToken: ct))!;
+            var created = (await ServerJson.ReadJsonAsync<CreateSessionResponse>(createResp.Content, ct))!;
             _playerId = created.PlayerId;
             _recoverySecret = created.RecoverySecret;
             _accessToken = created.AccessToken;
@@ -136,6 +137,7 @@ namespace Attax.UserSimulator {
                     }
                     o.Transports = HttpTransportType.LongPolling;
                 })
+                .AddNewtonsoftJsonProtocol(o => AttaxJsonSettings.Apply(o.PayloadSerializerSettings))
                 .WithAutomaticReconnect();
 
             _hub = builder.Build();
@@ -165,7 +167,7 @@ namespace Attax.UserSimulator {
 
             var resp = await _http.SendAsync(msg, ct);
             resp.EnsureSuccessStatusCode();
-            var body = await resp.Content.ReadFromJsonAsync<HubTicketResponse>(cancellationToken: ct);
+            var body = await ServerJson.ReadJsonAsync<HubTicketResponse>(resp.Content, ct);
             return body!.Ticket;
         }
 
