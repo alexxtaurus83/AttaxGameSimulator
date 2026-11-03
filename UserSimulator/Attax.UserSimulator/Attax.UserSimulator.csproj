@@ -9,6 +9,10 @@
     <AttaxServerRepoPath Condition="'$(AttaxServerRepoPath)' == ''">..\..\..\merge-conflict-server</AttaxServerRepoPath>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Attax.UserSimulator.Tests" />
+  </ItemGroup>
+
   <Target Name="CheckServerRepoPath" BeforeTargets="BeforeBuild">
     <Error Condition="!Exists('$(AttaxServerRepoPath)\Attax.Server.Contracts\Attax.Server.Contracts.csproj')"
            Text="Cannot find Attax.Server.Contracts at '$(AttaxServerRepoPath)\Attax.Server.Contracts\Attax.Server.Contracts.csproj'. Please specify -p:AttaxServerRepoPath=&lt;path&gt;." />

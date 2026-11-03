@@ -27,6 +27,7 @@ namespace Attax.UserSimulator {
         private readonly ILogger _log;
         private readonly CredentialStore _store;
         private readonly Func<HttpMessageHandler>? _httpHandlerFactory;
+        private readonly TimeProvider _timeProvider;
 
         private HttpClient _http = default!;
         private HubConnection _hub = default!;
@@ -38,6 +39,7 @@ namespace Attax.UserSimulator {
 
         public string PlayerId => _playerId;
         public string AccessToken => _accessToken;
+        public string RecoverySecret => _recoverySecret;
         public HubConnection Hub => _hub;
         public HttpClient Http => _http;
 
@@ -45,11 +47,12 @@ namespace Attax.UserSimulator {
         public event Action<string, GameEventEnvelopeDto>? OnGameEvent;
         public event Action<string>? OnSubscriptionLagged;
 
-        public ServerConnection(BotOptions options, ILogger log, Func<HttpMessageHandler>? httpHandlerFactory = null) {
+        public ServerConnection(BotOptions options, ILogger log, Func<HttpMessageHandler>? httpHandlerFactory = null, TimeProvider? timeProvider = null) {
             _options = options;
             _log = log;
             _store = new CredentialStore(options.StateDir);
             _httpHandlerFactory = httpHandlerFactory;
+            _timeProvider = timeProvider ?? TimeProvider.System;
         }
 
         public async Task StartAsync(CancellationToken ct = default) {
@@ -77,7 +80,28 @@ namespace Attax.UserSimulator {
             }, null, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(15));
         }
 
-        private async Task AuthenticateSessionAsync(CancellationToken ct) {
+        private TimeSpan? ParseRetryAfter(HttpResponseMessage resp) {
+            if (resp.Headers.RetryAfter == null) return null;
+            if (resp.Headers.RetryAfter.Delta.HasValue) {
+                var delta = resp.Headers.RetryAfter.Delta.Value;
+                return delta < TimeSpan.Zero ? TimeSpan.Zero : delta;
+            }
+            if (resp.Headers.RetryAfter.Date.HasValue) {
+                var diff = resp.Headers.RetryAfter.Date.Value - _timeProvider.GetUtcNow();
+                return diff < TimeSpan.Zero ? TimeSpan.Zero : diff;
+            }
+            return null;
+        }
+
+        internal async Task AuthenticateSessionAsync(CancellationToken ct) {
+            if (_http == null) {
+                var handler = _httpHandlerFactory != null ? _httpHandlerFactory() : new HttpClientHandler();
+                _http = new HttpClient(handler) {
+                    BaseAddress = new Uri(_options.Server)
+                };
+                _http.DefaultRequestHeaders.Add(TransportHeaders.ClientVersion, _options.ClientVersion);
+            }
+
             var existing = _options.NewIdentity ? null : _store.Load(_options.Name);
             if (existing != null) {
                 _log.Information("Attempting to recover existing session for {PlayerId}", existing.PlayerId);
@@ -87,42 +111,120 @@ namespace Attax.UserSimulator {
                     ClientVersion = _options.ClientVersion
                 };
 
-                using var msg = new HttpRequestMessage(HttpMethod.Post, "/api/sessions/recover") {
-                    Content = ServerJson.ToJsonContent(recoverReq)
-                };
-                AddHeaders(msg);
+                int attempt = 0;
+                while (true) {
+                    using var msg = new HttpRequestMessage(HttpMethod.Post, "/api/sessions/recover") {
+                        Content = ServerJson.ToJsonContent(recoverReq)
+                    };
+                    AddHeaders(msg);
 
-                var resp = await _http.SendAsync(msg, ct);
-                if (resp.IsSuccessStatusCode) {
-                    var recovered = (await ServerJson.ReadJsonAsync<RecoverSessionResponse>(resp.Content, ct))!;
-                    _playerId = recovered.PlayerId;
-                    _recoverySecret = existing.RecoverySecret;
-                    _accessToken = recovered.AccessToken;
-                    _log.Information("Successfully recovered session for {PlayerId}", _playerId);
-                    return;
+                    HttpResponseMessage resp;
+                    try {
+                        resp = await _http.SendAsync(msg, ct);
+                    } catch (Exception ex) when (!ct.IsCancellationRequested) {
+                        if (attempt < 3) {
+                            var fallbackDelay = TimeSpan.FromSeconds(Math.Pow(2, attempt));
+                            _log.Warning("Recovery network failure ({ErrorType}). Retrying in {DelayMs}ms (attempt {Attempt}/3)", ex.GetType().Name, fallbackDelay.TotalMilliseconds, attempt + 1);
+                            attempt++;
+                            await Task.Delay(fallbackDelay, _timeProvider, ct);
+                            continue;
+                        }
+                        throw new InvalidOperationException($"Recovery failed due to network error after retries: {ex.Message}", ex);
+                    }
+
+                    using (resp) {
+                        if (resp.IsSuccessStatusCode) {
+                            var recovered = await ServerJson.ReadJsonAsync<RecoverSessionResponse>(resp.Content, ct);
+                            if (recovered == null || string.IsNullOrWhiteSpace(recovered.RecoverySecret)) {
+                                throw new InvalidOperationException("Recovery response did not include a valid rotated recovery secret.");
+                            }
+                            _playerId = recovered.PlayerId;
+                            _recoverySecret = recovered.RecoverySecret;
+                            _accessToken = recovered.AccessToken;
+                            try {
+                                _store.Save(_options.Name, _playerId, _recoverySecret);
+                            } catch (Exception ex) {
+                                throw new InvalidOperationException($"Failed to persist rotated recovery secret for '{_options.Name}': {ex.Message}", ex);
+                            }
+                            _log.Information("Successfully recovered session for {PlayerId}", _playerId);
+                            return;
+                        }
+
+                        bool isRetryable = resp.StatusCode == (HttpStatusCode)429 || ((int)resp.StatusCode >= 500 && (int)resp.StatusCode <= 599);
+                        if (isRetryable && attempt < 3) {
+                            var retryAfter = ParseRetryAfter(resp);
+                            if (retryAfter.HasValue && retryAfter.Value.TotalSeconds > 60) {
+                                throw new InvalidOperationException($"Recovery rate limited with Retry-After {retryAfter.Value.TotalSeconds:F0}s exceeding 60s limit. Aborting.");
+                            }
+                            var fallbackDelay = TimeSpan.FromSeconds(Math.Pow(2, attempt));
+                            var delay = retryAfter.HasValue && retryAfter.Value > fallbackDelay ? retryAfter.Value : fallbackDelay;
+                            _log.Warning("Recovery returned {StatusCode}. Retrying in {DelayMs}ms (attempt {Attempt}/3)", (int)resp.StatusCode, delay.TotalMilliseconds, attempt + 1);
+                            attempt++;
+                            await Task.Delay(delay, _timeProvider, ct);
+                            continue;
+                        }
+
+                        // Preserves existing credential file; gives actionable error directing replacement
+                        string actionGuidance = resp.StatusCode == HttpStatusCode.Unauthorized
+                            ? " Use --new-identity to register a replacement identity."
+                            : "";
+                        throw new InvalidOperationException(
+                            $"Recovery failed with HTTP {(int)resp.StatusCode} ({resp.StatusCode}).{actionGuidance}");
+                    }
                 }
-
-                _log.Warning("Recovery returned {Status}. Creating fresh session.", resp.StatusCode);
             }
 
             var createReq = new CreateSessionRequest {
                 DisplayName = _options.Name,
                 ClientVersion = _options.ClientVersion
             };
-            using var createMsg = new HttpRequestMessage(HttpMethod.Post, "/api/sessions") {
-                Content = ServerJson.ToJsonContent(createReq)
-            };
-            AddHeaders(createMsg);
 
-            var createResp = await _http.SendAsync(createMsg, ct);
-            createResp.EnsureSuccessStatusCode();
+            int createAttempt = 0;
+            while (true) {
+                using var createMsg = new HttpRequestMessage(HttpMethod.Post, "/api/sessions") {
+                    Content = ServerJson.ToJsonContent(createReq)
+                };
+                AddHeaders(createMsg);
 
-            var created = (await ServerJson.ReadJsonAsync<CreateSessionResponse>(createResp.Content, ct))!;
-            _playerId = created.PlayerId;
-            _recoverySecret = created.RecoverySecret;
-            _accessToken = created.AccessToken;
-            _store.Save(_options.Name, _playerId, _recoverySecret);
-            _log.Information("Created new session for {PlayerId}", _playerId);
+                HttpResponseMessage createResp;
+                try {
+                    createResp = await _http.SendAsync(createMsg, ct);
+                } catch (Exception ex) when (!ct.IsCancellationRequested) {
+                    throw new InvalidOperationException($"Failed to create session due to network error: {ex.Message}", ex);
+                }
+
+                using (createResp) {
+                    if (createResp.IsSuccessStatusCode) {
+                        var created = (await ServerJson.ReadJsonAsync<CreateSessionResponse>(createResp.Content, ct))!;
+                        if (string.IsNullOrWhiteSpace(created.RecoverySecret)) {
+                            throw new InvalidOperationException("Create session response did not include a recovery secret.");
+                        }
+                        _playerId = created.PlayerId;
+                        _recoverySecret = created.RecoverySecret;
+                        _accessToken = created.AccessToken;
+                        _store.Save(_options.Name, _playerId, _recoverySecret);
+                        _log.Information("Created new session for {PlayerId}", _playerId);
+                        return;
+                    }
+
+                    if (createResp.StatusCode == (HttpStatusCode)429 && createAttempt < 3) {
+                        var retryAfter = ParseRetryAfter(createResp);
+                        if (retryAfter.HasValue && retryAfter.Value.TotalSeconds > 60) {
+                            throw new InvalidOperationException($"Creation rate limited with Retry-After {retryAfter.Value.TotalSeconds:F0}s exceeding 60s limit.");
+                        }
+                        var fallbackDelay = TimeSpan.FromSeconds(Math.Pow(2, createAttempt));
+                        var delay = retryAfter.HasValue && retryAfter.Value > fallbackDelay ? retryAfter.Value : fallbackDelay;
+                        _log.Warning("Creation rate limited (429). Retrying in {DelayMs}ms (attempt {Attempt}/3)", delay.TotalMilliseconds, createAttempt + 1);
+                        createAttempt++;
+                        await Task.Delay(delay, _timeProvider, ct);
+                        continue;
+                    }
+
+                    throw new ServerErrorException(
+                        createResp.StatusCode.ToString(),
+                        $"Create session failed with HTTP {(int)createResp.StatusCode}");
+                }
+            }
         }
 
         private async Task ConnectHubAsync(CancellationToken ct) {
