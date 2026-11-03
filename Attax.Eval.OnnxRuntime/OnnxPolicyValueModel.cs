@@ -94,7 +94,7 @@ namespace Attax.Eval.OnnxRuntime {
         }
 
         public PolicyValueOutput Evaluate(IReadOnlyList<BitboardState> boards, PlayerColor sideToMove) {
-            if (boards == null) throw new ArgumentNullException(nameof(boards));
+            ArgumentNullException.ThrowIfNull(boards);
             int n = boards.Count;
             if (n == 0) return new PolicyValueOutput(0, Array.Empty<float>(), Array.Empty<float>());
 

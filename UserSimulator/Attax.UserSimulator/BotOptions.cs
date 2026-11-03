@@ -84,7 +84,9 @@ namespace Attax.UserSimulator {
 
             if (coresToApply.HasValue) {
                 if (specText.Contains("cores=", StringComparison.OrdinalIgnoreCase)) {
+#pragma warning disable S6444, SYSLIB1045 // Simple local CLI regex, evaluated during startup only.
                     specText = Regex.Replace(specText, @"cores=\d+", $"cores={coresToApply.Value}", RegexOptions.IgnoreCase);
+#pragma warning restore S6444, SYSLIB1045
                 } else if (specText.Contains(':')) {
                     specText += $",cores={coresToApply.Value}";
                 } else if (!specText.Equals("random", StringComparison.OrdinalIgnoreCase)) {
@@ -94,7 +96,9 @@ namespace Attax.UserSimulator {
 
             if (DisableQuiescence) {
                 if (specText.Contains("quiescence=", StringComparison.OrdinalIgnoreCase)) {
+#pragma warning disable S6444, SYSLIB1045 // Fixed literal alternatives in a local startup option.
                     specText = Regex.Replace(specText, @"quiescence=(true|false)", "quiescence=false", RegexOptions.IgnoreCase);
+#pragma warning restore S6444, SYSLIB1045
                 } else if (specText.Contains(':')) {
                     specText += ",quiescence=false";
                 } else if (!specText.Equals("random", StringComparison.OrdinalIgnoreCase) && !specText.StartsWith("policy", StringComparison.OrdinalIgnoreCase)) {
@@ -106,9 +110,11 @@ namespace Attax.UserSimulator {
         }
 
         public void Validate() {
+#pragma warning disable S6444, SYSLIB1045 // Bounded 1..32-character pattern, checked during CLI startup only.
             if (string.IsNullOrWhiteSpace(Name) || !Regex.IsMatch(Name, "^[A-Za-z0-9_-]{1,32}$")) {
                 throw new ArgumentException($"--name must match ^[A-Za-z0-9_-]{{1,32}}$, got '{Name}'.");
             }
+#pragma warning restore S6444, SYSLIB1045
 
             Mode = Mode.ToLowerInvariant();
             if (Mode != "lobby" && Mode != "private") {
@@ -136,7 +142,9 @@ namespace Attax.UserSimulator {
             if (LobbyBehavior is "idle" or "passive") LobbyBehavior = "wait";
             if (LobbyBehavior is "active" or "challenge") LobbyBehavior = "search";
 
+#pragma warning disable S6444, SYSLIB1045 // Local startup option; hyphen separates the digit groups unambiguously.
             var match = Regex.Match(ThinkMs, @"^(\d+)-(\d+)$");
+#pragma warning restore S6444, SYSLIB1045
             if (!match.Success) {
                 throw new ArgumentException($"--think-ms must be in min-max format, e.g. 1000-4000, got '{ThinkMs}'.");
             }

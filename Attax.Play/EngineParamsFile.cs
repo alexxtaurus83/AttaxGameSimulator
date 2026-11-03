@@ -140,7 +140,9 @@ namespace Attax.Play {
         /// <summary>JSON with every value written out (tables on one line each), the format of engine-params.json.</summary>
         public static string ToJson(EngineParams p) {
             string json = JsonConvert.SerializeObject(p.Clone(), Formatting.Indented);
+#pragma warning disable S6444 // Formats locally generated numeric parameter JSON, not raw input.
             return Regex.Replace(json, @"\[\s*([-0-9.eE+,\s]*?)\s*\]", m => "[" + Regex.Replace(m.Groups[1].Value, @"\s+", " ").Trim() + "]");
+#pragma warning restore S6444
         }
 
         public static void Save(EngineParams p, string path) {
@@ -223,7 +225,9 @@ namespace Attax.Play {
             // Allow both "table.24" and "table[24]".
             var norm = new List<string>();
             foreach (var part in parts) {
+#pragma warning disable S6444 // Local parameter path; bracket separators prevent ambiguous repetition.
                 var m = Regex.Match(part, @"^(\w+)\[(\d+)\]$");
+#pragma warning restore S6444
                 if (m.Success) { norm.Add(m.Groups[1].Value); norm.Add(m.Groups[2].Value); } else norm.Add(part);
             }
             object cur = root;

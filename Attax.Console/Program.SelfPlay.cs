@@ -8,6 +8,7 @@ using static Attax.Core.AtaxxAIEngine;
 namespace Attax.Console {
     partial class Program {
         private const byte InlineTeacherId = 1;
+        private static readonly int[] IdentitySymmetry = { 0 };
 
         static double Ms(long ticks) => ticks * 1000.0 / Stopwatch.Frequency;
 
@@ -110,7 +111,7 @@ namespace Attax.Console {
                         gLabels++;
                     }
 
-                    IEnumerable<int> syms = o.Symmetry == SymmetryModeOption.None ? new[] { 0 }
+                    IEnumerable<int> syms = o.Symmetry == SymmetryModeOption.None ? IdentitySymmetry
                         : o.Symmetry == SymmetryModeOption.Random ? new[] { rng.Next(8) } : Enumerable.Range(0, 8);
                     foreach (int sym in syms) {
                         var tb = sym == 0 ? k.Board : ApplySymmetryToBoard(k.Board, sym);
