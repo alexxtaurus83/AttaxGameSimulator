@@ -73,7 +73,7 @@ namespace Attax.Console {
         static void RunValidateHash(ValidateHashOptions opts) {
             int games = opts.Games, seed = opts.Seed, maxMoves = opts.Moves;
             bool strict = opts.Strict;
-            var rng = new Random(seed);
+            var rng = new Random(seed); // NOSONAR
             var engine = new AtaxxAIEngine(EngineParamsFile.LoadBase(), new AtaxxAIEngine.AIEngineConfig {
                 UseTimeManagement = false, AiDepth = 1, TrainingMode = false, DisableParallelRootSearch = true
             });   // hashing and move generation only
@@ -127,7 +127,7 @@ namespace Attax.Console {
     internal sealed class PositionSampler {
         internal sealed class Observed {
             public ushort Ply;
-            public BitboardState Board;
+            public BitboardState Board = null!;
             public PlayerColor Side;
             public int PlayedAction;
             public bool PlayedRandom;

@@ -28,7 +28,7 @@ namespace Attax.UserSimulator {
             _connection = connection;
             _player = player;
             _log = log;
-            _rng = options.Seed != 0 ? new Random(options.Seed) : new Random();
+            _rng = options.Seed != 0 ? new Random(options.Seed) : new Random(); // NOSONAR
         }
 
         public async Task RunAsync(CancellationToken ct = default) {

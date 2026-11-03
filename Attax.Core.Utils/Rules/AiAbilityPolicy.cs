@@ -31,14 +31,14 @@ namespace Attax.Core.Utils {
 
             _config = config.Clone();
             _seed = seed;
-            _rng = new Random(seed);
+            _rng = new Random(seed); // NOSONAR
             Enabled = enabled;
             UsesThisGame = 0;
         }
 
         public void ResetGame() {
             UsesThisGame = 0;
-            _rng = new Random(_seed);
+            _rng = new Random(_seed); // NOSONAR
             _lastDecidedTurn = -1;
             _lastDecidedSide = PlayerColor.None;
             _hasPendingChoice = false;

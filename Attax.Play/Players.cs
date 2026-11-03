@@ -93,7 +93,7 @@ namespace Attax.Play {
         // Rules only (legal moves); built from the base parameters like every engine (there is no engine without parameters).
         private readonly AtaxxAIEngine helper = new AtaxxAIEngine(EngineParamsFile.LoadBase());
         public PlayerSpec Spec { get; }
-        public RandomPlayer(PlayerSpec spec, int seed) { Spec = spec; rng = new Random(seed); }
+        public RandomPlayer(PlayerSpec spec, int seed) { Spec = spec; rng = new Random(seed); } // NOSONAR
 
         public MoveDecision Choose(BitboardState board, PlayerColor side) {
             var legal = helper.GetAllValidMoves(board, side);
@@ -108,7 +108,7 @@ namespace Attax.Play {
         private readonly IPolicyValueModel model;
         private readonly Random rng;
         public PlayerSpec Spec { get; }
-        public PolicyPlayer(PlayerSpec spec, IPolicyValueModel model, int seed) { Spec = spec; this.model = model; rng = new Random(seed); }
+        public PolicyPlayer(PlayerSpec spec, IPolicyValueModel model, int seed) { Spec = spec; this.model = model; rng = new Random(seed); } // NOSONAR
 
         public MoveDecision Choose(BitboardState board, PlayerColor side) {
             long t0 = Stopwatch.GetTimestamp();

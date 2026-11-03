@@ -35,7 +35,7 @@ namespace Attax.Core.Utils {
         }
 
         public static List<(int x, int y)> GenerateBlockedCellPositions(int count, BitboardState board, int seed) {
-            return GenerateBlockedCellPositions(count, board, new Random(seed));
+            return GenerateBlockedCellPositions(count, board, new Random(seed)); // NOSONAR
         }
 
         public static List<(int x, int y)> GenerateBlockedCellPositions(int count, BitboardState board, Random rnd) {

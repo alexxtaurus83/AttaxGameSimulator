@@ -22,7 +22,7 @@ namespace Attax.Console {
 
             // Reservoir sample (algorithm R) of distinct positions with at least two legal moves.
             var referee = LocalGameRunner.NewReferee();
-            var rng = new Random(o.Seed);
+            var rng = new Random(o.Seed); // NOSONAR
             var seen = new HashSet<(ulong, ulong, ulong, byte)>();
             var picked = new List<(BitboardState b, PlayerColor side)>(o.Count);
             long eligible = 0;

@@ -7,7 +7,7 @@ namespace Attax.Core.Utils {
 
         static ZobristHasher() {
             // Use a fixed seed for determinism across all engines and runs
-            var rng = new Random(42);
+            var rng = new Random(42); // NOSONAR
             for (int p = 0; p < 3; p++) {
                 for (int y = 0; y < AttaxConstants.BaseConst.BoardSize; y++) {
                     for (int x = 0; x < AttaxConstants.BaseConst.BoardSize; x++) {

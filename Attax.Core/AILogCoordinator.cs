@@ -49,13 +49,13 @@ namespace Attax.Core {
             public PlayerColor PlayerColor { get; set; }
             public bool isClone { get; set; }
             public int flippedChips { get; set; }
-            public string boardBeforeMove { get; set; }
+            public string boardBeforeMove { get; set; } = string.Empty;
             public bool isHuman { get; set; }
             public int redCount { get; set; }
             public int blueCount { get; set; }
-            public AIMoveDetails aIMoveDetails { get; set; }
+            public AIMoveDetails? aIMoveDetails { get; set; }
             public MoveDetails() { }
-            public MoveDetails(Move move, PlayerColor playerColor, bool isClone, int flippedChips, string boardBeforeMove, bool isHuman = true, AIMoveDetails aIMoveDetails = null) {
+            public MoveDetails(Move move, PlayerColor playerColor, bool isClone, int flippedChips, string boardBeforeMove, bool isHuman = true, AIMoveDetails? aIMoveDetails = null) {
                 this.move = move;
                 this.PlayerColor = playerColor;
                 this.isClone = isClone;
@@ -67,18 +67,18 @@ namespace Attax.Core {
         }
         [Serializable]
         public class TurnLog {
-            public MoveDetails playerMove { get; set; }
-            public MoveDetails opponentMove { get; set; }
+            public MoveDetails? playerMove { get; set; }
+            public MoveDetails? opponentMove { get; set; }
 
             public TurnLog() { }
         }
 
         public class AIEffectiveness {
-            public string PlayerDescription { get; set; } // Describes the AI being primarily evaluated (e.g., "Blue AI - Mobility On")
-            public string OpponentDescription { get; set; }      // Describes the opponent AI (e.g., "Red AI - Baseline")
+            public string PlayerDescription { get; set; } = string.Empty; // Describes the AI being primarily evaluated (e.g., "Blue AI - Mobility On")
+            public string OpponentDescription { get; set; } = string.Empty;      // Describes the opponent AI (e.g., "Red AI - Baseline")
             public PlayerColor EvaluatedPlayerColor { get; set; }
             public int FinalPieceDifference { get; set; } // Piece difference from the EvaluatedPlayer's perspective (positive if EvaluatedPlayer has more pieces at the end)
-            public string GameOutcome { get; set; } // e.g., "Evaluated AI Wins", "Opponent Wins", "Draw by Pieces", "Draw by Stalemate"
+            public string GameOutcome { get; set; } = string.Empty; // e.g., "Evaluated AI Wins", "Opponent Wins", "Draw by Pieces", "Draw by Stalemate"
             public int TotalMovesByEvaluatedAI { get; set; }
             public int TotalPiecesFlippedByEvaluatedAI { get; set; }
             public float AverageMoveTime_ms { get; set; }

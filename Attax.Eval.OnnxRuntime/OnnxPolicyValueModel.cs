@@ -67,7 +67,7 @@ namespace Attax.Eval.OnnxRuntime {
         private static void ValidateContract(InferenceSession s, IReadOnlyDictionary<string, string> meta, string path) {
             string Fail(string what) => $"Model '{path}' does not satisfy contract {ContractId}: {what}";
 
-            meta.TryGetValue("contract", out string contract);
+            meta.TryGetValue("contract", out string? contract);
             if (contract != ContractId)
                 throw new InvalidOperationException(Fail($"metadata 'contract' is '{contract ?? "<missing>"}'. Old value-only models are not supported; retrain with train.py."));
 
@@ -89,7 +89,7 @@ namespace Attax.Eval.OnnxRuntime {
             if (val.ElementType != typeof(float) || val.Dimensions.Length != 2 || val.Dimensions[1] != 1)
                 throw new InvalidOperationException(Fail($"output '{ValueName}' must be float [N,1], found {val.ElementType.Name} [{string.Join(",", val.Dimensions)}]."));
 
-            if (!meta.TryGetValue("action_count", out string ac) || ac != ActionCodec.ActionCount.ToString())
+            if (!meta.TryGetValue("action_count", out string? ac) || ac != ActionCodec.ActionCount.ToString())
                 throw new InvalidOperationException(Fail($"metadata 'action_count' is '{ac ?? "<missing>"}', expected {ActionCodec.ActionCount}."));
         }
 
@@ -102,7 +102,7 @@ namespace Attax.Eval.OnnxRuntime {
             var tensor = new DenseTensor<float>(input, new[] { n, BoardEncoder.Channels, 7, 7 });
             using var results = session.Run(new[] { NamedOnnxValue.CreateFromTensor(InputName, tensor) });
 
-            float[] logits = null, values = null;
+            float[]? logits = null, values = null;
             foreach (var r in results) {
                 if (r.Name == PolicyName) logits = r.AsTensor<float>().ToArray();
                 else if (r.Name == ValueName) values = r.AsTensor<float>().ToArray();

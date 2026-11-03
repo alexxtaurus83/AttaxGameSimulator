@@ -15,7 +15,7 @@ namespace Attax.Console {
             System.Console.WriteLine($"[verify] contract OK: {o.Model}");
             foreach (var kv in model.Metadata.OrderBy(k => k.Key)) System.Console.WriteLine($"[verify]   {kv.Key} = {kv.Value}");
 
-            var rng = new Random(1);
+            var rng = new Random(1); // NOSONAR
             var referee = LocalGameRunner.NewReferee();
             var boards = new List<BitboardState>();
             var b = CreateStandardInitialBoard();
@@ -63,7 +63,7 @@ namespace Attax.Console {
         /// boards and actions, and (optionally) the ONNX model's outputs computed by the C# runtime.
         /// </summary>
         static void RunFixtures(FixturesOptions o) {
-            var rng = new Random(o.Seed);
+            var rng = new Random(o.Seed); // NOSONAR
             var referee = LocalGameRunner.NewReferee();
             var inv = CultureInfo.InvariantCulture;
             OnnxPolicyValueModel? model = o.Model == null ? null : new OnnxPolicyValueModel(o.Model, 1);

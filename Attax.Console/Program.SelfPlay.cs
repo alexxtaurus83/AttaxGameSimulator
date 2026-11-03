@@ -46,20 +46,20 @@ namespace Attax.Console {
             Parallel.For(0, o.Games, new ParallelOptions { MaxDegreeOfParallelism = parallel }, i => {
                 int gameSeed = CombineSeed(o.Seed, i);
                 ulong uid = MakeGameUid(o.Generation, o.Seed, i);
-                var rng = new Random(gameSeed);
+                var rng = new Random(gameSeed); // NOSONAR
                 using var referee = LocalGameRunner.NewReferee();
                 // Movers keep their root scores only when a heuristic teacher exists: a free label then carries the mover's own search value.
                 bool keepScores = teacherSpec != null && teacherSpec.Kind == PlayerKind.Classic;
                 using var red = PlayerFactory.Create(redSpec, models, CombineSeed(gameSeed, 0x13579BDF), defaultTrain: true, collectScore: keepScores);
                 using var blue = PlayerFactory.Create(blueSpec, models, CombineSeed(gameSeed, 0x2468ACE0), defaultTrain: true, collectScore: keepScores);
                 using var teacher = teacherSpec == null ? null : PlayerFactory.Create(teacherSpec, models, CombineSeed(gameSeed, 0x5A5A5A5A), defaultTrain: true, collectScore: keepScores);
-                var sampler = new PositionSampler(o.Samples, new Random(CombineSeed(gameSeed, 0x5BD1E995)));
+                var sampler = new PositionSampler(o.Samples, new Random(CombineSeed(gameSeed, 0x5BD1E995))); // NOSONAR
 
                 long gRolloutStart = Stopwatch.GetTimestamp();
                 long gTeacherTicks = 0, gNodes = 0, gSearchMoves = 0, gFallbacks = 0, gRandom = 0, gTeacherNodes = 0;
 
                 // Blocks as in the game; own rng consulted only when blocks are requested, so 0,0 keeps every other stream unchanged.
-                var board = StartBoard.Create(referee, blockMin, blockMax, new Random(CombineSeed(gameSeed, 0xB10C)));
+                var board = StartBoard.Create(referee, blockMin, blockMax, new Random(CombineSeed(gameSeed, 0xB10C))); // NOSONAR
                 board.ZobristHash = referee.ComputeZobristHash(board, PlayerColor.Red);
 
                 var end = LocalGameRunner.RunGame(referee, board, 0, o.MaxPlies,
@@ -194,7 +194,7 @@ namespace Attax.Console {
             var newCfg = MakeTeacherConfig(0, teacherSpec);
             byte teacherId = 0;
             foreach (var t in scan.Teachers.Values)
-                if (t.Kind == newCfg.Kind && t.Depth == newCfg.Depth && t.NodeBudget == newCfg.NodeBudget && t.RootBonusScale == newCfg.RootBonusScale && t.Flags == newCfg.Flags && t.ModelHash == newCfg.ModelHash)
+                if (t.Kind == newCfg.Kind && t.Depth == newCfg.Depth && t.NodeBudget == newCfg.NodeBudget && Math.Abs(t.RootBonusScale - newCfg.RootBonusScale) < 1e-6f && t.Flags == newCfg.Flags && t.ModelHash == newCfg.ModelHash)
                     teacherId = t.Id;
             if (teacherId == 0) {
                 int next = scan.Teachers.Count == 0 ? 1 : scan.Teachers.Keys.Max() + 1;
@@ -218,7 +218,7 @@ namespace Attax.Console {
                 var results = new (LogV3.Game game, LogV3.Sample[] samples)[batch.Count];
                 Parallel.For(0, batch.Count, new ParallelOptions { MaxDegreeOfParallelism = parallel }, bi => {
                     var g = batch[bi];
-                    var rng = new Random(CombineSeed(o.Seed, unchecked((int)(g.Header.GameUid ^ (g.Header.GameUid >> 32)))));
+                    var rng = new Random(CombineSeed(o.Seed, unchecked((int)(g.Header.GameUid ^ (g.Header.GameUid >> 32))))); // NOSONAR
                     using var teacher = PlayerFactory.Create(teacherSpec, models, CombineSeed(o.Seed, bi), defaultTrain: true, collectScore: teacherSpec.Kind == PlayerKind.Classic);
                     var outSamples = (LogV3.Sample[])g.Samples.Clone();
                     long ticks = 0, nodes = 0, made = 0, had = 0, seen = 0;

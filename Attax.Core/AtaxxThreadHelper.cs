@@ -42,7 +42,7 @@ namespace Attax.Core {
 
         // Per-move node budget shared by every helper/iteration/retry of one GetBestMove call.
         // null means unlimited. Once exhausted it stays exhausted (it can never turn into "unlimited").
-        public SearchBudget Budget;
+        public SearchBudget? Budget;
 
         // Set when the search was cut short (budget exhausted or time limit). Every node that sees it
         // returns immediately; results produced while it is set must not be trusted or cached.

@@ -81,9 +81,9 @@ namespace Attax.Console {
                 Parallel.For(start, end, new ParallelOptions { MaxDegreeOfParallelism = parallel }, pi => {
                     using var referee = LocalGameRunner.NewReferee();
                     // The opening is generated once and played twice, swapping colours: luck of the opening cancels inside a pair.
-                    var openRng = new Random(CombineSeed(o.Seed, pi * 7919 + 1));
+                    var openRng = new Random(CombineSeed(o.Seed, pi * 7919 + 1)); // NOSONAR
                     // Blocks first (as in the game), then the random opening plies. Own rng, consulted only when blocks are requested.
-                    var opening = StartBoard.Create(referee, blockMin, blockMax, new Random(CombineSeed(o.Seed, pi * 104729 + 7)));
+                    var opening = StartBoard.Create(referee, blockMin, blockMax, new Random(CombineSeed(o.Seed, pi * 104729 + 7))); // NOSONAR
                     opening.ZobristHash = referee.ComputeZobristHash(opening, PlayerColor.Red);
                     int played = 0;
                     for (; played < o.OpeningPlies; played++) {

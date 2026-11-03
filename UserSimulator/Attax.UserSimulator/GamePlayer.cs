@@ -30,7 +30,7 @@ namespace Attax.UserSimulator {
             _connection = connection;
             _planner = planner;
             _log = log;
-            _rng = options.Seed != 0 ? new Random(options.Seed) : new Random();
+            _rng = options.Seed != 0 ? new Random(options.Seed) : new Random(); // NOSONAR
         }
 
         public async Task<GameOutcomeDto> PlayAsync(string gameId, PlayerColor myColor, CancellationToken ct = default) {
@@ -82,7 +82,7 @@ namespace Attax.UserSimulator {
                             if (freshSnapshot.Status == GameLifecycleStatusDto.Completed) {
                                 var outcome = new GameOutcomeDto {
                                     GameId = gameId,
-                                    Result = freshSnapshot.Outcome != null ? freshSnapshot.Outcome.ToString() : state.Result.ToString()
+                                    Result = freshSnapshot.Outcome.ToString()
                                 };
                                 _log.Information("Game {GameId} finished with status Completed (outcome: {Outcome})", gameId, freshSnapshot.Outcome);
                                 return outcome;

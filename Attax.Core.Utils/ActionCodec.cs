@@ -47,7 +47,7 @@ namespace Attax.Core.Utils {
                     kind++;
                 }
             }
-            if (kind != Kinds) throw new InvalidOperationException("Jump offset table is inconsistent.");
+            if (kind != Kinds) throw new InvalidOperationException("Jump offset table is inconsistent."); // NOSONAR
 
             for (int s = 0; s < SymmetryCount; s++) {
                 var perm = new int[ActionCount];

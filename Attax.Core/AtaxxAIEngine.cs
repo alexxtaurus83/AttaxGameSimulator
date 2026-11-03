@@ -18,11 +18,12 @@ namespace Attax.Core {
         #endregion
 
         #region Configurables
-        public ILogSink ataxxLogger;
-        public AtaxxThreadHelper ataxxHelper { get; set; }
+        private readonly object _statsLock = new();
+        public ILogSink? ataxxLogger;
+        public AtaxxThreadHelper? ataxxHelper { get; set; }
 
         public int aiDepth { get; set; }
-        public AILogCoordinator logCoordinator { get; set; }
+        public AILogCoordinator? logCoordinator { get; set; }
 
         private IValueEvaluator evaluator;
         private float evaluationScale;
@@ -44,13 +45,13 @@ namespace Attax.Core {
         private readonly Random tieRng;
         // Pre-allocated parallel helper pool. Lazily initialized on first parallel search;
         // reused across all subsequent calls so the 32 MB TT per helper is only allocated once.
-        private AtaxxThreadHelper[] _parallelHelpers;
+        private AtaxxThreadHelper[]? _parallelHelpers;
         // Private serial-search helper, owned by this engine only (see GetBestMove).
-        private AtaxxThreadHelper _serialHelper;
+        private AtaxxThreadHelper? _serialHelper;
         // Hint searches (Search with options) own separate helpers, so they never read, clear or fill the AI's persistent search memory.
         // Lazily allocated (about 32 MB per helper, like the AI's), released by Dispose or ReleaseHintMemory.
-        private AtaxxThreadHelper[] _hintHelpers;
-        private AtaxxThreadHelper _hintSerialHelper;
+        private AtaxxThreadHelper[]? _hintHelpers;
+        private AtaxxThreadHelper? _hintSerialHelper;
 
         // Returns the helper pool for the AI (hint == false) or for hint searches, growing it when needed. Growing replaces the whole pool.
         private AtaxxThreadHelper[] EnsureHelperPool(bool hint, int needed) {
@@ -177,9 +178,9 @@ namespace Attax.Core {
         public AtaxxAIEngine(
             EngineParams engineParams,
             AIEngineConfig config = default,
-            IValueEvaluator evaluator = null,
-            ILogSink ataxxLogger = null,
-            AILogCoordinator coordinator = null
+            IValueEvaluator? evaluator = null,
+            ILogSink? ataxxLogger = null,
+            AILogCoordinator? coordinator = null
         ) {
             if (engineParams == null) throw new ArgumentNullException(nameof(engineParams), "The engine needs its parameters: load engine-params.json.");
             this.prm = engineParams.Compile();
@@ -221,8 +222,8 @@ namespace Attax.Core {
                 this.aspirationWindowOverride = config.AspirationWindow.Value;
             }
             this.throwOnSearchError = config.ThrowOnSearchError;
-            this.rng = config.Seed.HasValue ? new Random(config.Seed.Value) : new Random();
-            this.tieRng = config.Seed.HasValue ? new Random(unchecked(config.Seed.Value * 31 + 17)) : new Random();
+            this.rng = config.Seed.HasValue ? new Random(config.Seed.Value) : new Random(); // NOSONAR
+            this.tieRng = config.Seed.HasValue ? new Random(unchecked(config.Seed.Value * 31 + 17)) : new Random(); // NOSONAR
 
             this.Board = new BitboardState();
             SetupBoard(SwitchPlayer(AIPlayerColor));
@@ -318,7 +319,7 @@ namespace Attax.Core {
         /// <param name="boardState">The current bitboard state of the game.</param>
         /// <param name="player">The player to generate moves for.</param>
         /// <returns>A list of all valid moves.</returns>
-        public List<Move> GetAllValidMoves(BitboardState boardState, PlayerColor player, AtaxxThreadHelper helper = null) {
+        public List<Move> GetAllValidMoves(BitboardState boardState, PlayerColor player, AtaxxThreadHelper? helper = null) {
             if (helper != null) helper.GetAllValidMovesCalls++;
             var moves = new List<Move>();
             ulong playerPieces = (player == PlayerColor.Red) ? boardState.RedPieces : boardState.BluePieces;
@@ -365,7 +366,7 @@ namespace Attax.Core {
 
         // Hot-path move generator: identical logic to GetAllValidMoves but writes directly into a
         // pre-allocated buffer instead of creating a List<Move>. Zero GC allocation.
-        private int FillMoves(BitboardState boardState, PlayerColor player, Move[] buffer, AtaxxThreadHelper helper = null) {
+        private int FillMoves(BitboardState boardState, PlayerColor player, Move[] buffer, AtaxxThreadHelper? helper = null) {
             if (helper != null) helper.GetAllValidMovesCalls++;
             int count = 0;
             ulong playerPieces = (player == PlayerColor.Red) ? boardState.RedPieces : boardState.BluePieces;
@@ -470,7 +471,7 @@ namespace Attax.Core {
             }
 
             // --- Randomized positions with distance rule ---
-            var rnd = seed.HasValue ? new Random(seed.Value) : new Random();
+            var rnd = seed.HasValue ? new Random(seed.Value) : new Random(); // NOSONAR
             var allPlacedChips = new List<(int x, int y)>();
             var allSquares = new List<(int x, int y)>();
             for (int x = 0; x < size; x++) {
@@ -522,7 +523,7 @@ namespace Attax.Core {
         /// <param name="seed">An optional seed for the random number generator.</param>
         /// <returns>A list of (x,y) coordinates for the new blocked cells.</returns>
         public List<(int x, int y)> GenerateRandomBlockedCellPositions(int blocksToPlace, BitboardState currentBoardState, int? seed = null) {
-            var rnd = seed.HasValue ? new Random(seed.Value) : new Random();
+            var rnd = seed.HasValue ? new Random(seed.Value) : new Random(); // NOSONAR
             return StartPosition.GenerateBlockedCellPositions(blocksToPlace, currentBoardState, rnd);
         }
         #endregion
@@ -566,7 +567,7 @@ namespace Attax.Core {
         /// </summary>
         public bool CollectRootScores { get; set; }
         /// <summary>Root moves of the last completed iteration sorted by Final descending. Null unless CollectRootScores.</summary>
-        public IReadOnlyList<RootScore> LastRootScores { get; private set; }
+        public IReadOnlyList<RootScore>? LastRootScores { get; private set; }
 
         /// <summary>
         /// Optional cooperative cancellation of <see cref="GetBestMove"/> (default token = never cancelled, behavior unchanged).
@@ -580,9 +581,9 @@ namespace Attax.Core {
 
         // Shared implementation of GetBestMove (options == null: behaviour unchanged) and Search (options != null: isolated hint search,
         // see AtaxxSearchHint.cs). Options searches: no logging coordinator writes, no random draws, no time/node limits, cancellable.
-        private Move SearchCore(PlayerColor player, bool isHumanSimulation, float temperature, int topK, SearchOptions options, SearchResult result) {
+        private Move SearchCore(PlayerColor player, bool isHumanSimulation, float temperature, int topK, SearchOptions? options, SearchResult? result) {
             bool optionsSearch = options != null;
-            var cancelToken = optionsSearch ? options.Cancellation : SearchCancellation;
+            var cancelToken = optionsSearch ? options!.Cancellation : SearchCancellation;
             bool cancelled = false;
 
             try {
@@ -592,14 +593,14 @@ namespace Attax.Core {
                 //var debug = false;
                 var clock = System.Diagnostics.Stopwatch.StartNew();
                 long? effectiveTimeLimitMs = (!optionsSearch && UseTimeManagement) ? (long?)SearchTimeLimitMs : null;
-                BitboardState searchRootBoard = (optionsSearch && options.Root != null ? options.Root : Board).Clone();
+                BitboardState searchRootBoard = (optionsSearch && options?.Root != null ? options.Root : Board).Clone();
                 // The root hash is recomputed for options searches: the caller may pass any snapshot and either side to move,
                 // and a stale side-to-move bit would collide with entries of the other side.
                 if (optionsSearch) searchRootBoard.ZobristHash = ComputeZobristHash(searchRootBoard, player);
-                bool serialRoot = optionsSearch && options.ParallelRoot.HasValue ? !options.ParallelRoot.Value : disableParallelRootSearch;
-                bool noQuiescence = optionsSearch && options.DisableQuiescence.HasValue ? options.DisableQuiescence.Value : disableQuiescenceSearch;
+                bool serialRoot = optionsSearch && options?.ParallelRoot.HasValue == true ? !options.ParallelRoot.Value : disableParallelRootSearch;
+                bool noQuiescence = optionsSearch && options?.DisableQuiescence.HasValue == true ? options.DisableQuiescence.Value : disableQuiescenceSearch;
 
-                var allMoves = (optionsSearch && options.FromX.HasValue)
+                var allMoves = (optionsSearch && options?.FromX.HasValue == true && options.FromY.HasValue)
                     ? GetValidMovesFrom(searchRootBoard, player, options.FromX.Value, options.FromY.Value)
                     : GetAllValidMoves(searchRootBoard, player);
                 if (allMoves.Count == 0) return default;
@@ -611,10 +612,10 @@ namespace Attax.Core {
 
                 Move bestMoveOverall = allMoves[0];
                 int previousScore = 0;
-                int maxDepthToSearch = optionsSearch ? (options.Depth ?? aiDepth) : (UseTimeManagement ? aiDepth + TimeManagedExtraDepth : aiDepth);
+                int maxDepthToSearch = optionsSearch ? (options?.Depth ?? aiDepth) : (UseTimeManagement ? aiDepth + TimeManagedExtraDepth : aiDepth);
                 // One shared node allowance for the whole move (all iterations, retries and root workers).
-                SearchBudget budget = (!optionsSearch && MaxNodes.HasValue) ? new SearchBudget(MaxNodes.Value) : null;
-                SearchBudget activeBudget = budget;
+                SearchBudget? budget = (!optionsSearch && MaxNodes.HasValue) ? new SearchBudget(MaxNodes.Value) : null;
+                SearchBudget? activeBudget = budget;
                 long? searchTimeLimitMs = effectiveTimeLimitMs;
                 // Set when no iteration could finish inside the budget/time limit: a depth-1 pass that
                 // ignores both limits gives a sane move instead of a partial, untrustworthy ranking.
@@ -625,8 +626,8 @@ namespace Attax.Core {
                 // it deepens 1..N like normal play, so a small node budget still leaves a finished shallower result.
                 int startingDepth = (trainingMode && !iterativeDeepeningInTraining) ? maxDepthToSearch : 1;
                 bool shouldCollectLogDetails = logCoordinator != null && !optionsSearch;
-                Dictionary<Move, int> finalEvaluationDetails = null;
-                Dictionary<int, AIMoveCandidates> finalAiMoveCandidatesDict = null;
+                Dictionary<Move, int>? finalEvaluationDetails = null;
+                Dictionary<int, AIMoveCandidates>? finalAiMoveCandidatesDict = null;
                 // Options searches rank deterministically (equal scores ordered by move coordinates); GetBestMove keeps its exact legacy comparer.
                 Comparison<(Move move, int score)> byScoreDesc = optionsSearch
                     ? (Comparison<(Move move, int score)>)((a, b) => {
@@ -679,10 +680,10 @@ namespace Attax.Core {
                     }
 
                     var scored = new ConcurrentBag<(Move move, int score)>();
-                    ConcurrentDictionary<Move, int> evaluationDetails = null;
-                    ConcurrentDictionary<int, AIMoveCandidates> aiMoveCandidatesDict = null;
+                    ConcurrentDictionary<Move, int>? evaluationDetails = null;
+                    ConcurrentDictionary<int, AIMoveCandidates>? aiMoveCandidatesDict = null;
                     // Only allocated when CollectRootScores is on: move -> (strategic score, root bonus).
-                    ConcurrentDictionary<Move, (int strat, int bonus)> rootDetail = null;
+                    ConcurrentDictionary<Move, (int strat, int bonus)>? rootDetail = null;
                     int logIdCounter = -1;
 
                     // Root search with aspiration window
@@ -712,7 +713,7 @@ namespace Attax.Core {
                             helper.Budget = activeBudget;
                             helper.Cancellation = cancelToken;
 
-                            float[] rootBatchScores = null;
+                            float[]? rootBatchScores = null;
                             var batchEvaluator = evaluator as IBatchValueEvaluator;
                             if (batchEvaluator != null && currentDepth == 1 && allMoves.Count > 1) {
                                 var rootBoards = new List<BitboardState>(allMoves.Count);
@@ -729,7 +730,7 @@ namespace Attax.Core {
                                 }
                             }
 
-                            int[] rootMoveOrder = null;
+                            int[]? rootMoveOrder = null;
                             if (rootBatchScores != null) {
                                 rootMoveOrder = ValueEnumerable.Range(0, allMoves.Count)
                                     .OrderByDescending(i => rootBatchScores[i])
@@ -793,7 +794,7 @@ namespace Attax.Core {
 
                                 if (shouldCollectLogDetails) {
                                     int logId = ++logIdCounter;
-                                    aiMoveCandidatesDict.TryAdd(logId, new AIMoveCandidates {
+                                    aiMoveCandidatesDict?.TryAdd(logId, new AIMoveCandidates {
                                         move = move,
                                         isClone = isClone,
                                         flipsCount = flipped,
@@ -805,7 +806,7 @@ namespace Attax.Core {
                                         opponentFlipRiskScore = bonus.riskScaled,
                                         finalScore = finalScore
                                     });
-                                    evaluationDetails.TryAdd(move, logId);
+                                    evaluationDetails?.TryAdd(move, logId);
                                 }
 
                                 scored.Add((move, finalScore));
@@ -891,7 +892,7 @@ namespace Attax.Core {
 
                                     if (shouldCollectLogDetails) {
                                         int logId = System.Threading.Interlocked.Increment(ref logIdCounter);
-                                        aiMoveCandidatesDict.TryAdd(logId, new AIMoveCandidates {
+                                        aiMoveCandidatesDict?.TryAdd(logId, new AIMoveCandidates {
                                             move = move,
                                             isClone = isClone,
                                             flipsCount = flipped,
@@ -903,7 +904,7 @@ namespace Attax.Core {
                                             opponentFlipRiskScore = bonus.riskScaled,
                                             finalScore = finalScore
                                         });
-                                        evaluationDetails.TryAdd(move, logId);
+                                        evaluationDetails?.TryAdd(move, logId);
                                     }
 
                                     scored.Add((move, finalScore));
@@ -911,7 +912,7 @@ namespace Attax.Core {
                                     return ataxxThreadHelper;
                                 },
                                 (ataxxThreadHelper) => {
-                                    lock (this) {
+                                    lock (_statsLock) {
                                         var stats = LastSearchStats;
                                         stats.Add(ataxxThreadHelper);
                                         LastSearchStats = stats;
@@ -931,7 +932,7 @@ namespace Attax.Core {
 
                     if (!interrupted && scored.IsEmpty) break;
 
-                    List<(Move move, int score)> currentScoredList = null;
+                    List<(Move move, int score)>? currentScoredList = null;
                     int bestScoreThisDepth = 0;
                     if (!interrupted) {
                         currentScoredList = scored.AsValueEnumerable().ToList();
@@ -952,7 +953,7 @@ namespace Attax.Core {
                         }
                     }
 
-                    if (interrupted) {
+                    if (interrupted || currentScoredList == null || currentScoredList.Count == 0) {
                         // Hint searches have no budget or time limit, so an interruption is a cancellation: no depth-1 fallback.
                         // The same holds for a cancelled AI search (SearchCancellation), even if the budget ran out at the same time.
                         if (optionsSearch || cancelToken.IsCancellationRequested) { cancelled = true; break; }
@@ -991,7 +992,7 @@ namespace Attax.Core {
                             rootScores.Add(new RootScore { Move = mv, Strategic = d.strat, Bonus = d.bonus, Final = fin });
                         }
                         LastRootScores = rootScores;
-                        if (optionsSearch) result.Ranked = rootScores;
+                        if (optionsSearch && result != null) result.Ranked = rootScores;
                     }
 
                     if (temperature > 0 && currentDepth == maxDepthToSearch) {
@@ -1020,7 +1021,7 @@ namespace Attax.Core {
                         finalAiMoveCandidatesDict = aiMoveCandidatesDict.AsValueEnumerable().ToDictionary(kvp => kvp.Key, kvp => kvp.Value);
                     }
 
-                    if (ataxxLogger != null && ataxxLogger.IsEnabled && !(optionsSearch && options.SuppressLogging)) {
+                    if (ataxxLogger != null && ataxxLogger.IsEnabled && !(optionsSearch && options?.SuppressLogging == true)) {
                         ataxxLogger.LogInformation(
                             $"Depth {currentDepth} completed. Best move: {bestMoveOverall.FromX},{bestMoveOverall.FromY}->{bestMoveOverall.ToX},{bestMoveOverall.ToY} Score: {bestScoreThisDepth} " +
                             $"Elapsed: {clock.ElapsedMilliseconds}ms, TargetDepth: {aiDepth}, MaxDepth: {maxDepthToSearch}, TimeManagement: {UseTimeManagement}, TimeLimitMs: {(effectiveTimeLimitMs.HasValue ? effectiveTimeLimitMs.Value : -1)}");
@@ -1038,7 +1039,7 @@ namespace Attax.Core {
 
                 if (cancelled) {
                     // Cancelled searches never log and never return a partial move.
-                    if (optionsSearch) {
+                    if (optionsSearch && result != null) {
                         result.CompletedDepth = finalDepthReached;
                         result.Cancelled = true;
                         result.HasMove = false;
@@ -1049,9 +1050,11 @@ namespace Attax.Core {
 
                 if (optionsSearch) {
                     // Hint searches skip the log coordinator entirely and report through the SearchResult.
-                    result.CompletedDepth = finalDepthReached;
-                    result.Best = bestMoveOverall;
-                    result.HasMove = finalDepthReached > 0;
+                    if (result != null) {
+                        result.CompletedDepth = finalDepthReached;
+                        result.Best = bestMoveOverall;
+                        result.HasMove = finalDepthReached > 0;
+                    }
                     return bestMoveOverall;
                 }
 
@@ -1158,7 +1161,7 @@ namespace Attax.Core {
 
         // This function uses a "negamax" approach, which is concise and robust way to implement minimax with alpha-beta pruning.
         // It always evaluates the score from the perspective of the current 'player'.
-        private int AlphaBeta(AtaxxThreadHelper ataxxThreadHelper, PlayerColor player, int depth, int alpha, int beta, int ply, bool allowNullMove, bool shouldUseQuiescence, long? timeLimitMs, System.Diagnostics.Stopwatch clock) {
+        private int AlphaBeta(AtaxxThreadHelper ataxxThreadHelper, PlayerColor player, int depth, int alpha, int beta, int ply, bool allowNullMove, bool shouldUseQuiescence, long? timeLimitMs, System.Diagnostics.Stopwatch? clock) {
             // Interrupted (budget/time): unwind immediately. The returned value is meaningless; callers
             // check helper.Interrupted and must not use or cache anything derived from it.
             if (ataxxThreadHelper.Interrupted) return 0;
@@ -1450,7 +1453,7 @@ namespace Attax.Core {
                 playerPieces |= fromMask; // Restore the piece.
             }
         }
-        private int Evaluate(BitboardState board, PlayerColor player, AtaxxThreadHelper helper = null) {
+        private int Evaluate(BitboardState board, PlayerColor player, AtaxxThreadHelper? helper = null) {
             if (helper != null) helper.Evals++;
             // Use root-only heuristic evaluator in search when configured.
             return (int)(evaluator.Evaluate(board, player) * evaluationScale);
@@ -1458,7 +1461,7 @@ namespace Attax.Core {
 
         // Quiescence search using negamax. Uses per-ply buffers — zero GC allocation.
         // 'ply' is threaded through so each recursive level writes to its own buffer slot.
-        private int Quiescence(AtaxxThreadHelper helper, PlayerColor player, int alpha, int beta, int depth, int ply, long? timeLimitMs = null, System.Diagnostics.Stopwatch clock = null) {
+        private int Quiescence(AtaxxThreadHelper helper, PlayerColor player, int alpha, int beta, int depth, int ply, long? timeLimitMs = null, System.Diagnostics.Stopwatch? clock = null) {
             if (helper.Interrupted) return 0;
             if (helper.Cancellation.IsCancellationRequested) {
                 helper.Interrupted = true;

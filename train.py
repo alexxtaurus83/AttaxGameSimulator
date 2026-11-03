@@ -188,7 +188,7 @@ def main(argv=None):
     start_epoch, history, best = 0, [], None
 
     if args.resume:
-        ck = torch.load(ckpt_path, map_location=device, weights_only=False)
+        ck = torch.load(ckpt_path, map_location=device, weights_only=False)  # NOSONAR
         if ck["config"] != model.config:
             raise SystemExit(f"Checkpoint architecture {ck['config']} differs from requested {model.config}")
         model.load_state_dict(ck["model"])
@@ -197,7 +197,7 @@ def main(argv=None):
         torch.set_rng_state(ck["torch_rng"].cpu())
         print(f"[resume] continuing from epoch {start_epoch}", flush=True)
     elif args.init_from:
-        ck = torch.load(args.init_from, map_location=device, weights_only=False)
+        ck = torch.load(args.init_from, map_location=device, weights_only=False)  # NOSONAR
         if ck["config"] != model.config:
             raise SystemExit(f"--init-from architecture {ck['config']} differs from requested {model.config}")
         model.load_state_dict(ck["model"])

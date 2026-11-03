@@ -27,7 +27,7 @@ namespace Attax.UserSimulator {
             try {
                 options.Validate();
             } catch (Exception ex) {
-                Console.Error.WriteLine($"Validation error: {ex.Message}");
+                await Console.Error.WriteLineAsync($"Validation error: {ex.Message}");
                 return 2;
             }
 
@@ -51,7 +51,7 @@ namespace Attax.UserSimulator {
                         cfgPath = Path.Combine(AppContext.BaseDirectory, options.AbilityConfig);
                     }
                     if (File.Exists(cfgPath)) {
-                        string json = File.ReadAllText(cfgPath);
+                        string json = await File.ReadAllTextAsync(cfgPath);
                         var cfg = Newtonsoft.Json.JsonConvert.DeserializeObject<AiAbilityConfig>(json);
                         abilityPolicy = new AiAbilityPolicy(cfg!, options.Seed != 0 ? options.Seed : 1234, enabled: true);
                     } else {
