@@ -63,10 +63,10 @@ namespace Attax.Core.Tests {
         [Fact]
         public void SpendingCreatesCapacity_BeforeSubsequentReward() {
             var rules = CreateEconomyRules(startingCredits: 3000, maxCredits: 3000);
-            // Actor is at 3000 cap. SuperClone costs 100.
-            // There is also an enemy footprint at destination paying 5.
-            // Spend happens first (3000 - 100 = 2900).
-            // Then footprint reward pays 5 into the newly opened capacity (2900 + 5 = 2905).
+            int cost = rules.GetAbilityCost(AbilityKind.SuperClone);
+            // Actor is at 3000 cap.
+            // Spend happens first (3000 - cost).
+            // Then footprint reward pays 5 into the newly opened capacity (3000 - cost + 5).
             ulong red = 1UL << BoardLookup.GetBitIndex(0, 0);
             ulong blue = 1UL << BoardLookup.GetBitIndex(6, 6);
             ulong blueFootprint = 1UL << BoardLookup.GetBitIndex(3, 3);
@@ -76,9 +76,9 @@ namespace Attax.Core.Tests {
             var err = AttaxGame.TryApply(state, PlayerColor.Red, action, out var outcome);
 
             Assert.Equal(ActionError.None, err);
-            Assert.Equal(100, outcome.CreditsSpent);
+            Assert.Equal(cost, outcome.CreditsSpent);
             Assert.Equal(5, outcome.ActorCreditsGained);
-            Assert.Equal(2905, state.RedCredits);
+            Assert.Equal(3000 - cost + 5, state.RedCredits);
         }
 
         [Fact]
@@ -111,7 +111,8 @@ namespace Attax.Core.Tests {
 
             Assert.Equal(ActionError.None, err);
             Assert.Equal(0, outcome.ActorCreditsGained); // no reward for own footprint
-            Assert.Equal(900, state.RedCredits); // 1000 - 100 cost
+            int cost = rules.GetAbilityCost(AbilityKind.SuperClone);
+            Assert.Equal(1000 - cost, state.RedCredits);
             Assert.Equal(0UL, state.RedFootprints & redFootprint); // cleared!
             Assert.Equal(redFootprint, outcome.FootprintClearedMask);
         }

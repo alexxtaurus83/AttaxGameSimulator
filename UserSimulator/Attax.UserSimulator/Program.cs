@@ -35,14 +35,7 @@ namespace Attax.UserSimulator {
             log.Information("Starting Attax.UserSimulator for bot {BotName} (Mode={Mode})", options.Name, options.Mode);
 
             try {
-                string specText = options.Spec;
-                if (options.Cores.HasValue && !specText.Contains("cores=", StringComparison.OrdinalIgnoreCase)) {
-                    if (specText.Contains(':')) {
-                        specText += $",cores={options.Cores.Value}";
-                    } else if (!specText.Equals("random", StringComparison.OrdinalIgnoreCase)) {
-                        specText += $":cores={options.Cores.Value}";
-                    }
-                }
+                string specText = options.ResolveSpec();
 
                 var spec = PlayerSpec.Parse(specText);
                 if (spec.Depth > 3) {

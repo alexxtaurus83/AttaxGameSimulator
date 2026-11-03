@@ -22,6 +22,7 @@
     <ProjectReference Include="..\..\Attax.Eval.OnnxRuntime\Attax.Eval.OnnxRuntime.csproj" />
     <ProjectReference Include="$(AttaxServerRepoPath)\Attax.Server.Contracts\Attax.Server.Contracts.csproj" />
     <ProjectReference Include="$(AttaxServerRepoPath)\Attax.Client.Sync\Attax.Client.Sync.csproj" />
+    <ProjectReference Include="$(AttaxServerRepoPath)\Attax.Client.Protocol\Attax.Client.Protocol.csproj" />
   </ItemGroup>
 
   <ItemGroup>

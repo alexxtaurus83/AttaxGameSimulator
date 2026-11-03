@@ -91,7 +91,7 @@ namespace Attax.Core.Tests {
 
             // 9. InsufficientCredits (10)
             var poorState = state.Clone();
-            poorState.RedCredits = 50; // cost is 100
+            poorState.RedCredits = poorState.ExportRules().GetAbilityCost(AbilityKind.Wall) - 1;
             Assert.Equal(ActionError.InsufficientCredits, AttaxGame.Validate(poorState, PlayerColor.Red, GameAction.Targeted(ActionKind.Wall, 3, 3)));
 
             // 10. AbilityLimitReachedThisTurn (11)
@@ -162,7 +162,7 @@ namespace Attax.Core.Tests {
             Assert.Equal(ActionError.AbilityDisabled, AttaxGame.Validate(state, PlayerColor.Red, GameAction.Targeted(ActionKind.Wall, 3, 3)));
 
             // InsufficientCredits precedes AbilityLimitReachedThisTurn
-            var activeRules = CreateTestRules(50); // Wall costs 100, have 50
+            var activeRules = CreateTestRules(0); // have 0, cannot afford ability
             var s = AttaxGame.NewGame(activeRules, new StartOptions(0, 0, PlayerColor.Red));
             s.AbilityActionsUsedThisTurn = 1;
             Assert.Equal(ActionError.InsufficientCredits, AttaxGame.Validate(s, PlayerColor.Red, GameAction.Targeted(ActionKind.Wall, 3, 3)));
@@ -176,7 +176,7 @@ namespace Attax.Core.Tests {
 
         [Fact]
         public void StateUntouchedOnAllActionErrors() {
-            var rules = CreateTestRules(50); // 50 credits (cannot afford 100)
+            var rules = CreateTestRules(0); // 0 credits (cannot afford ability)
             rules.playerAbilities.red.bomb = false;
             var state = AttaxGame.NewGame(rules, new StartOptions(0, 0, PlayerColor.Red));
             ulong baseFp = state.ComputeFingerprint();

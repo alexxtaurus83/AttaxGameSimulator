@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using Attax.Client.Protocol;
 using Attax.Core;
 using Attax.Core.Tests;
 using Attax.Core.Utils;
@@ -47,6 +48,65 @@ namespace Attax.UserSimulator.Tests {
 
             var invalidBehavior = new BotOptions { Name = "bot1", Mode = "lobby", LobbyBehavior = "invalid" };
             Assert.Throws<ArgumentException>(() => invalidBehavior.Validate());
+
+            var defaultOptions = new BotOptions { Name = "bot1" };
+            defaultOptions.Validate();
+            Assert.False(defaultOptions.DisableQuiescence);
+        }
+
+        [Fact]
+        public void BotOptions_ResolveSpec_HandlesCoresAndDisableQuiescence() {
+            int sysCores = Math.Clamp(Environment.ProcessorCount, 1, 64);
+
+            // Default: if cores is omitted, injects system processor count; preserves default quiescence (enabled)
+            var optDefault = new BotOptions { Spec = "classic:depth=3", DisableQuiescence = false };
+            Assert.Equal($"classic:depth=3,cores={sysCores}", optDefault.ResolveSpec());
+            var specDefault = PlayerSpec.Parse(optDefault.ResolveSpec());
+            var (trainDefault, qDefault) = PlayerFactory.EffectiveMode(specDefault, defaultTrain: false);
+            Assert.True(qDefault);
+            Assert.Equal(sysCores, specDefault.Cores);
+
+            // Spec already specifying cores preserves that value when --cores is omitted
+            var optSpecWithCores = new BotOptions { Spec = "classic:depth=3,cores=2" };
+            Assert.Equal("classic:depth=3,cores=2", optSpecWithCores.ResolveSpec());
+            var parsedWithCores = PlayerSpec.Parse(optSpecWithCores.ResolveSpec());
+            Assert.Equal(2, parsedWithCores.Cores);
+
+            // DisableQuiescence = true on spec with parameters
+            var optDisableQ = new BotOptions { Spec = "classic:depth=3", DisableQuiescence = true };
+            Assert.Equal($"classic:depth=3,cores={sysCores},quiescence=false", optDisableQ.ResolveSpec());
+            var specDisableQ = PlayerSpec.Parse(optDisableQ.ResolveSpec());
+            var (trainDisableQ, qDisableQ) = PlayerFactory.EffectiveMode(specDisableQ, defaultTrain: false);
+            Assert.False(qDisableQ);
+
+            // DisableQuiescence = true on bare spec without colon
+            var optBare = new BotOptions { Spec = "classic", DisableQuiescence = true };
+            Assert.Equal($"classic:cores={sysCores},quiescence=false", optBare.ResolveSpec());
+
+            // DisableQuiescence = true overrides existing quiescence=true
+            var optOverrideQ = new BotOptions { Spec = "classic:depth=3,quiescence=true", DisableQuiescence = true };
+            Assert.Equal($"classic:depth=3,quiescence=false,cores={sysCores}", optOverrideQ.ResolveSpec());
+            var specOverrideQ = PlayerSpec.Parse(optOverrideQ.ResolveSpec());
+            Assert.Equal(sysCores, specOverrideQ.Cores);
+            Assert.False(specOverrideQ.Quiescence);
+
+            // Random spec is untouched by default cores
+            var optRandom = new BotOptions { Spec = "random" };
+            Assert.Equal("random", optRandom.ResolveSpec());
+
+            // Explicit Cores adds or overrides cores
+            var optCores = new BotOptions { Spec = "classic:depth=2", Cores = 4 };
+            Assert.Equal("classic:depth=2,cores=4", optCores.ResolveSpec());
+
+            var optOverrideCores = new BotOptions { Spec = "classic:depth=2,cores=1", Cores = 4 };
+            Assert.Equal("classic:depth=2,cores=4", optOverrideCores.ResolveSpec());
+
+            // Both explicit Cores and DisableQuiescence
+            var optBoth = new BotOptions { Spec = "classic:depth=2", Cores = 2, DisableQuiescence = true };
+            Assert.Equal("classic:depth=2,cores=2,quiescence=false", optBoth.ResolveSpec());
+            var specBoth = PlayerSpec.Parse(optBoth.ResolveSpec());
+            Assert.Equal(2, specBoth.Cores);
+            Assert.False(specBoth.Quiescence);
         }
 
         [Fact]
@@ -125,9 +185,9 @@ namespace Attax.UserSimulator.Tests {
         }
 
         [Fact]
-        public void SnapshotMapper_ToIntent_MapsAllActionKinds() {
+        public void ActionIntentMapper_ToIntent_MapsAllActionKinds() {
             var move = GameAction.MoveAction(new Move(0, 0, 1, 1));
-            var moveIntent = SnapshotMapper.ToIntent(move);
+            var moveIntent = ActionIntentMapper.ToIntent(move);
             Assert.Equal(ActionKindDto.Move, moveIntent.Kind);
             Assert.Equal(0, moveIntent.FromX);
             Assert.Equal(0, moveIntent.FromY);
@@ -135,13 +195,13 @@ namespace Attax.UserSimulator.Tests {
             Assert.Equal(1, moveIntent.ToY);
 
             var spawn = GameAction.Targeted(ActionKind.Spawn, 2, 3);
-            var spawnIntent = SnapshotMapper.ToIntent(spawn);
+            var spawnIntent = ActionIntentMapper.ToIntent(spawn);
             Assert.Equal(ActionKindDto.Spawn, spawnIntent.Kind);
-            Assert.Equal(2, spawnIntent.ToX);
-            Assert.Equal(3, spawnIntent.ToY);
+            Assert.Equal(2, spawnIntent.TargetX);
+            Assert.Equal(3, spawnIntent.TargetY);
 
             var doubleMove = GameAction.DoubleMoveAction();
-            var dmIntent = SnapshotMapper.ToIntent(doubleMove);
+            var dmIntent = ActionIntentMapper.ToIntent(doubleMove);
             Assert.Equal(ActionKindDto.DoubleMove, dmIntent.Kind);
         }
     }

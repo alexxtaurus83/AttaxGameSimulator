@@ -135,7 +135,10 @@ namespace Attax.UserSimulator {
                     if (_httpHandlerFactory != null) {
                         o.HttpMessageHandlerFactory = _ => _httpHandlerFactory();
                     }
-                    o.Transports = HttpTransportType.LongPolling;
+                    // The hub ticket is single use and only re-accepted within 10 s of the first request (server InMemoryHubTicketService),
+                    // so LongPolling (a new request with the same ticket every poll) breaks after ~15 s against a real server.
+                    // LongPolling is kept only for the in-process test server, which has no WebSocket support.
+                    o.Transports = _httpHandlerFactory != null ? HttpTransportType.LongPolling : HttpTransportType.WebSockets;
                 })
                 .AddNewtonsoftJsonProtocol(o => AttaxJsonSettings.Apply(o.PayloadSerializerSettings))
                 .WithAutomaticReconnect();

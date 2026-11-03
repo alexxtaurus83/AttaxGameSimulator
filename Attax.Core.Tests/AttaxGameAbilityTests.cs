@@ -26,8 +26,9 @@ namespace Attax.Core.Tests {
             Assert.Equal(ActionError.None, err);
             Assert.Equal(ActionKind.Move, outcome.Kind);
             Assert.Equal(AbilityKind.SuperJump, outcome.Ability);
-            Assert.Equal(100, outcome.CreditsSpent);
-            Assert.Equal(900, state.RedCredits);
+            int superJumpCost = rules.GetAbilityCost(AbilityKind.SuperJump);
+            Assert.Equal(superJumpCost, outcome.CreditsSpent);
+            Assert.Equal(1000 - superJumpCost, state.RedCredits);
 
             // Source (0,0) vacated and has footprint
             int fromIdx = BoardLookup.GetBitIndex(0, 0);
@@ -70,8 +71,9 @@ namespace Attax.Core.Tests {
 
             Assert.Equal(ActionError.None, err);
             Assert.Equal(AbilityKind.Convert, outcome.Ability);
-            Assert.Equal(100, outcome.CreditsSpent);
-            Assert.Equal(900, state.RedCredits);
+            int convertCost = rules.GetAbilityCost(AbilityKind.Convert);
+            Assert.Equal(convertCost, outcome.CreditsSpent);
+            Assert.Equal(1000 - convertCost, state.RedCredits);
 
             // (1,1) converted to Red
             int idx11 = BoardLookup.GetBitIndex(1, 1);
@@ -104,7 +106,7 @@ namespace Attax.Core.Tests {
 
             Assert.Equal(ActionError.None, err);
             Assert.Equal(AbilityKind.Block, outcome.Ability);
-            Assert.Equal(100, outcome.CreditsSpent);
+            Assert.Equal(rules.GetAbilityCost(AbilityKind.Block), outcome.CreditsSpent);
             int idx = BoardLookup.GetBitIndex(2, 2);
             Assert.Equal(0UL, state.Board.BluePieces & (1UL << idx));
             Assert.NotEqual(0UL, state.Board.BlockedSquares & (1UL << idx));
@@ -187,9 +189,10 @@ namespace Attax.Core.Tests {
 
             Assert.Equal(ActionError.None, err);
             Assert.Equal(AbilityKind.Spawn, outcome.Ability);
-            Assert.Equal(100, outcome.CreditsSpent);
+            int spawnCost = rules.GetAbilityCost(AbilityKind.Spawn);
+            Assert.Equal(spawnCost, outcome.CreditsSpent);
             Assert.Equal(5, outcome.ActorCreditsGained); // Landed on Blue footprint -> +5
-            Assert.Equal(905, state.RedCredits); // 1000 - 100 + 5
+            Assert.Equal(1000 - spawnCost + 5, state.RedCredits); // 1000 - cost + 5
             Assert.Equal(0UL, outcome.FlippedMask); // Spawn never captures
 
             // State checks
@@ -244,8 +247,9 @@ namespace Attax.Core.Tests {
 
             Assert.Equal(ActionError.None, err);
             Assert.Equal(AbilityKind.SuperClone, outcome.Ability);
-            Assert.Equal(100, outcome.CreditsSpent);
-            Assert.Equal(900, state.RedCredits);
+            int superCloneCost = rules.GetAbilityCost(AbilityKind.SuperClone);
+            Assert.Equal(superCloneCost, outcome.CreditsSpent);
+            Assert.Equal(1000 - superCloneCost, state.RedCredits);
 
             // Both Blue chips captured
             ulong expectedFlipped = (1UL << BoardLookup.GetBitIndex(3, 2)) | (1UL << BoardLookup.GetBitIndex(3, 4));
@@ -272,7 +276,7 @@ namespace Attax.Core.Tests {
 
             Assert.Equal(ActionError.None, armErr);
             Assert.Equal(AbilityKind.DoubleMove, armOutcome.Ability);
-            Assert.Equal(100, armOutcome.CreditsSpent);
+            Assert.Equal(rules.GetAbilityCost(AbilityKind.DoubleMove), armOutcome.CreditsSpent);
             Assert.Equal(2, state.MovesRemainingThisTurn);
             Assert.False(armOutcome.TurnAdvanced);
             Assert.Equal(PlayerColor.Red, state.SideToMove);

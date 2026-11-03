@@ -254,10 +254,12 @@ namespace Attax.Core.Tests {
 
         [Fact]
         public void CreditReserve_PreventsSpendingBelowReserve() {
-            var cfg = TestConfig(chance: 100, reserve: 950); // reserve 950
+            var rules = TestRules(1000);
+            int minCost = rules.economy.abilityCosts.superJump;
+            var cfg = TestConfig(chance: 100, reserve: 1000 - minCost + 1); // reserve prevents spending
             var policy = new AiAbilityPolicy(cfg, seed: 42, enabled: true);
 
-            var state = AttaxGame.NewGame(TestRules(1000), new StartOptions(0, 0, PlayerColor.Red));
+            var state = AttaxGame.NewGame(rules, new StartOptions(0, 0, PlayerColor.Red));
             Assert.False(policy.TryChoose(state, PlayerColor.Red, out _));
         }
 

@@ -67,13 +67,43 @@ namespace Attax.UserSimulator {
         [Option("file-level", Default = "Debug", HelpText = "File log level.")]
         public string FileLevel { get; set; } = "Debug";
 
-        [Option("cores", HelpText = "Number of CPU cores/threads for AI search (1..64). Overrides or sets cores in --spec.")]
+        [Option("cores", HelpText = "Number of CPU cores/threads for AI search (1..64). Defaults to system processor count if omitted. Overrides or sets cores in --spec.")]
         public int? Cores { get; set; }
 
-        [Option("affinity", HelpText = "Processor affinity mask in hex (optional OS-level restriction, e.g. 0x0F).")]
-        public string? Affinity { get; set; }
+        [Option("disable-quiescence", Default = false, HelpText = "Disable quiescence search in AI search (default: false, quiescence enabled).")]
+        public bool DisableQuiescence { get; set; } = false;
 
         public (int Min, int Max) ParsedThinkMs { get; private set; }
+
+        public string ResolveSpec() {
+            string specText = Spec;
+            int? coresToApply = Cores;
+            if (!coresToApply.HasValue && !specText.Contains("cores=", StringComparison.OrdinalIgnoreCase)) {
+                coresToApply = Math.Clamp(Environment.ProcessorCount, 1, 64);
+            }
+
+            if (coresToApply.HasValue) {
+                if (specText.Contains("cores=", StringComparison.OrdinalIgnoreCase)) {
+                    specText = Regex.Replace(specText, @"cores=\d+", $"cores={coresToApply.Value}", RegexOptions.IgnoreCase);
+                } else if (specText.Contains(':')) {
+                    specText += $",cores={coresToApply.Value}";
+                } else if (!specText.Equals("random", StringComparison.OrdinalIgnoreCase)) {
+                    specText += $":cores={coresToApply.Value}";
+                }
+            }
+
+            if (DisableQuiescence) {
+                if (specText.Contains("quiescence=", StringComparison.OrdinalIgnoreCase)) {
+                    specText = Regex.Replace(specText, @"quiescence=(true|false)", "quiescence=false", RegexOptions.IgnoreCase);
+                } else if (specText.Contains(':')) {
+                    specText += ",quiescence=false";
+                } else if (!specText.Equals("random", StringComparison.OrdinalIgnoreCase) && !specText.StartsWith("policy", StringComparison.OrdinalIgnoreCase)) {
+                    specText += ":quiescence=false";
+                }
+            }
+
+            return specText;
+        }
 
         public void Validate() {
             if (string.IsNullOrWhiteSpace(Name) || !Regex.IsMatch(Name, "^[A-Za-z0-9_-]{1,32}$")) {

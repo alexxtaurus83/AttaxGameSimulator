@@ -4,6 +4,7 @@ using System.Net.Http.Headers;
 using System.Threading;
 using System.Threading.Tasks;
 using Attax.Agents;
+using Attax.Client.Protocol;
 using Attax.Client.Sync;
 using Attax.Core;
 using Attax.Core.Utils;
@@ -77,6 +78,15 @@ namespace Attax.UserSimulator {
                             reconciler.OnSnapshot(freshSnapshot.ServerVersion, freshSnapshot.Status == GameLifecycleStatusDto.Completed);
                             state = SnapshotMapper.ToState(freshSnapshot);
                             currentServerVersion = freshSnapshot.ServerVersion;
+
+                            if (freshSnapshot.Status == GameLifecycleStatusDto.Completed) {
+                                var outcome = new GameOutcomeDto {
+                                    GameId = gameId,
+                                    Result = freshSnapshot.Outcome != null ? freshSnapshot.Outcome.ToString() : state.Result.ToString()
+                                };
+                                _log.Information("Game {GameId} finished with status Completed (outcome: {Outcome})", gameId, freshSnapshot.Outcome);
+                                return outcome;
+                            }
                         }
 
                         if (state.Result != TerminalResult.NotOver) {
@@ -101,7 +111,7 @@ namespace Attax.UserSimulator {
                                 _log.Debug("Chosen {ActionKind} at turn {Turn}:\n{Board}", action.Kind, state.TurnNumber, rendered);
 
                                 string reqId = Guid.NewGuid().ToString("N");
-                                var intent = SnapshotMapper.ToIntent(action);
+                                var intent = ActionIntentMapper.ToIntent(action);
                                 var submitReq = new SubmitActionRequest {
                                     RequestId = reqId,
                                     ExpectedVersion = currentServerVersion,
@@ -112,7 +122,7 @@ namespace Attax.UserSimulator {
                                 _log.Debug("Action {ReqId} executed cleanly. Success: {Success}", reqId, res.Success);
                                 state = SnapshotMapper.ToState(res.Snapshot);
                                 currentServerVersion = res.ServerVersion;
-                            } catch (ServerErrorException ex) when (ex.Code == "VERSION_CONFLICT" || ex.Code == "NOT_YOUR_TURN") {
+                            } catch (ServerErrorException ex) when (ErrorCodeClassifier.IsStaleState(ex.Code)) {
                                 _log.Warning("Transient action conflict {Code}. Resyncing snapshot.", ex.Code);
                                 needsResync = true;
                             } catch (Exception ex) {

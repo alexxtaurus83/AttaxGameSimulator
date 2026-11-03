@@ -52,4 +52,8 @@ dotnet run --project Attax.UserSimulator\Attax.UserSimulator.csproj -c Release -
 - `--spec`: AI player specification (e.g. `classic:depth=3,cores=2`).
 - `--abilities`: `off` or `policy`.
 - `--think-ms`: Simulated human thinking delay range in ms (default: `1000-4000`).
-- `--affinity`: Hex bitmask for CPU affinity (e.g. `0x01`).
+- `--cores`: Number of CPU cores/threads for AI search (1..64). Defaults to system processor count if omitted. Overrides or sets cores in `--spec`.
+- `--disable-quiescence`: Disable quiescence search in AI search (default: false, quiescence enabled).
+
+## Client Dependencies & Shared Protocol
+The UserSimulator and Unity client both consume `Microsoft.AspNetCore.SignalR.Client` (and `Protocols.NewtonsoftJson`) version `8.0.33` and shared protocol mappers from `Attax.Client.Protocol`. Version 8.0.x is pinned across bot and client because Unity 6's Base Class Library runtime provides `System.Diagnostics.DiagnosticSource` 8.0.0.0 which lacks the 1-argument `ActivitySource` constructor called by SignalR 9.0+. The 8.0.x client communicates seamlessly with the .NET 9 server hub.
