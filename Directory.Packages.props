@@ -9,7 +9,7 @@
     <PackageVersion Include="Microsoft.AspNetCore.SignalR.Client" Version="8.0.33" />
     <PackageVersion Include="Microsoft.AspNetCore.SignalR.Protocols.NewtonsoftJson" Version="8.0.33" />
     <PackageVersion Include="Microsoft.ML.OnnxRuntime" Version="1.31.1" />
-    <PackageVersion Include="Newtonsoft.Json" Version="13.0.3" />
+    <PackageVersion Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageVersion Include="Serilog" Version="4.4.0" />
     <PackageVersion Include="Serilog.Sinks.Console" Version="6.1.1" />
     <PackageVersion Include="Serilog.Sinks.File" Version="7.0.0" />
