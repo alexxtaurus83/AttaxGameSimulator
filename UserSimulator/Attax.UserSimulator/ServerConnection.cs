@@ -17,8 +17,13 @@ using Serilog;
 namespace Attax.UserSimulator {
     public sealed class ServerErrorException : Exception {
         public string Code { get; }
+
+        /// <summary>Player-readable text for <see cref="Code"/> (shared with the Unity client); falls back to the server's message.</summary>
+        public string UserMessage { get; }
+
         public ServerErrorException(string code, string message) : base($"Server error [{code}]: {message}") {
             Code = code;
+            UserMessage = Attax.Client.Protocol.ClientErrorTexts.Format(code, message);
         }
     }
 

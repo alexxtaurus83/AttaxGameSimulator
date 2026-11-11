@@ -15,7 +15,7 @@ namespace Attax.Agents {
     public static class LocalGameRunner {
         /// <summary>
         /// The single game loop used by self-play, arena, and local simulations. Sides strictly alternate (there are no passes): a side that
-        /// cannot move makes the position terminal and is decided by AtaxxAIEngine.GetTerminalResult. Reaching maxPlies
+        /// cannot move makes the position terminal and winner is decided strictly by chip count via AtaxxAIEngine.GetTerminalResult. Reaching maxPlies
         /// without a terminal position is a ply-cap end whose result falls back to piece counts.
         /// </summary>
         public static GameEnd RunGame(AtaxxAIEngine referee, BitboardState board, int startPly, int maxPlies,

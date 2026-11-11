@@ -788,7 +788,7 @@ namespace Attax.Core {
 
                                 int finalScore = (int)Math.Clamp((long)strategicScore + bonus.total, (long)int.MinValue + 1, int.MaxValue);
 
-                                // Immediate win for either color: the opponent is wiped out or left without a move.
+                                // Immediate win for either color: game over and mover has more pieces.
                                 bool winsNow = GetTerminalOutcomeFor(helper.boardForThread, player) > 0;
                                 if (winsNow) finalScore = ImmediateWinScore;
 
@@ -1209,8 +1209,7 @@ namespace Attax.Core {
 
             if (IsGameOver(ataxxThreadHelper.boardForThread)) {
                 // Decisive terminal scoring: win/loss dominates any heuristic, and ply-adjusted
-                // so the search prefers faster wins / slower losses. Rule: a stuck side loses
-                // regardless of piece counts (see GetTerminalResult).
+                // so the search prefers faster wins / slower losses. Winner is decided by chip count (see GetTerminalResult).
                 int outcome = GetTerminalOutcomeFor(ataxxThreadHelper.boardForThread, player);
                 if (outcome > 0) return TerminalWinScore - ply;
                 if (outcome < 0) return -TerminalWinScore + ply;

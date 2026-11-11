@@ -278,8 +278,18 @@ namespace Attax.Core.Tests {
 
             var err1 = AttaxGame.TryApply(s1, PlayerColor.Red, GameAction.Targeted(ActionKind.Wall, 5, 5), out var out1);
             Assert.Equal(ActionError.None, err1);
-            Assert.Equal(TerminalResult.RedWins, s1.Result);
-            Assert.Equal(TerminalResult.RedWins, out1.Result);
+            // Red 1 chip vs Blue 1 chip: equal chips with Blue stranded is Draw
+            Assert.Equal(TerminalResult.Draw, s1.Result);
+            Assert.Equal(TerminalResult.Draw, out1.Result);
+
+            // Second position: Red has 2 chips (added piece at (0,1)), Blue has 1 chip at (6,6). Red Wall at (5,5) strands Blue -> RedWins
+            ulong redPieces2 = redPieces | (1UL << BoardLookup.GetBitIndex(0, 1));
+            var s1_win = GameState.Restore(redPieces2, bluePieces, blocked, 0UL, 0UL, PlayerColor.Red, 1000, 1000, 0, 0, 1, 0, rules);
+            Assert.True(AttaxGame.WouldEndGame(s1_win, PlayerColor.Red, GameAction.Targeted(ActionKind.Wall, 5, 5)));
+            var err1_win = AttaxGame.TryApply(s1_win, PlayerColor.Red, GameAction.Targeted(ActionKind.Wall, 5, 5), out var out1_win);
+            Assert.Equal(ActionError.None, err1_win);
+            Assert.Equal(TerminalResult.RedWins, s1_win.Result);
+            Assert.Equal(TerminalResult.RedWins, out1_win.Result);
 
             // D5: DoubleMove where first move ends game
             // Red has piece at (0,0), Blue has single piece at (1,1).

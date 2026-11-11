@@ -77,7 +77,7 @@ namespace Attax.UserSimulator {
                 log.Information("Bot {BotName} completed run cleanly", options.Name);
                 return 0;
             } catch (ServerErrorException ex) {
-                log.Error(ex, "Server error terminated bot {BotName}", options.Name);
+                log.Error(ex, "Server error terminated bot {BotName}: {UserMessage}", options.Name, ex.UserMessage);
                 return 3;
             } catch (Exception ex) {
                 log.Fatal(ex, "Unhandled exception in bot {BotName}", options.Name);

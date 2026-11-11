@@ -21,9 +21,9 @@ namespace Attax.Core.Tests {
         }
 
         [Fact]
-        public void StuckSideLoses_EvenWithMaterialMajority() {
+        public void StuckSideWins_WhenItHasMaterialMajority() {
             // Red has 4 pieces locked in the corner by blocks and its own pieces, cannot move.
-            // Blue has 1 piece with free moves. Red has the majority but is stuck, so Blue wins.
+            // Blue has 1 piece with free moves. Under new rules, winner is decided strictly by chip count: Red (4) beats Blue (1).
             var b = TestBoards.Parse(
                 "RRXX...",
                 "RRXX...",
@@ -33,13 +33,13 @@ namespace Attax.Core.Tests {
                 ".......",
                 "......B");
             // Red squares can reach nothing empty: neighbours within 2 are all R or X.
-            Assert.Equal(TerminalResult.BlueWins, e.GetTerminalResult(b));
-            Assert.True(e.GetTerminalOutcomeFor(b, PlayerColor.Blue) > 0);
-            Assert.True(e.GetTerminalOutcomeFor(b, PlayerColor.Red) < 0);
+            Assert.Equal(TerminalResult.RedWins, e.GetTerminalResult(b));
+            Assert.True(e.GetTerminalOutcomeFor(b, PlayerColor.Red) > 0);
+            Assert.True(e.GetTerminalOutcomeFor(b, PlayerColor.Blue) < 0);
         }
 
         [Fact]
-        public void StuckBlueWithMajority_RedWins() {
+        public void StuckBlueWithMajority_BlueWins() {
             var b = TestBoards.Parse(
                 "BBXX...",
                 "BBXX...",
@@ -48,7 +48,56 @@ namespace Attax.Core.Tests {
                 ".......",
                 ".......",
                 "......R");
+            Assert.Equal(TerminalResult.BlueWins, e.GetTerminalResult(b));
+            Assert.True(e.GetTerminalOutcomeFor(b, PlayerColor.Blue) > 0);
+            Assert.True(e.GetTerminalOutcomeFor(b, PlayerColor.Red) < 0);
+        }
+
+        [Fact]
+        public void StuckSide_WithFewerChips_Loses() {
+            // Red 1 piece stuck in corner, Blue 4 pieces with free moves.
+            var b = TestBoards.Parse(
+                "RXXXX..",
+                "XXXXX..",
+                "XXXXX..",
+                ".......",
+                ".......",
+                "....BB.",
+                "....BB.");
+            Assert.Equal(TerminalResult.BlueWins, e.GetTerminalResult(b));
+            Assert.True(e.GetTerminalOutcomeFor(b, PlayerColor.Blue) > 0);
+            Assert.True(e.GetTerminalOutcomeFor(b, PlayerColor.Red) < 0);
+        }
+
+        [Fact]
+        public void StuckSide_WithEqualChipsAndEmptiesLeft_IsDraw() {
+            // Red 2 pieces stuck in corner, Blue 2 pieces with free moves, empties left.
+            var b = TestBoards.Parse(
+                "RRXXXX.",
+                "XXXXXX.",
+                "XXXXXX.",
+                ".......",
+                ".......",
+                ".....B.",
+                ".....B.");
+            Assert.Equal(TerminalResult.Draw, e.GetTerminalResult(b));
+            Assert.Equal(0, e.GetTerminalOutcomeFor(b, PlayerColor.Red));
+            Assert.Equal(0, e.GetTerminalOutcomeFor(b, PlayerColor.Blue));
+        }
+
+        [Fact]
+        public void ZeroChips_LosesRegardless() {
+            var b = TestBoards.Parse(
+                "R......",
+                ".......",
+                ".......",
+                ".......",
+                ".......",
+                ".......",
+                ".......");
             Assert.Equal(TerminalResult.RedWins, e.GetTerminalResult(b));
+            Assert.True(e.GetTerminalOutcomeFor(b, PlayerColor.Red) > 0);
+            Assert.True(e.GetTerminalOutcomeFor(b, PlayerColor.Blue) < 0);
         }
 
         [Fact]

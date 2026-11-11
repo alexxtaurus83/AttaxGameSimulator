@@ -206,7 +206,7 @@ One shared conv trunk (no BatchNorm), a spatial policy head (17×7×7) and a val
 
 ## Game result rule
 
-A player with no legal move (including a colour with no pieces) loses immediately, regardless of piece counts. If neither player can move, the side with more pieces wins and equal counts draw. There are no passes. A game that reaches the ply cap has no terminal result and falls back to piece counts (recorded as `PlyCap`). Search, self-play, the arena and the trainer all use `AtaxxAIEngine.GetTerminalResult`.
+The game ends immediately when either player has no legal moves (including a colour with 0 pieces), when the board is full, or when neither player can move. The winner is always decided strictly by chip count: the side with more pieces wins, and equal counts draw. There are no passes. A game that reaches the ply cap has no terminal result and falls back to piece counts (recorded as `PlyCap`). Search, self-play, the arena and the trainer all use `AtaxxAIEngine.GetTerminalResult`.
 
 ## Node budget
 

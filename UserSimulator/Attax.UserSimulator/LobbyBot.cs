@@ -106,7 +106,7 @@ namespace Attax.UserSimulator {
                 var req = new CreateChallengeRequest { TargetPlayerId = target.PlayerId };
                 await _connection.CallAsync<ChallengeDto>("CreateChallenge", req);
             } catch (ServerErrorException ex) {
-                _log.Debug("Challenge failed: {Code}", ex.Code);
+                _log.Debug("Challenge failed: {Code} ({UserMessage})", ex.Code, ex.UserMessage);
             } catch (Exception ex) {
                 _log.Warning(ex, "Failed to issue challenge");
             }

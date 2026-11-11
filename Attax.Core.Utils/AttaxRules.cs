@@ -315,13 +315,12 @@ namespace Attax.Core.Utils {
             return false;
         }
 
+        /// <summary>
+        /// Evaluates terminal game outcome when game is over.
+        /// Winner is determined strictly by chip count: higher count wins, equal is draw.
+        /// </summary>
         public static TerminalResult GetTerminalResult(BitboardState boardState) {
             if (!IsGameOver(boardState)) return TerminalResult.NotOver;
-
-            bool redCanMove = HasAnyLegalMove(boardState, PlayerColor.Red);
-            bool blueCanMove = HasAnyLegalMove(boardState, PlayerColor.Blue);
-            if (redCanMove && !blueCanMove) return TerminalResult.RedWins;
-            if (blueCanMove && !redCanMove) return TerminalResult.BlueWins;
 
             int redCount = BitboardOps.PopCount(boardState.RedPieces);
             int blueCount = BitboardOps.PopCount(boardState.BluePieces);

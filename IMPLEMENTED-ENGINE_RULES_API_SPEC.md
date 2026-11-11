@@ -125,7 +125,7 @@ An ability is usable when the player's balance covers its price. There are no pe
 ### 5.3 Rule decisions
 
 - D1: free actions may strand a side; the game ends immediately and `WouldEndGame` lets a UI warn first.
-- D2: credits never create moves; a side without a standard clone/jump loses even with credits for Super Jump, Spawn, or Super Clone.
+- D2: credits never create moves; a side without a standard clone/jump ends the game immediately even with credits for Super Jump, Spawn, or Super Clone, and the winner is decided strictly by chip count (equal chips is a draw).
 - D3: terminal state is global and evaluated after every accepted action.
 - D4: `NewGame` evaluates the initial result.
 - D5: if Double Move leaves the actor without a standard move for the second move, the game ends; the facade does not skip the move.
