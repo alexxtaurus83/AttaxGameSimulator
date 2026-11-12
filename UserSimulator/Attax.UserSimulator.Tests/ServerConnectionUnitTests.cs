@@ -258,6 +258,149 @@ namespace Attax.UserSimulator.Tests {
             Assert.Equal(newSecret, saved.RecoverySecret);
         }
 
+        private ServerConnection CreateRefreshConnection(string botName, DateTimeOffset firstExpiry, Func<HttpRequestMessage, HttpResponseMessage> lobbyHandler, Action onRecover, out Func<int> recoverCount) {
+            int recovers = 0;
+            recoverCount = () => recovers;
+
+            var handler = new MockHttpMessageHandler((req, ct) => {
+                string path = req.RequestUri?.AbsolutePath ?? string.Empty;
+                if (path == "/api/sessions") {
+                    var body = new CreateSessionResponse {
+                        PlayerId = "p_refresh",
+                        RecoverySecret = "sec_1",
+                        AccessToken = "tok_1",
+                        ExpiresAtUtc = firstExpiry
+                    };
+                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Created) {
+                        Content = new StringContent(Newtonsoft.Json.JsonConvert.SerializeObject(body), Encoding.UTF8, "application/json")
+                    });
+                }
+                if (path == "/api/sessions/recover") {
+                    int n = Interlocked.Increment(ref recovers);
+                    onRecover();
+                    var body = new RecoverSessionResponse {
+                        PlayerId = "p_refresh",
+                        RecoverySecret = "sec_" + (n + 1),
+                        AccessToken = "tok_" + (n + 1),
+                        ExpiresAtUtc = DateTimeOffset.UtcNow.AddHours(1)
+                    };
+                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) {
+                        Content = new StringContent(Newtonsoft.Json.JsonConvert.SerializeObject(body), Encoding.UTF8, "application/json")
+                    });
+                }
+                if (path == "/api/lobby/players") {
+                    return Task.FromResult(lobbyHandler(req));
+                }
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+            });
+
+            var options = new BotOptions {
+                Name = botName,
+                StateDir = _tempStateDir,
+                Server = "http://localhost:5000",
+                ClientVersion = "1.0.0"
+            };
+            return new ServerConnection(options, Log.Logger, () => handler, new ImmediateTimeProvider());
+        }
+
+        [Fact]
+        public async Task SendAuthenticated_TokenNearExpiry_RefreshesProactivelyBeforeRequest() {
+            var seenTokens = new System.Collections.Generic.List<string?>();
+            var connection = CreateRefreshConnection(
+                "test_bot_proactive",
+                DateTimeOffset.UtcNow.AddMinutes(2), // within the 5 minute refresh margin
+                req => {
+                    seenTokens.Add(req.Headers.Authorization?.Parameter);
+                    return new HttpResponseMessage(HttpStatusCode.OK);
+                },
+                () => { },
+                out var recoverCount);
+
+            await connection.AuthenticateSessionAsync(CancellationToken.None);
+            Assert.Equal("tok_1", connection.AccessToken);
+
+            using var resp = await connection.SendAuthenticatedAsync(() => new HttpRequestMessage(HttpMethod.Get, "/api/lobby/players"), CancellationToken.None);
+
+            Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+            Assert.Equal(1, recoverCount());
+            Assert.Equal("tok_2", connection.AccessToken);
+            Assert.Single(seenTokens);
+            Assert.Equal("tok_2", seenTokens[0]);
+            Assert.True(connection.AccessTokenExpiresAtUtc > DateTimeOffset.UtcNow.AddMinutes(30));
+        }
+
+        [Fact]
+        public async Task SendAuthenticated_ValidToken_DoesNotRefresh() {
+            var connection = CreateRefreshConnection(
+                "test_bot_norefresh",
+                DateTimeOffset.UtcNow.AddHours(1),
+                req => new HttpResponseMessage(HttpStatusCode.OK),
+                () => { },
+                out var recoverCount);
+
+            await connection.AuthenticateSessionAsync(CancellationToken.None);
+            using var resp = await connection.SendAuthenticatedAsync(() => new HttpRequestMessage(HttpMethod.Get, "/api/lobby/players"), CancellationToken.None);
+
+            Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+            Assert.Equal(0, recoverCount());
+            Assert.Equal("tok_1", connection.AccessToken);
+        }
+
+        [Fact]
+        public async Task SendAuthenticated_Unauthorized_RefreshesOnceAndRetries() {
+            int lobbyCalls = 0;
+            var connection = CreateRefreshConnection(
+                "test_bot_401",
+                DateTimeOffset.UtcNow.AddHours(1),
+                req => {
+                    Interlocked.Increment(ref lobbyCalls);
+                    return req.Headers.Authorization?.Parameter == "tok_1"
+                        ? new HttpResponseMessage(HttpStatusCode.Unauthorized)
+                        : new HttpResponseMessage(HttpStatusCode.OK);
+                },
+                () => { },
+                out var recoverCount);
+
+            await connection.AuthenticateSessionAsync(CancellationToken.None);
+            using var resp = await connection.SendAuthenticatedAsync(() => new HttpRequestMessage(HttpMethod.Get, "/api/lobby/players"), CancellationToken.None);
+
+            Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+            Assert.Equal(2, lobbyCalls);
+            Assert.Equal(1, recoverCount());
+            Assert.Equal("tok_2", connection.AccessToken);
+        }
+
+        [Fact]
+        public async Task SendAuthenticated_PersistentUnauthorized_RetriesOnlyOnce() {
+            int lobbyCalls = 0;
+            var connection = CreateRefreshConnection(
+                "test_bot_401_twice",
+                DateTimeOffset.UtcNow.AddHours(1),
+                req => {
+                    Interlocked.Increment(ref lobbyCalls);
+                    return new HttpResponseMessage(HttpStatusCode.Unauthorized);
+                },
+                () => { },
+                out var recoverCount);
+
+            await connection.AuthenticateSessionAsync(CancellationToken.None);
+            using var resp = await connection.SendAuthenticatedAsync(() => new HttpRequestMessage(HttpMethod.Get, "/api/lobby/players"), CancellationToken.None);
+
+            Assert.Equal(HttpStatusCode.Unauthorized, resp.StatusCode);
+            Assert.Equal(2, lobbyCalls);
+            Assert.Equal(1, recoverCount());
+        }
+
+        [Fact]
+        public async Task Authenticate_TracksAccessTokenExpiry() {
+            var expiry = DateTimeOffset.UtcNow.AddHours(3);
+            var connection = CreateRefreshConnection("test_bot_expiry", expiry, req => new HttpResponseMessage(HttpStatusCode.OK), () => { }, out _);
+
+            await connection.AuthenticateSessionAsync(CancellationToken.None);
+
+            Assert.Equal(expiry.ToUnixTimeSeconds(), connection.AccessTokenExpiresAtUtc.ToUnixTimeSeconds());
+        }
+
         private sealed class ImmediateTimeProvider : TimeProvider {
             public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) {
                 callback(state);

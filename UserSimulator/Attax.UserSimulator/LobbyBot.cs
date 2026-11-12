@@ -1,7 +1,6 @@
 using System;
 using System.Linq;
 using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Threading;
 using System.Threading.Tasks;
 using Attax.Core;
@@ -87,11 +86,11 @@ namespace Attax.UserSimulator {
 
         private async Task TryIssueChallengeAsync(CancellationToken ct) {
             try {
-                using var msg = new HttpRequestMessage(HttpMethod.Get, ApiRoutes.LobbyPlayersFull);
-                _connection.AddHeaders(msg);
-                msg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _connection.AccessToken);
-
-                var resp = await _connection.Http.SendAsync(msg, ct);
+                using var resp = await _connection.SendAuthenticatedAsync(() => {
+                    var msg = new HttpRequestMessage(HttpMethod.Get, ApiRoutes.LobbyPlayersFull);
+                    _connection.AddHeaders(msg);
+                    return msg;
+                }, ct);
                 if (!resp.IsSuccessStatusCode) return;
 
                 var lobby = await ServerJson.ReadJsonAsync<LobbySummaryDto>(resp.Content, ct);

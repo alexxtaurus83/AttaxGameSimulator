@@ -42,6 +42,22 @@ namespace Attax.UserSimulator {
         private long _seq = 0;
         private Timer? _heartbeatTimer;
 
+        private static readonly TimeSpan TokenRefreshMargin = TimeSpan.FromMinutes(5);
+        private static readonly int[] ReconnectBackoffSeconds = { 1, 2, 4, 8, 15 };
+        private const int MaxReconnectAttempts = 20;
+
+        private DateTimeOffset _accessTokenExpiresAtUtc;
+        private readonly SemaphoreSlim _reconnectLock = new SemaphoreSlim(1, 1);
+        private CancellationTokenSource? _lifetimeCts;
+        private volatile bool _disposed;
+        private volatile bool _replaced;
+        private bool _authenticatedOnce;
+
+        public DateTimeOffset AccessTokenExpiresAtUtc => _accessTokenExpiresAtUtc;
+
+        /// <summary>Raised after the hub connection was re-established with a fresh session and hub ticket.</summary>
+        public event Action? OnReconnected;
+
         public string PlayerId => _playerId;
         public string AccessToken => _accessToken;
         public string RecoverySecret => _recoverySecret;
@@ -67,6 +83,8 @@ namespace Attax.UserSimulator {
             };
             _http.DefaultRequestHeaders.Add(TransportHeaders.ClientVersion, _options.ClientVersion);
 
+            _lifetimeCts = new CancellationTokenSource();
+
             await AuthenticateSessionAsync(ct);
             await ConnectHubAsync(ct);
 
@@ -76,13 +94,125 @@ namespace Attax.UserSimulator {
                 _log.Warning(ex, "Initial heartbeat failed");
             }
 
-            _heartbeatTimer = new Timer(async _ => {
-                try {
-                    await CallAsync<HeartbeatResponseDto>("Heartbeat");
-                } catch (Exception ex) {
-                    _log.Warning(ex, "Heartbeat failed");
+            _heartbeatTimer = new Timer(async _ => await HeartbeatTickAsync(), null, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(15));
+        }
+
+        private async Task HeartbeatTickAsync() {
+            if (_disposed || _replaced) return;
+            try {
+                await CallAsync<HeartbeatResponseDto>("Heartbeat");
+            } catch (Exception ex) when (!_disposed) {
+                _log.Warning(ex, "Heartbeat failed");
+            }
+        }
+
+        private bool TokenNearExpiry() =>
+            _accessTokenExpiresAtUtc != default && _timeProvider.GetUtcNow() >= _accessTokenExpiresAtUtc - TokenRefreshMargin;
+
+        private bool IsHubConnected => _hub != null && _hub.State == HubConnectionState.Connected;
+
+        /// <summary>
+        /// Serialized recovery: refreshes credentials near expiry and, when the hub is not connected, recovers the session,
+        /// mints a fresh single-use hub ticket and reconnects with exponential backoff.
+        /// </summary>
+        internal async Task EnsureConnectedAndAuthenticatedAsync(CancellationToken ct) {
+            bool reconnected = false;
+            await _reconnectLock.WaitAsync(ct);
+            try {
+                if (_disposed || _replaced) return;
+
+                bool refreshed = false;
+                if (TokenNearExpiry()) {
+                    _log.Information("Access token nearing expiry ({ExpiresAtUtc}); refreshing session credentials", _accessTokenExpiresAtUtc);
+                    await AuthenticateSessionAsync(ct);
+                    refreshed = true;
                 }
-            }, null, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(15));
+
+                if (IsHubConnected) return;
+
+                for (int attempt = 0; ; attempt++) {
+                    ct.ThrowIfCancellationRequested();
+                    try {
+                        await DisposeHubAsync();
+                        if (!(refreshed && attempt == 0)) {
+                            await AuthenticateSessionAsync(ct);
+                        }
+                        await ConnectHubAsync(ct);
+                        await InvokeHubDirectAsync<HeartbeatResponseDto>("Heartbeat", ct);
+                        _log.Information("SignalR hub reconnected with a fresh session and hub ticket");
+                        reconnected = true;
+                        break;
+                    } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
+                        throw;
+                    } catch (Exception ex) {
+                        if (attempt + 1 >= MaxReconnectAttempts) {
+                            _log.Error(ex, "Hub reconnect failed after {Attempts} attempts", attempt + 1);
+                            throw;
+                        }
+                        var delay = TimeSpan.FromSeconds(ReconnectBackoffSeconds[Math.Min(attempt, ReconnectBackoffSeconds.Length - 1)]);
+                        _log.Warning("Hub reconnect attempt {Attempt} failed ({ErrorType}: {Message}). Retrying in {DelayMs}ms", attempt + 1, ex.GetType().Name, ex.Message, delay.TotalMilliseconds);
+                        await Task.Delay(delay, _timeProvider, ct);
+                    }
+                }
+            } finally {
+                _reconnectLock.Release();
+            }
+
+            if (reconnected) {
+                try {
+                    OnReconnected?.Invoke();
+                } catch (Exception ex) {
+                    _log.Warning(ex, "OnReconnected handler failed");
+                }
+            }
+        }
+
+        private async Task DisposeHubAsync() {
+            var old = _hub;
+            _hub = default!;
+            if (old != null) {
+                try {
+                    await old.DisposeAsync();
+                } catch (Exception ex) {
+                    _log.Debug(ex, "Disposing previous hub connection failed");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Sends an authenticated REST request. Refreshes the session proactively near expiry and once on 401 Unauthorized.
+        /// The factory is invoked per attempt and must not set the Authorization header.
+        /// </summary>
+        public async Task<HttpResponseMessage> SendAuthenticatedAsync(Func<HttpRequestMessage> requestFactory, CancellationToken ct) {
+            if (TokenNearExpiry()) {
+                await RefreshCredentialsAsync(_accessToken, ct);
+            }
+
+            string usedToken = _accessToken;
+            var resp = await SendWithBearerAsync(requestFactory, usedToken, ct);
+            if (resp.StatusCode != HttpStatusCode.Unauthorized || _disposed) return resp;
+
+            resp.Dispose();
+            _log.Warning("REST request returned 401 Unauthorized; refreshing session credentials once");
+            await RefreshCredentialsAsync(usedToken, ct);
+            return await SendWithBearerAsync(requestFactory, _accessToken, ct);
+        }
+
+        private async Task<HttpResponseMessage> SendWithBearerAsync(Func<HttpRequestMessage> requestFactory, string token, CancellationToken ct) {
+            using var msg = requestFactory();
+            msg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            return await _http.SendAsync(msg, ct);
+        }
+
+        private async Task RefreshCredentialsAsync(string staleToken, CancellationToken ct) {
+            await _reconnectLock.WaitAsync(ct);
+            try {
+                // Another caller may have refreshed while this one waited for the lock.
+                if (!string.Equals(_accessToken, staleToken, StringComparison.Ordinal) && !TokenNearExpiry()) return;
+                await AuthenticateSessionAsync(ct);
+            } finally {
+                _reconnectLock.Release();
+            }
         }
 
         private TimeSpan? ParseRetryAfter(HttpResponseMessage resp) {
@@ -107,7 +237,8 @@ namespace Attax.UserSimulator {
                 _http.DefaultRequestHeaders.Add(TransportHeaders.ClientVersion, _options.ClientVersion);
             }
 
-            var existing = _options.NewIdentity ? null : _store.Load(_options.Name);
+            // --new-identity only applies to the very first authentication; refreshes and reconnects must recover that identity.
+            var existing = (_options.NewIdentity && !_authenticatedOnce) ? null : _store.Load(_options.Name);
             if (existing != null) {
                 _log.Information("Attempting to recover existing session for {PlayerId}", existing.PlayerId);
                 var recoverReq = new RecoverSessionRequest {
@@ -146,6 +277,8 @@ namespace Attax.UserSimulator {
                             _playerId = recovered.PlayerId;
                             _recoverySecret = recovered.RecoverySecret;
                             _accessToken = recovered.AccessToken;
+                            _accessTokenExpiresAtUtc = recovered.ExpiresAtUtc;
+                            _authenticatedOnce = true;
                             try {
                                 _store.Save(_options.Name, _playerId, _recoverySecret);
                             } catch (Exception ex) {
@@ -207,6 +340,8 @@ namespace Attax.UserSimulator {
                         _playerId = created.PlayerId;
                         _recoverySecret = created.RecoverySecret;
                         _accessToken = created.AccessToken;
+                        _accessTokenExpiresAtUtc = created.ExpiresAtUtc;
+                        _authenticatedOnce = true;
                         _store.Save(_options.Name, _playerId, _recoverySecret);
                         _log.Information("Created new session for {PlayerId}", _playerId);
                         return;
@@ -247,10 +382,33 @@ namespace Attax.UserSimulator {
                     // LongPolling is kept only for the in-process test server, which has no WebSocket support.
                     o.Transports = _httpHandlerFactory != null ? HttpTransportType.LongPolling : HttpTransportType.WebSockets;
                 })
-                .AddNewtonsoftJsonProtocol(o => AttaxJsonSettings.Apply(o.PayloadSerializerSettings))
-                .WithAutomaticReconnect();
+                .AddNewtonsoftJsonProtocol(o => AttaxJsonSettings.Apply(o.PayloadSerializerSettings));
+            // No WithAutomaticReconnect(): it would replay the consumed single-use ticket from the original URL.
+            // Recovery is explicit (EnsureConnectedAndAuthenticatedAsync) with a fresh session and a fresh ticket.
 
-            _hub = builder.Build();
+            var hub = builder.Build();
+            hub.KeepAliveInterval = TimeSpan.FromSeconds(15);
+            hub.ServerTimeout = TimeSpan.FromSeconds(45);
+            _hub = hub;
+
+            hub.Closed += ex => {
+                // Ignore closes of superseded/intentionally disposed hubs.
+                if (_disposed || _replaced || !ReferenceEquals(hub, _hub)) return Task.CompletedTask;
+                var lifetimeToken = _lifetimeCts?.Token ?? CancellationToken.None;
+                if (lifetimeToken.IsCancellationRequested) return Task.CompletedTask;
+
+                _log.Warning(ex, "SignalR hub connection closed. Starting automatic session and hub recovery...");
+                _ = Task.Run(async () => {
+                    try {
+                        await EnsureConnectedAndAuthenticatedAsync(lifetimeToken);
+                    } catch (OperationCanceledException) {
+                        // shutting down
+                    } catch (Exception recoverEx) {
+                        _log.Error(recoverEx, "Automatic hub recovery failed");
+                    }
+                });
+                return Task.CompletedTask;
+            };
 
             _hub.On<PlayerNotificationDto>(HubEventNames.PlayerNotification, notif => {
                 OnPlayerNotification?.Invoke(notif);
@@ -262,6 +420,7 @@ namespace Attax.UserSimulator {
                 OnSubscriptionLagged?.Invoke(gameId);
             });
             _hub.On(HubEventNames.ConnectionReplaced, () => {
+                _replaced = true;
                 _log.Error("Connection replaced by another session");
                 Environment.Exit(4);
             });
@@ -287,8 +446,9 @@ namespace Attax.UserSimulator {
             msg.Headers.TryAddWithoutValidation(TransportHeaders.ClientVersion, _options.ClientVersion);
         }
 
-        public async Task<T> CallAsync<T>(string method, params object?[] args) {
-            var response = await _hub.InvokeCoreAsync<HubResponse<T>>(method, args);
+        private async Task<T> InvokeHubDirectAsync<T>(string method, CancellationToken ct, params object?[] args) {
+            var hub = _hub ?? throw new InvalidOperationException("The hub connection is not available.");
+            var response = await hub.InvokeCoreAsync<HubResponse<T>>(method, args, ct);
             if (!response.Ok) {
                 string code = response.Error?.ErrorCode ?? "UNKNOWN_ERROR";
                 string message = response.Error?.Message ?? "Server operation failed";
@@ -297,10 +457,30 @@ namespace Attax.UserSimulator {
             return response.Data!;
         }
 
+        public async Task<T> CallAsync<T>(string method, params object?[] args) {
+            var ct = _lifetimeCts?.Token ?? CancellationToken.None;
+
+            // Wait for (or trigger) recovery instead of failing with "InvokeCoreAsync cannot be called if the connection is not active".
+            if (!_disposed && !_replaced && (!IsHubConnected || TokenNearExpiry()) && _lifetimeCts != null) {
+                await EnsureConnectedAndAuthenticatedAsync(ct);
+            }
+
+            try {
+                return await InvokeHubDirectAsync<T>(method, ct, args);
+            } catch (InvalidOperationException) when (!_disposed && !_replaced && _lifetimeCts != null && !ct.IsCancellationRequested) {
+                // Connection dropped mid-call: recover once and retry.
+                await EnsureConnectedAndAuthenticatedAsync(ct);
+                return await InvokeHubDirectAsync<T>(method, ct, args);
+            }
+        }
+
         public async ValueTask DisposeAsync() {
+            _disposed = true;
+            try { _lifetimeCts?.Cancel(); } catch (ObjectDisposedException) { }
             if (_heartbeatTimer != null) await _heartbeatTimer.DisposeAsync();
             if (_hub != null) await _hub.DisposeAsync();
             _http?.Dispose();
+            _lifetimeCts?.Dispose();
         }
     }
 }

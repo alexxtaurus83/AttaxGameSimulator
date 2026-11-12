@@ -1,6 +1,5 @@
 using System;
 using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Threading;
 using System.Threading.Tasks;
 using Attax.Agents;
@@ -41,6 +40,12 @@ namespace Attax.UserSimulator {
                 var reconciler = new GameSyncReconciler<Newtonsoft.Json.Linq.JToken>();
                 bool isSubmitting = false;
                 bool needsResync = false;
+                bool needsResubscribe = false;
+
+                Action onReconnected = () => {
+                    needsResync = true;
+                    needsResubscribe = true;
+                };
 
                 Action<string, GameEventEnvelopeDto> onEvent = (gId, env) => {
                     if (gId != gameId) return;
@@ -62,29 +67,45 @@ namespace Attax.UserSimulator {
 
                 _connection.OnGameEvent += onEvent;
                 _connection.OnSubscriptionLagged += onLag;
+                _connection.OnReconnected += onReconnected;
 
                 try {
                     // Subscribe-first
                     var subReply = await _connection.CallAsync<SubscribeGameResponseDto>("SubscribeGame", gameId);
-                    reconciler.OnSnapshot(subReply.Snapshot.ServerVersion, subReply.Snapshot.Status == GameLifecycleStatusDto.Completed);
+                    bool initialTerminal = subReply.Snapshot.Status != GameLifecycleStatusDto.Active && subReply.Snapshot.Status != GameLifecycleStatusDto.WaitingForPlayers;
+                    reconciler.OnSnapshot(subReply.Snapshot.ServerVersion, initialTerminal);
 
                     var state = SnapshotMapper.ToState(subReply.Snapshot);
                     long currentServerVersion = subReply.Snapshot.ServerVersion;
 
+                    if (initialTerminal) {
+                        _log.Information("Game {GameId} finished with status {Status} (outcome: {Outcome})", gameId, subReply.Snapshot.Status, subReply.Snapshot.Outcome);
+                        return new GameOutcomeDto { GameId = gameId, Result = subReply.Snapshot.Outcome.ToString() };
+                    }
+
                     while (!ct.IsCancellationRequested) {
                         if (needsResync) {
                             needsResync = false;
+                            if (needsResubscribe) {
+                                needsResubscribe = false;
+                                try {
+                                    await _connection.CallAsync<SubscribeGameResponseDto>("SubscribeGame", gameId);
+                                } catch (ServerErrorException ex) {
+                                    _log.Warning(ex, "Failed to resubscribe to game {GameId}", gameId);
+                                }
+                            }
                             var freshSnapshot = await FetchSnapshotAsync(gameId, ct);
-                            reconciler.OnSnapshot(freshSnapshot.ServerVersion, freshSnapshot.Status == GameLifecycleStatusDto.Completed);
+                            bool isTerminalStatus = freshSnapshot.Status != GameLifecycleStatusDto.Active && freshSnapshot.Status != GameLifecycleStatusDto.WaitingForPlayers;
+                            reconciler.OnSnapshot(freshSnapshot.ServerVersion, isTerminalStatus);
                             state = SnapshotMapper.ToState(freshSnapshot);
                             currentServerVersion = freshSnapshot.ServerVersion;
 
-                            if (freshSnapshot.Status == GameLifecycleStatusDto.Completed) {
+                            if (isTerminalStatus) {
                                 var outcome = new GameOutcomeDto {
                                     GameId = gameId,
                                     Result = freshSnapshot.Outcome.ToString()
                                 };
-                                _log.Information("Game {GameId} finished with status Completed (outcome: {Outcome})", gameId, freshSnapshot.Outcome);
+                                _log.Information("Game {GameId} finished with status {Status} (outcome: {Outcome})", gameId, freshSnapshot.Status, freshSnapshot.Outcome);
                                 return outcome;
                             }
                         }
@@ -140,16 +161,17 @@ namespace Attax.UserSimulator {
                 } finally {
                     _connection.OnGameEvent -= onEvent;
                     _connection.OnSubscriptionLagged -= onLag;
+                    _connection.OnReconnected -= onReconnected;
                 }
             }
         }
 
         private async Task<GameSnapshotDto> FetchSnapshotAsync(string gameId, CancellationToken ct) {
-            using var msg = new HttpRequestMessage(HttpMethod.Get, $"/api/games/{gameId}");
-            _connection.AddHeaders(msg);
-            msg.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _connection.AccessToken);
-
-            var resp = await _connection.Http.SendAsync(msg, ct);
+            using var resp = await _connection.SendAuthenticatedAsync(() => {
+                var msg = new HttpRequestMessage(HttpMethod.Get, $"/api/games/{gameId}");
+                _connection.AddHeaders(msg);
+                return msg;
+            }, ct);
             resp.EnsureSuccessStatusCode();
             return (await ServerJson.ReadJsonAsync<GameSnapshotDto>(resp.Content, ct))!;
         }
