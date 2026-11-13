@@ -33,6 +33,7 @@ namespace Attax.Core.Tests {
 
         private static GameRulesConfig TestRules(int credits = 1000) {
             var rules = GameRulesConfigTests.ValidTestRules();
+            rules.economy.maxCredits = Math.Max(rules.economy.maxCredits, credits);
             rules.economy.startingCredits = credits;
             return rules;
         }
@@ -255,7 +256,9 @@ namespace Attax.Core.Tests {
         [Fact]
         public void CreditReserve_PreventsSpendingBelowReserve() {
             var rules = TestRules(1000);
-            int minCost = rules.economy.abilityCosts.superJump;
+            var costs = rules.economy.abilityCosts;
+            int minCost = Math.Min(Math.Min(Math.Min(costs.superJump, costs.convert), Math.Min(costs.block, costs.wall)),
+                Math.Min(Math.Min(costs.doubleMove, costs.spawn), Math.Min(costs.superClone, Math.Min(costs.unblock, costs.bomb))));
             var cfg = TestConfig(chance: 100, reserve: 1000 - minCost + 1); // reserve prevents spending
             var policy = new AiAbilityPolicy(cfg, seed: 42, enabled: true);
 

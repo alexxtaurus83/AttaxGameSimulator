@@ -8,7 +8,7 @@ This is not true. Bug fixed. need to test:
 
 ### 1.1 The Nine Abilities
 
-All nine abilities cost 100 credits by default in `game-rules.json`. Strictly one ability action is permitted per turn (`turn.maxAbilityActionsPerTurn = 1`). Each player's allowed abilities can be individually toggled for the match via `playerAbilities.red` and `playerAbilities.blue` in `game-rules.json`.
+Shipped `game-rules.json` ability costs are: Block 40, Wall 50, Spawn 60, Convert 60, Unblock 80, SuperJump 100, DoubleMove 120, SuperClone 150, Bomb 170 (credit cap 300, starting credits 0, capture reward 10, footprint reward 5). Strictly one ability action is permitted per turn (`turn.maxAbilityActionsPerTurn = 1`). Each player's allowed abilities can be individually toggled for the match via `playerAbilities.red` and `playerAbilities.blue` in `game-rules.json`.
 
 | Ability | Kind | Target | Effect | Turn Handling |
 |---|---|---|---|---|
@@ -17,7 +17,7 @@ All nine abilities cost 100 credits by default in `game-rules.json`. Strictly on
 | **Block** | `Block` | Enemy chip | Removes enemy chip and places a blocked square | Free action (does not consume move) |
 | **Wall** | `Wall` | Empty cell | Places a blocked square on empty cell; clears any footprint | Free action (does not consume move) |
 | **DoubleMove** | `DoubleMove` | None | Arms 2 standard moves for the current player this turn | Free action (consumes sole ability use) |
-| **Spawn** | `Spawn` | Empty cell | Places actor chip on empty cell; no captures; pays 100 credits | Free action (consumes sole ability use; does not consume move) |
+| **Spawn** | `Spawn` | Empty cell | Places actor chip on empty cell; no captures; pays 60 credits (shipped) | Free action (consumes sole ability use; does not consume move) |
 | **SuperClone** | `SuperClone` | Empty cell | Places actor chip on empty cell and captures adjacent enemies | Consumes standard move and ability use |
 | **Unblock** | `Unblock` | Blocked cell | Clears blocked cell, making it empty (works on opening blocks too) | Free action (does not consume move) |
 | **Bomb** | `Bomb` | Enemy chip | Removes enemy chip, leaving cell empty; no footprints or compensation | Free action (does not consume move) |
@@ -33,8 +33,8 @@ All nine abilities cost 100 credits by default in `game-rules.json`. Strictly on
 - **D7, Opening blocks are normal blocks:** Unblock can clear blocks placed during the opening.
 - **D8, Footprints:** Only jumps (d=2) and SuperJumps (d>=3) leave footprints on vacated source cells. Landing on an enemy footprint awards 5 credits to the lander and clears it; landing on an own footprint clears it with no reward. Wall clears footprints. Footprints only exist on empty cells and never on chips.
 - **D9, Credits are not in the Zobrist hash:** Credits and footprints do not alter standard move generation. Desync detection across network/persistence is handled by `GameState.ComputeFingerprint()`.
-- **D10, Shipped credit cap 3000:** Balances are capped at `maxCredits: 3000`. Rewards are clamped to remaining capacity under 3000. Spending occurs before rewards, creating capacity.
-- **D11, Spawn is paid and non-move-consuming:** Spawn costs 100 credits. It clears/rewards any footprint at the destination, increments `ActionCount` and `AbilityActionsUsedThisTurn`, but leaves `MovesRemainingThisTurn`, `SideToMove`, `TurnNumber`, and the side hash key unchanged (`TurnAdvanced = false`). If nonterminal, the actor continues with an ordinary clone/jump.
+- **D10, Shipped credit cap 300:** Balances are capped at `maxCredits: 300`. Rewards are clamped to remaining capacity under 300. Spending occurs before rewards, creating capacity.
+- **D11, Spawn is paid and non-move-consuming:** Spawn costs 60 credits (shipped). It clears/rewards any footprint at the destination, increments `ActionCount` and `AbilityActionsUsedThisTurn`, but leaves `MovesRemainingThisTurn`, `SideToMove`, `TurnNumber`, and the side hash key unchanged (`TurnAdvanced = false`). If nonterminal, the actor continues with an ordinary clone/jump.
 - **D12, Opening verification:** `EngineInfo.OpeningAlgorithmId = "zoned-system-random-v1"`. `EngineInfo.VerifyOpeningCompatibility(out string error)` provides self-check verification against golden vectors.
 
 ### 1.3 AI Ability Policy

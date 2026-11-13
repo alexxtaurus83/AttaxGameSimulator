@@ -123,6 +123,13 @@ Run EVERY restore, build, and test command (including wrapper scripts and the Py
 
 Record in the plan or final report, per command: the exact command, working directory, filter, exit code, executed/passed/failed/skipped counts, failed test names and messages, and artifact paths. Copy counts from the runner report, never from old documentation. State precisely which verification commands passed, were not run, or could not run. A timeout, failed test, missing prerequisite, unexecuted suite, or stale result is not a pass.
 
+## Questions and Subagents
+
+- Use foreground subagents (`task` with `background: false`) whenever work may require user clarification or approval.
+- Collect all outstanding subagent results before calling `question`. Do not call `question` while background tasks are still running, and do not launch background tasks while waiting for an answer.
+- A dismissed, interrupted, or unanswered question is not user approval. Do not infer an answer or continue the blocked action; ask again after outstanding tasks have completed.
+- These rules apply even in auto-approve mode. Tool permissions do not replace an explicit user answer.
+
 ## Stop and Ask Instead of Guessing
 
 If the task is unclear, several valid designs exist, or a plan conflicts with the current code or this file: stop and ask the user with the `question` tool, offering concrete options and a recommendation. Do not work around a blocker, silently choose a design, or leave a `TODO` for the user to find later. Record the answer in the plan or final report and continue. Details already specified in this file or the plan need no question.

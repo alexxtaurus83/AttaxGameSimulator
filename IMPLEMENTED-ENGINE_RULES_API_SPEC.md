@@ -192,10 +192,10 @@ Shipped values (check the file for the current numbers before relying on them):
 | `schemaVersion` | 1 |
 | `economy.enabled` | true |
 | `economy.startingCredits` | 0 |
-| `economy.maxCredits` | 3000 |
+| `economy.maxCredits` | 300 |
 | `economy.captureReward` | 10 |
 | `economy.footprintReward` | 5 |
-| `economy.abilityCosts.*` | 10 for all nine abilities |
+| `economy.abilityCosts.*` | superJump 100, convert 60, block 40, wall 50, doubleMove 120, spawn 60, superClone 150, unblock 80, bomb 170 |
 | `turn.maxAbilityActionsPerTurn` | 1 |
 | `playerAbilities.red` / `.blue` | all nine abilities enabled |
 

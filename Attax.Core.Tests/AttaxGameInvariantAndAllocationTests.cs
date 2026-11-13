@@ -8,6 +8,7 @@ namespace Attax.Core.Tests {
     public class AttaxGameInvariantAndAllocationTests {
         private static GameRulesConfig CreateRichRules() {
             var rules = GameRulesConfigTests.ValidTestRules();
+            rules.economy.maxCredits = 3000;
             rules.economy.startingCredits = 1500;
             rules.economy.abilityCosts = new AbilityCosts {
                 superJump = 20, convert = 20, block = 20, wall = 20, doubleMove = 20,

@@ -6,6 +6,7 @@ namespace Attax.Core.Tests {
     public class AttaxGameAbilityTests {
         private static GameRulesConfig CreateTestRules(int startingCredits = 1000) {
             var rules = GameRulesConfigTests.ValidTestRules();
+            rules.economy.maxCredits = Math.Max(rules.economy.maxCredits, startingCredits + 100);
             rules.economy.startingCredits = startingCredits;
             return rules;
         }
@@ -216,6 +217,69 @@ namespace Attax.Core.Tests {
             Assert.Equal(PlayerColor.Blue, state.SideToMove);
             Assert.Equal(1, state.TurnNumber);
             Assert.Equal(2, state.ActionCount);
+            Assert.True(state.IsHashConsistent());
+        }
+
+        [Fact]
+        public void Spawn_ThenNormalCloneFromSpawnedChip_CapturesAdjacentEnemy_SameTurn() {
+            var rules = CreateTestRules();
+            ulong red = 1UL << BoardLookup.GetBitIndex(0, 0);
+            ulong blue = (1UL << BoardLookup.GetBitIndex(3, 4)) | (1UL << BoardLookup.GetBitIndex(6, 6));
+            var state = GameState.Restore(red, blue, 0UL, 0UL, 0UL, PlayerColor.Red, 1000, 1000, 0, 0, 1, 0, rules);
+
+            var spawnErr = AttaxGame.TryApply(state, PlayerColor.Red, GameAction.Targeted(ActionKind.Spawn, 3, 3), out var spawnOutcome);
+            Assert.Equal(ActionError.None, spawnErr);
+            int spawnCost = rules.GetAbilityCost(AbilityKind.Spawn);
+            Assert.Equal(spawnCost, spawnOutcome.CreditsSpent);
+            Assert.Equal(0UL, spawnOutcome.FlippedMask);
+            Assert.False(spawnOutcome.TurnAdvanced);
+            Assert.Equal(PlayerColor.Red, state.SideToMove);
+            Assert.Equal(1, state.MovesRemainingThisTurn);
+            Assert.Equal(1, state.AbilityActionsUsedThisTurn);
+            Assert.Equal(TerminalResult.NotOver, state.Result);
+
+            // Normal clone from the spawned chip (3,3) -> (4,4) captures the adjacent Blue chip at (3,4).
+            var cloneErr = AttaxGame.TryApply(state, PlayerColor.Red, GameAction.MoveAction(new Move(3, 3, 4, 4)), out var cloneOutcome);
+            Assert.Equal(ActionError.None, cloneErr);
+            Assert.Equal(ActionKind.Move, cloneOutcome.Kind);
+            Assert.Equal(0, cloneOutcome.CreditsSpent);
+            Assert.Equal(1UL << BoardLookup.GetBitIndex(3, 4), cloneOutcome.FlippedMask);
+            Assert.Equal(10, cloneOutcome.VictimCreditsGained);
+            Assert.Equal(1010, state.BlueCredits);
+            Assert.Equal(1000 - spawnCost, state.RedCredits);
+            Assert.True(cloneOutcome.TurnAdvanced);
+            Assert.Equal(PlayerColor.Blue, state.SideToMove);
+            Assert.Equal(TerminalResult.NotOver, state.Result);
+            Assert.True(state.IsHashConsistent());
+        }
+
+        [Fact]
+        public void Convert_ThenNormalCloneFromConvertedChip_CapturesAdjacentEnemy_SameTurn() {
+            var rules = CreateTestRules();
+            ulong red = 1UL << BoardLookup.GetBitIndex(0, 0);
+            ulong blue = (1UL << BoardLookup.GetBitIndex(3, 3)) | (1UL << BoardLookup.GetBitIndex(4, 5)) | (1UL << BoardLookup.GetBitIndex(6, 6));
+            var state = GameState.Restore(red, blue, 0UL, 0UL, 0UL, PlayerColor.Red, 1000, 1000, 0, 0, 1, 0, rules);
+
+            var convertErr = AttaxGame.TryApply(state, PlayerColor.Red, GameAction.Targeted(ActionKind.Convert, 3, 3), out var convertOutcome);
+            Assert.Equal(ActionError.None, convertErr);
+            int convertCost = rules.GetAbilityCost(AbilityKind.Convert);
+            Assert.Equal(convertCost, convertOutcome.CreditsSpent);
+            Assert.Equal(0UL, convertOutcome.FlippedMask);
+            Assert.False(convertOutcome.TurnAdvanced);
+            Assert.Equal(PlayerColor.Red, state.SideToMove);
+            Assert.Equal(1, state.MovesRemainingThisTurn);
+            Assert.Equal(1, state.AbilityActionsUsedThisTurn);
+
+            // Normal clone from the converted chip (3,3) -> (3,4) captures Blue at (4,5).
+            var cloneErr = AttaxGame.TryApply(state, PlayerColor.Red, GameAction.MoveAction(new Move(3, 3, 3, 4)), out var cloneOutcome);
+            Assert.Equal(ActionError.None, cloneErr);
+            Assert.Equal(ActionKind.Move, cloneOutcome.Kind);
+            Assert.Equal(0, cloneOutcome.CreditsSpent);
+            Assert.Equal(1UL << BoardLookup.GetBitIndex(4, 5), cloneOutcome.FlippedMask);
+            Assert.Equal(1000 - convertCost, state.RedCredits);
+            Assert.True(cloneOutcome.TurnAdvanced);
+            Assert.Equal(PlayerColor.Blue, state.SideToMove);
+            Assert.Equal(TerminalResult.NotOver, state.Result);
             Assert.True(state.IsHashConsistent());
         }
 

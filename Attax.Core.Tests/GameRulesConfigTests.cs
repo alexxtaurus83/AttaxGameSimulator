@@ -32,20 +32,21 @@ namespace Attax.Core.Tests {
             Assert.NotNull(config.economy);
             Assert.True(config.economy.enabled);
             Assert.Equal(0, config.economy.startingCredits);
-            Assert.Equal(3000, config.economy.maxCredits);
+            Assert.Equal(300, config.economy.maxCredits);
             Assert.Equal(10, config.economy.captureReward);
             Assert.Equal(5, config.economy.footprintReward);
 
             Assert.NotNull(config.economy.abilityCosts);
-            Assert.True(config.economy.abilityCosts.superJump > 0);
-            Assert.True(config.economy.abilityCosts.convert > 0);
-            Assert.True(config.economy.abilityCosts.block > 0);
-            Assert.True(config.economy.abilityCosts.wall > 0);
-            Assert.True(config.economy.abilityCosts.doubleMove > 0);
-            Assert.True(config.economy.abilityCosts.spawn > 0);
-            Assert.True(config.economy.abilityCosts.superClone > 0);
-            Assert.True(config.economy.abilityCosts.unblock > 0);
-            Assert.True(config.economy.abilityCosts.bomb > 0);
+            Assert.Equal(100, config.economy.abilityCosts.superJump);
+            Assert.Equal(60, config.economy.abilityCosts.convert);
+            Assert.Equal(40, config.economy.abilityCosts.block);
+            Assert.Equal(50, config.economy.abilityCosts.wall);
+            Assert.Equal(120, config.economy.abilityCosts.doubleMove);
+            Assert.Equal(60, config.economy.abilityCosts.spawn);
+            Assert.Equal(150, config.economy.abilityCosts.superClone);
+            Assert.Equal(80, config.economy.abilityCosts.unblock);
+            Assert.Equal(170, config.economy.abilityCosts.bomb);
+            Assert.Equal("Destroy one enemy chip, leaving its cell empty.", config.abilityTexts.bomb.description);
 
             Assert.NotNull(config.turn);
             Assert.Equal(1, config.turn.maxAbilityActionsPerTurn);

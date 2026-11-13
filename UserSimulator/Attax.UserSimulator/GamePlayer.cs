@@ -159,6 +159,12 @@ namespace Attax.UserSimulator {
 
                     return new GameOutcomeDto { GameId = gameId, Result = "Aborted" };
                 } finally {
+                    // Leave the finished game so the server releases this bot's active-game pointer now (the post-match hold would otherwise keep it "In Match").
+                    try {
+                        await _connection.CallAsync<bool>("UnsubscribeGame", gameId);
+                    } catch (Exception ex) when (ex is not OperationCanceledException) {
+                        _log.Debug(ex, "UnsubscribeGame failed for game {GameId}", gameId);
+                    }
                     _connection.OnGameEvent -= onEvent;
                     _connection.OnSubscriptionLagged -= onLag;
                     _connection.OnReconnected -= onReconnected;

@@ -111,7 +111,7 @@ namespace Attax.Core.Tests {
 
             Assert.Equal(ActionError.None, err);
             Assert.Equal(0, outcome.ActorCreditsGained); // no reward for own footprint
-            int cost = rules.GetAbilityCost(AbilityKind.SuperClone);
+            int cost = rules.GetAbilityCost(AbilityKind.Spawn);
             Assert.Equal(1000 - cost, state.RedCredits);
             Assert.Equal(0UL, state.RedFootprints & redFootprint); // cleared!
             Assert.Equal(redFootprint, outcome.FootprintClearedMask);
