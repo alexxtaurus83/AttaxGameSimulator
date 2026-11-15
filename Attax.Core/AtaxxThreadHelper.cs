@@ -1,4 +1,4 @@
-﻿
+
 using System;
 using System.Collections.Generic;
 using Attax.Core.Utils;
@@ -6,7 +6,7 @@ using static Attax.Core.AtaxxAIEngine;
 
 namespace Attax.Core {
     /// <summary>Thread-safe node allowance for one move search.</summary>
-    public sealed class SearchBudget {
+    internal sealed class SearchBudget {
         private long _remaining;
         private int _exhausted;
 
@@ -24,7 +24,7 @@ namespace Attax.Core {
         }
     }
 
-    public class AtaxxThreadHelper {
+    internal class AtaxxThreadHelper {
 
         public BitboardState boardForThread { get; set; }
         public Move[,] killerMovesForThread { get; set; }
@@ -56,14 +56,14 @@ namespace Attax.Core {
         /// Clears the transposition table, killer and history tables so a reused helper searches exactly like a
         /// freshly constructed one. (Clearing still touches the memory; it only avoids reallocating it.)
         /// </summary>
-        public void ClearSearchMemory() {
+        internal void ClearSearchMemory() {
             Array.Clear(transpositionTable, 0, transpositionTable.Length);
             Array.Clear(killerMovesForThread, 0, killerMovesForThread.Length);
             Array.Clear(historyHeuristic, 0, historyHeuristic.Length);
         }
 
         /// <summary>Clears per-search counters and state so a reused helper behaves like a fresh one.</summary>
-        public void ResetForSearch() {
+        internal void ResetForSearch() {
             Nodes = 0; QNodes = 0; Evals = 0; GetAllValidMovesCalls = 0; TTProbes = 0; TTHits = 0;
             Interrupted = false;
         }

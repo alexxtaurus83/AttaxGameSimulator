@@ -23,7 +23,7 @@ namespace Attax.Core {
         /// <summary>Root filter: only moves of the chip on (FromX, FromY) are searched (all its clones and jumps). Set both or neither.</summary>
         public int? FromX;
         public int? FromY;
-        /// <summary>Suppresses the engine's per-depth information log lines (errors are always logged). The AILogCoordinator is never written by options searches.</summary>
+        /// <summary>Suppresses the engine's per-depth information log lines (errors are always logged).</summary>
         public bool SuppressLogging = true;
         /// <summary>Cooperative cancellation. A cancelled search returns <see cref="SearchResult.Cancelled"/> and never falls back to a shallow move.</summary>
         public CancellationToken Cancellation;
@@ -54,28 +54,28 @@ namespace Attax.Core {
         /// Super jumps are NOT part of GetAllValidMoves, FillMoves, the AI search, <see cref="IsGameOver"/> or the training logs:
         /// a side without a standard move ends the game even if it could still super jump.
         /// </summary>
-        public List<Move> GetValidMovesFrom(BitboardState board, PlayerColor player, int x, int y, bool superJump = false)
+        internal List<Move> GetValidMovesFrom(BitboardState board, PlayerColor player, int x, int y, bool superJump = false)
             => AttaxRules.GetValidMovesFrom(board, player, x, y, superJump);
 
         /// <summary>true when <paramref name="m"/> is a super jump (Chebyshev distance >= 3), e.g. to pick an animation or highlight colour.</summary>
-        public static bool IsSuperJump(Move m) => AttaxRules.IsSuperJump(m);
+        internal static bool IsSuperJump(Move m) => AttaxRules.IsSuperJump(m);
 
         /// <summary>
         /// Full legality check for a client move.
         /// </summary>
-        public bool IsLegalMove(BitboardState board, PlayerColor player, Move move, bool allowSuperJump)
+        internal bool IsLegalMove(BitboardState board, PlayerColor player, Move move, bool allowSuperJump)
             => AttaxRules.IsLegalMove(board, player, move, allowSuperJump);
 
         /// <summary>
         /// Client-side "convert" cheat: the cells of every enemy chip of <paramref name="player"/>.
         /// </summary>
-        public List<(int X, int Y)> GetConvertibleChips(BitboardState board, PlayerColor player)
+        internal List<(int X, int Y)> GetConvertibleChips(BitboardState board, PlayerColor player)
             => AttaxRules.GetConvertibleChips(board, player);
 
         /// <summary>
         /// Converts the targeted enemy chip according to <paramref name="conversion"/>.
         /// </summary>
-        public bool TryConvertEnemyChip(BitboardState board, PlayerColor player, int x, int y, ChipConversion conversion = ChipConversion.ToPlayer)
+        internal bool TryConvertEnemyChip(BitboardState board, PlayerColor player, int x, int y, ChipConversion conversion = ChipConversion.ToPlayer)
             => AttaxRules.TryConvertEnemyChip(board, player, x, y, conversion);
 
         /// <summary>
@@ -83,14 +83,14 @@ namespace Attax.Core {
         /// gives the same position as the recommended move: the exact same source for a jump, any chip within one cell for a clone.
         /// (The engine keeps one canonical source per clone destination.)
         /// </summary>
-        public static bool IsEquivalentMove(Move recommended, int fromX, int fromY) {
-            bool recommendedIsClone = Math.Abs(recommended.ToX - recommended.FromX) <= 1 && Math.Abs(recommended.ToY - recommended.FromY) <= 1;
+        internal static bool IsEquivalentMove(Move recommended, int fromX, int fromY) {
+            bool recommendedIsClone = AttaxRules.IsCloneMove(recommended);
             if (!recommendedIsClone) return recommended.FromX == fromX && recommended.FromY == fromY;
             return Math.Abs(recommended.ToX - fromX) <= 1 && Math.Abs(recommended.ToY - fromY) <= 1;
         }
 
         /// <summary>
-        /// Opt-in search for hints and analysis. Never touches the AI's persistent state: no log coordinator writes, no random tie draws,
+        /// Opt-in search for hints and analysis. Never touches the AI's persistent state: no random tie draws,
         /// no <c>currentSearchAge</c> change, <c>Last*</c> statistics are restored, and the transposition tables of the helpers it uses are
         /// cleared before and after (so the first AI search afterwards starts with a cold table).
         /// NOT thread-safe: one search at a time per engine instance (this includes <see cref="GetBestMove"/>); the caller serialises.
@@ -111,7 +111,7 @@ namespace Attax.Core {
             long savedFallbackNodes = LastFallbackNodes;
             bool savedInterrupted = LastSearchWasInterrupted;
             try {
-                SearchCore(player, false, 0f, 1, options, result);
+                SearchCore(player, 0f, 1, options, result);
                 result.Nodes = LastSearchStats.Nodes + LastSearchStats.QNodes;
             } finally {
                 LastSearchStats = savedStats;

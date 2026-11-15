@@ -4,7 +4,7 @@ using ZLinq;
 
 namespace Attax.Core.Utils {
     public static class StartPosition {
-        public const int MaxRandomBlockAttempts = 1000;
+        internal const int MaxRandomBlockAttempts = 1000;
 
         /// <summary>
         /// Standard four-piece start. Explicitly computes ZobristHash for firstPlayer (default Red).
@@ -34,11 +34,11 @@ namespace Attax.Core.Utils {
             return board;
         }
 
-        public static List<(int x, int y)> GenerateBlockedCellPositions(int count, BitboardState board, int seed) {
+        internal static List<(int x, int y)> GenerateBlockedCellPositions(int count, BitboardState board, int seed) {
             return GenerateBlockedCellPositions(count, board, new Random(seed)); // NOSONAR
         }
 
-        public static List<(int x, int y)> GenerateBlockedCellPositions(int count, BitboardState board, Random rnd) {
+        internal static List<(int x, int y)> GenerateBlockedCellPositions(int count, BitboardState board, Random rnd) {
             if (count <= 0) {
                 return new List<(int, int)>();
             }

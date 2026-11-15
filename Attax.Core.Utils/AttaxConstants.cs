@@ -5,7 +5,7 @@ namespace Attax.Core.Utils {
     public static class AttaxConstants {
         public static class BaseConst {
             public const int BoardSize = 7;
-            public const int KillerMoveMaxDepth = 10;
+            internal const int KillerMoveMaxDepth = 10;
         }
     }
 }

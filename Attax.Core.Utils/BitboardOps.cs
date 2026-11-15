@@ -40,7 +40,7 @@ namespace Attax.Core.Utils {
             return DeBruijnIndex64[lookupIndex];
         }
 
-        public static ulong ApplySymmetry(ulong bitboard, int symmetryIndex) {
+        internal static ulong ApplySymmetry(ulong bitboard, int symmetryIndex) {
             const int boardSize = AttaxConstants.BaseConst.BoardSize;
             const int boardCells = boardSize * boardSize;
 

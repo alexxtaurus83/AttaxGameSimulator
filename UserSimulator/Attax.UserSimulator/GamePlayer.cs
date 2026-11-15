@@ -75,7 +75,7 @@ namespace Attax.UserSimulator {
                     bool initialTerminal = subReply.Snapshot.Status != GameLifecycleStatusDto.Active && subReply.Snapshot.Status != GameLifecycleStatusDto.WaitingForPlayers;
                     reconciler.OnSnapshot(subReply.Snapshot.ServerVersion, initialTerminal);
 
-                    var state = SnapshotMapper.ToState(subReply.Snapshot);
+                    var state = BotSnapshot.ToState(subReply.Snapshot);
                     long currentServerVersion = subReply.Snapshot.ServerVersion;
 
                     if (initialTerminal) {
@@ -97,7 +97,7 @@ namespace Attax.UserSimulator {
                             var freshSnapshot = await FetchSnapshotAsync(gameId, ct);
                             bool isTerminalStatus = freshSnapshot.Status != GameLifecycleStatusDto.Active && freshSnapshot.Status != GameLifecycleStatusDto.WaitingForPlayers;
                             reconciler.OnSnapshot(freshSnapshot.ServerVersion, isTerminalStatus);
-                            state = SnapshotMapper.ToState(freshSnapshot);
+                            state = BotSnapshot.ToState(freshSnapshot);
                             currentServerVersion = freshSnapshot.ServerVersion;
 
                             if (isTerminalStatus) {
@@ -141,7 +141,7 @@ namespace Attax.UserSimulator {
 
                                 var res = await _connection.CallAsync<SubmitActionResponse>("SubmitAction", gameId, submitReq);
                                 _log.Debug("Action {ReqId} executed cleanly. Success: {Success}", reqId, res.Success);
-                                state = SnapshotMapper.ToState(res.Snapshot);
+                                state = BotSnapshot.ToState(res.Snapshot);
                                 currentServerVersion = res.ServerVersion;
                             } catch (ServerErrorException ex) when (ErrorCodeClassifier.IsStaleState(ex.Code)) {
                                 _log.Warning("Transient action conflict {Code}. Resyncing snapshot.", ex.Code);

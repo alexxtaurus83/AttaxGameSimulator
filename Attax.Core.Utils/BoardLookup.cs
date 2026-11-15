@@ -4,9 +4,9 @@ namespace Attax.Core.Utils {
     public static class BoardLookup {
         public static readonly ulong[] SingleStepMoves;
         public static readonly ulong[] TwoStepMoves;
-        public static readonly int[] CenterControlWeights;
-        public static readonly ulong CornerMask;
-        public static readonly ulong EdgeMask;
+        internal static readonly int[] CenterControlWeights;
+        internal static readonly ulong CornerMask;
+        internal static readonly ulong EdgeMask;
 
         static BoardLookup() {
             int boardSize = AttaxConstants.BaseConst.BoardSize;

@@ -13,7 +13,7 @@ namespace Attax.Core.Utils {
         public int unblock;
         public int bomb;
 
-        public AbilityCosts Clone() {
+        internal AbilityCosts Clone() {
             var copy = new AbilityCosts();
             copy.superJump = this.superJump;
             copy.convert = this.convert;

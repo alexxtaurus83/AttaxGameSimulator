@@ -10,7 +10,7 @@ namespace Attax.Core.Utils {
         public int footprintReward;
         public AbilityCosts abilityCosts;
 
-        public EconomyRules Clone() {
+        internal EconomyRules Clone() {
             EconomyRules copy = new EconomyRules();
             copy.enabled = this.enabled;
             copy.startingCredits = this.startingCredits;

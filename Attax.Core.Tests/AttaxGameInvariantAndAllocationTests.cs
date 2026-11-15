@@ -23,7 +23,7 @@ namespace Attax.Core.Tests {
 
             for (int seed = 1; seed <= 300; seed++) {
                 var rng = new Random(seed);
-                var state = AttaxGame.NewGame(rules, new StartOptions(seed % 5, seed, PlayerColor.Red));
+                var state = TestStates.NewGame(rules, seed % 5, seed, PlayerColor.Red);
 
                 int maxPlies = 60;
                 int plies = 0;
@@ -87,7 +87,7 @@ namespace Attax.Core.Tests {
                                         if (AttaxGame.Validate(state, actor, abilityAction) == ActionError.None) {
                                             var err = AttaxGame.TryApply(state, actor, abilityAction, out var outcome);
                                             Assert.Equal(ActionError.None, err);
-                                            Assert.True(state.AreInvariantsValid());
+                                            TestStates.AssertInvariants(state);
 
                                             // Exact credit accounting
                                             int actorDelta = state.GetCredits(actor) - (actor == PlayerColor.Red ? preRedCredits : preBlueCredits);
@@ -111,11 +111,8 @@ namespace Attax.Core.Tests {
                     var legalMoves = new List<Move>();
                     for (int fy = 0; fy < 7; fy++) {
                         for (int fx = 0; fx < 7; fx++) {
-                            ulong targets = AttaxGame.GetMoveTargets(state, fx, fy, false);
-                            while (targets > 0) {
-                                int tIdx = BitboardOps.TrailingZeroCount(targets);
-                                legalMoves.Add(new Move(fx, fy, tIdx % 7, tIdx / 7));
-                                targets &= targets - 1;
+                            foreach (var candidate in AttaxRules.GetValidMovesFrom(state.Board, actor, fx, fy, false)) {
+                                legalMoves.Add(candidate);
                             }
                         }
                     }
@@ -130,7 +127,7 @@ namespace Attax.Core.Tests {
 
                     var moveErr = AttaxGame.TryApply(state, actor, GameAction.MoveAction(move), out var moveOutcome);
                     Assert.Equal(ActionError.None, moveErr);
-                    Assert.True(state.AreInvariantsValid());
+                    TestStates.AssertInvariants(state);
 
                     // Re-test GameState.Restore matches fingerprint
                     var restored = GameState.Restore(
@@ -171,12 +168,10 @@ namespace Attax.Core.Tests {
                 AttaxGame.TryApply(s.Clone(), PlayerColor.Red, GameAction.Targeted(ActionKind.SuperClone, 3, 3), out _);
                 AttaxGame.TryApply(s.Clone(), PlayerColor.Red, GameAction.Targeted(ActionKind.Unblock, 2, 2), out _);
                 AttaxGame.TryApply(s.Clone(), PlayerColor.Red, GameAction.Targeted(ActionKind.Bomb, 1, 1), out _);
-                AttaxGame.GetMoveTargets(s, 0, 0, false);
-                AttaxGame.GetMoveTargets(s, 0, 0, true);
                 AttaxGame.GetAbilityTargets(s, AbilityKind.Wall);
                 AttaxGame.CanUseAbility(s, AbilityKind.Wall);
                 AttaxGame.GetAvailableAbilities(s);
-                AttaxGame.HasStandardMove(s, PlayerColor.Red);
+                AttaxRules.HasAnyLegalMove(s.Board, PlayerColor.Red);
                 AttaxGame.GetScore(s, PlayerColor.Red);
             }
 
@@ -308,14 +303,12 @@ namespace Attax.Core.Tests {
             // 12. Measure queries
             {
                 long before = GC.GetAllocatedBytesForCurrentThread();
-                ulong moveTargets = AttaxGame.GetMoveTargets(state, 0, 0, true);
                 ulong abilityTargets = AttaxGame.GetAbilityTargets(state, AbilityKind.Wall);
                 bool canUse = AttaxGame.CanUseAbility(state, AbilityKind.Wall);
                 int avail = AttaxGame.GetAvailableAbilities(state);
-                bool hasMove = AttaxGame.HasStandardMove(state, PlayerColor.Red);
+                bool hasMove = AttaxRules.HasAnyLegalMove(state.Board, PlayerColor.Red);
                 int score = AttaxGame.GetScore(state, PlayerColor.Red);
                 long after = GC.GetAllocatedBytesForCurrentThread();
-                Assert.NotEqual(0UL, moveTargets);
                 Assert.NotEqual(0UL, abilityTargets);
                 Assert.True(canUse);
                 Assert.NotEqual(0, avail);

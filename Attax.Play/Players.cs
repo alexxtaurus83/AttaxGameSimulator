@@ -164,7 +164,7 @@ namespace Attax.Play {
             engine.AIPlayerColor = side;
 
             long t0 = Stopwatch.GetTimestamp();
-            Move m = engine.GetBestMove(side, false, Spec.Temp, Spec.TopK);
+            Move m = engine.GetBestMove(side, Spec.Temp, Spec.TopK);
             double ms = (Stopwatch.GetTimestamp() - t0) * 1000.0 / Stopwatch.Frequency;
 
             int action = ActionCodec.NoAction;

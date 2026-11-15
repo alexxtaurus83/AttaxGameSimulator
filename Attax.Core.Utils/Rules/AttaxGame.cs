@@ -8,44 +8,9 @@ namespace Attax.Core.Utils {
     /// </summary>
     public static class AttaxGame {
         /// <summary>
-        /// Creates a new game instance with validated rules and opening configuration.
-        /// </summary>
-        public static GameState NewGame(GameRulesConfig rules, StartOptions start) {
-            if (rules == null) throw new ArgumentNullException(nameof(rules));
-            if (start == null) throw new ArgumentNullException(nameof(start));
-
-            var errors = rules.Validate();
-            if (errors.Count > 0) throw new ArgumentException("Invalid rules config: " + string.Join("; ", errors));
-
-            if (start.FirstPlayer != PlayerColor.Red && start.FirstPlayer != PlayerColor.Blue)
-                throw new ArgumentException("Invalid start.FirstPlayer: " + start.FirstPlayer);
-
-            if (start.BlockedCells < 0 || start.BlockedCells > 12)
-                throw new ArgumentException("BlockedCells must be between 0 and 12.");
-
-            var ownedRules = rules.Clone();
-            ulong fp = ownedRules.Fingerprint();
-            var state = new GameState(ownedRules, fp) {
-                Board = StartPosition.Create(start.BlockedCells, start.Seed, start.FirstPlayer),
-                SideToMove = start.FirstPlayer
-            };
-
-            int startingCredits = ownedRules.economy != null && ownedRules.economy.enabled ? ownedRules.economy.startingCredits : 0;
-            state.RedCredits = startingCredits;
-            state.BlueCredits = startingCredits;
-            state.MovesRemainingThisTurn = 1;
-            state.AbilityActionsUsedThisTurn = 0;
-            state.TurnNumber = 0;
-            state.ActionCount = 0;
-            state.Result = AttaxRules.GetTerminalResult(state.Board);
-
-            return state;
-        }
-
-        /// <summary>
         /// Returns the ability represented by the action, or AbilityKind.None for normal clone/jump moves.
         /// </summary>
-        public static AbilityKind AbilityOf(in GameAction action) {
+        internal static AbilityKind AbilityOf(in GameAction action) {
             switch (action.Kind) {
                 case ActionKind.Move:
                     int dx = Math.Abs(action.Move.ToX - action.Move.FromX);
@@ -64,17 +29,9 @@ namespace Attax.Core.Utils {
         }
 
         /// <summary>
-        /// Gets the configured credit cost of the ability under the game's effective rules. Returns 0 if disabled or free.
-        /// </summary>
-        public static int GetAbilityCost(GameState state, AbilityKind kind) {
-            if (state == null) throw new ArgumentNullException(nameof(state));
-            return state.Rules.GetAbilityCost(kind);
-        }
-
-        /// <summary>
         /// Returns true if the player can afford the given ability and the ability is enabled in the rules.
         /// </summary>
-        public static bool CanAfford(GameState state, PlayerColor side, AbilityKind kind) {
+        internal static bool CanAfford(GameState state, PlayerColor side, AbilityKind kind) {
             if (state == null) throw new ArgumentNullException(nameof(state));
             if (kind == AbilityKind.None) return true;
             if (state.Rules.economy == null || !state.Rules.economy.enabled) return false;
@@ -338,32 +295,6 @@ namespace Attax.Core.Utils {
         }
 
         /// <summary>
-        /// Pure geometric query returning empty reachable destination cells for a chip of SideToMove at (x,y).
-        /// Returns 0 if (x,y) is not a piece of SideToMove. Does not check affordability.
-        /// </summary>
-        public static ulong GetMoveTargets(GameState state, int x, int y, bool includeSuperJump) {
-            if (state == null) throw new ArgumentNullException(nameof(state));
-            if (x < 0 || x >= 7 || y < 0 || y >= 7) return 0UL;
-
-            int fromIdx = y * 7 + x;
-            ulong friendly = (state.SideToMove == PlayerColor.Red) ? state.Board.RedPieces : state.Board.BluePieces;
-            if ((friendly & (1UL << fromIdx)) == 0) return 0UL;
-
-            ulong empty = state.Board.EmptySquares();
-            ulong step1 = BoardLookup.SingleStepMoves[fromIdx] & empty;
-            ulong step2 = BoardLookup.TwoStepMoves[fromIdx] & empty;
-            ulong targets = step1 | step2;
-
-            if (includeSuperJump) {
-                ulong near = BoardLookup.SingleStepMoves[fromIdx] | BoardLookup.TwoStepMoves[fromIdx] | (1UL << fromIdx);
-                ulong superTargets = empty & ~near;
-                targets |= superTargets;
-            }
-
-            return targets;
-        }
-
-        /// <summary>
         /// Returns a bitmask of valid target cells for the given ability for SideToMove in the current state.
         /// Filtered by usability: returns 0 if disabled, unaffordable, turn limit reached, or game over.
         /// DoubleMove always returns 0 (use CanUseAbility).
@@ -457,7 +388,7 @@ namespace Attax.Core.Utils {
         /// <summary>
         /// Returns a bitmask representing available abilities for SideToMove, with bit (1 &lt;&lt; (int)kind) set if usable.
         /// </summary>
-        public static int GetAvailableAbilities(GameState state) {
+        internal static int GetAvailableAbilities(GameState state) {
             if (state == null) throw new ArgumentNullException(nameof(state));
             return GetAvailableAbilities(state, state.SideToMove);
         }
@@ -465,7 +396,7 @@ namespace Attax.Core.Utils {
         /// <summary>
         /// Returns a bitmask representing available abilities for the specified side, with bit (1 &lt;&lt; (int)kind) set if usable.
         /// </summary>
-        public static int GetAvailableAbilities(GameState state, PlayerColor side) {
+        internal static int GetAvailableAbilities(GameState state, PlayerColor side) {
             if (state == null) throw new ArgumentNullException(nameof(state));
             int mask = 0;
             for (int k = 1; k <= 9; k++) {
@@ -477,18 +408,9 @@ namespace Attax.Core.Utils {
         }
 
         /// <summary>
-        /// Returns true if the player has at least one standard clone or jump move available.
-        /// Ignores credits (drives the global no-pass rule).
-        /// </summary>
-        public static bool HasStandardMove(GameState state, PlayerColor side) {
-            if (state == null) throw new ArgumentNullException(nameof(state));
-            return AttaxRules.HasAnyLegalMove(state.Board, side);
-        }
-
-        /// <summary>
         /// Returns the chip count of the given player in the current state.
         /// </summary>
-        public static int GetScore(GameState state, PlayerColor side) {
+        internal static int GetScore(GameState state, PlayerColor side) {
             if (state == null) throw new ArgumentNullException(nameof(state));
             ulong pieces = (side == PlayerColor.Red) ? state.Board.RedPieces :
                            (side == PlayerColor.Blue) ? state.Board.BluePieces : 0UL;
@@ -498,7 +420,7 @@ namespace Attax.Core.Utils {
         /// <summary>
         /// Simulates the action on a cloned state to determine whether it would result in the game ending.
         /// </summary>
-        public static bool WouldEndGame(GameState state, PlayerColor actor, in GameAction action) {
+        internal static bool WouldEndGame(GameState state, PlayerColor actor, in GameAction action) {
             if (state == null) throw new ArgumentNullException(nameof(state));
             if (Validate(state, actor, action) != ActionError.None) return false;
             var clone = state.Clone();

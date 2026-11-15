@@ -56,7 +56,7 @@ namespace Attax.Core.Tests {
             Assert.Equal(PlayerColor.Blue, state.SideToMove);
             Assert.Equal(1, state.TurnNumber);
             Assert.Equal(1, state.ActionCount);
-            Assert.True(state.IsHashConsistent());
+            Assert.True(TestStates.IsHashConsistent(state));
         }
 
         [Fact]
@@ -92,7 +92,7 @@ namespace Attax.Core.Tests {
             Assert.Equal(0, state.TurnNumber);
             Assert.Equal(1, state.ActionCount);
             Assert.Equal(1, state.AbilityActionsUsedThisTurn);
-            Assert.True(state.IsHashConsistent());
+            Assert.True(TestStates.IsHashConsistent(state));
         }
 
         [Fact]
@@ -114,7 +114,7 @@ namespace Attax.Core.Tests {
             Assert.Equal(1UL << idx, outcome.RemovedMask);
             Assert.Equal(1UL << idx, outcome.BlockedAddedMask);
             Assert.False(outcome.TurnAdvanced);
-            Assert.True(state.IsHashConsistent());
+            Assert.True(TestStates.IsHashConsistent(state));
         }
 
         [Fact]
@@ -134,7 +134,7 @@ namespace Attax.Core.Tests {
             Assert.Equal(0UL, state.RedFootprints & footprint);
             Assert.Equal(footprint, outcome.FootprintClearedMask);
             Assert.False(outcome.TurnAdvanced);
-            Assert.True(state.IsHashConsistent());
+            Assert.True(TestStates.IsHashConsistent(state));
         }
 
         [Fact]
@@ -153,7 +153,7 @@ namespace Attax.Core.Tests {
             Assert.Equal(0UL, state.Board.BlockedSquares & blocked);
             Assert.Equal(blocked, outcome.BlockedClearedMask);
             Assert.False(outcome.TurnAdvanced);
-            Assert.True(state.IsHashConsistent());
+            Assert.True(TestStates.IsHashConsistent(state));
         }
 
         [Fact]
@@ -173,7 +173,7 @@ namespace Attax.Core.Tests {
             Assert.Equal(0UL, state.Board.BlockedSquares & (1UL << idx));
             Assert.Equal(1UL << idx, outcome.RemovedMask);
             Assert.False(outcome.TurnAdvanced);
-            Assert.True(state.IsHashConsistent());
+            Assert.True(TestStates.IsHashConsistent(state));
         }
 
         [Fact]
@@ -203,7 +203,7 @@ namespace Attax.Core.Tests {
             Assert.Equal(1, state.ActionCount);
             Assert.Equal(1, state.MovesRemainingThisTurn); // Move NOT consumed!
             Assert.Equal(1, state.AbilityActionsUsedThisTurn); // Ability consumed!
-            Assert.True(state.IsHashConsistent());
+            Assert.True(TestStates.IsHashConsistent(state));
 
             // Destination footprint cleared
             Assert.Equal(0UL, state.BlueFootprints & enemyFootprint);
@@ -217,7 +217,7 @@ namespace Attax.Core.Tests {
             Assert.Equal(PlayerColor.Blue, state.SideToMove);
             Assert.Equal(1, state.TurnNumber);
             Assert.Equal(2, state.ActionCount);
-            Assert.True(state.IsHashConsistent());
+            Assert.True(TestStates.IsHashConsistent(state));
         }
 
         [Fact]
@@ -250,7 +250,7 @@ namespace Attax.Core.Tests {
             Assert.True(cloneOutcome.TurnAdvanced);
             Assert.Equal(PlayerColor.Blue, state.SideToMove);
             Assert.Equal(TerminalResult.NotOver, state.Result);
-            Assert.True(state.IsHashConsistent());
+            Assert.True(TestStates.IsHashConsistent(state));
         }
 
         [Fact]
@@ -280,13 +280,13 @@ namespace Attax.Core.Tests {
             Assert.True(cloneOutcome.TurnAdvanced);
             Assert.Equal(PlayerColor.Blue, state.SideToMove);
             Assert.Equal(TerminalResult.NotOver, state.Result);
-            Assert.True(state.IsHashConsistent());
+            Assert.True(TestStates.IsHashConsistent(state));
         }
 
         [Fact]
         public void Spawn_CannotCombineWithSecondAbilityInSameTurn() {
             var rules = CreateTestRules();
-            var state = AttaxGame.NewGame(rules, new StartOptions(0, 0, PlayerColor.Red));
+            var state = TestStates.NewGame(rules, 0, 0, PlayerColor.Red);
 
             // First ability: Spawn
             var err1 = AttaxGame.TryApply(state, PlayerColor.Red, GameAction.Targeted(ActionKind.Spawn, 3, 3), out _);
@@ -326,13 +326,13 @@ namespace Attax.Core.Tests {
             Assert.Equal(PlayerColor.Blue, state.SideToMove);
             Assert.Equal(1, state.TurnNumber);
             Assert.Equal(1, state.ActionCount);
-            Assert.True(state.IsHashConsistent());
+            Assert.True(TestStates.IsHashConsistent(state));
         }
 
         [Fact]
         public void DoubleMove_ArmsTwoStandardMoves_CorrectHashHandoffOnBothBoundaries() {
             var rules = CreateTestRules();
-            var state = AttaxGame.NewGame(rules, new StartOptions(0, 0, PlayerColor.Red));
+            var state = TestStates.NewGame(rules, 0, 0, PlayerColor.Red);
 
             // Arm DoubleMove
             var armAction = GameAction.DoubleMoveAction();
@@ -345,7 +345,7 @@ namespace Attax.Core.Tests {
             Assert.False(armOutcome.TurnAdvanced);
             Assert.Equal(PlayerColor.Red, state.SideToMove);
             Assert.Equal(0, state.TurnNumber);
-            Assert.True(state.IsHashConsistent());
+            Assert.True(TestStates.IsHashConsistent(state));
 
             // First move: Red clone (0,0) -> (1,1)
             var move1 = GameAction.MoveAction(new Move(0, 0, 1, 1));
@@ -356,7 +356,7 @@ namespace Attax.Core.Tests {
             Assert.Equal(PlayerColor.Red, state.SideToMove); // Still Red!
             Assert.Equal(1, state.MovesRemainingThisTurn);
             Assert.Equal(0, state.TurnNumber);
-            Assert.True(state.IsHashConsistent()); // Side key correctly un-toggled!
+            Assert.True(TestStates.IsHashConsistent(state)); // Side key correctly un-toggled!
 
             // Second move: Red jump (1,1) -> (3,3)
             var move2 = GameAction.MoveAction(new Move(1, 1, 3, 3));
@@ -368,7 +368,7 @@ namespace Attax.Core.Tests {
             Assert.Equal(1, state.MovesRemainingThisTurn);
             Assert.Equal(0, state.AbilityActionsUsedThisTurn);
             Assert.Equal(1, state.TurnNumber);
-            Assert.True(state.IsHashConsistent());
+            Assert.True(TestStates.IsHashConsistent(state));
         }
 
         [Fact]

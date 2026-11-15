@@ -13,7 +13,7 @@ namespace Attax.Core.Utils {
         public bool unblock;
         public bool bomb;
 
-        public AbilityToggles Clone() {
+        internal AbilityToggles Clone() {
             AbilityToggles copy = new AbilityToggles();
             copy.superJump = this.superJump;
             copy.convert = this.convert;
@@ -27,7 +27,7 @@ namespace Attax.Core.Utils {
             return copy;
         }
 
-        public bool IsEnabled(AbilityKind kind) {
+        internal bool IsEnabled(AbilityKind kind) {
             switch (kind) {
                 case AbilityKind.SuperJump: return superJump;
                 case AbilityKind.Convert: return convert;

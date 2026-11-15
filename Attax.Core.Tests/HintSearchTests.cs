@@ -22,12 +22,12 @@ namespace Attax.Core.Tests {
             ".B....R");
 
         // Normal game settings (null move, quiescence available) unless training is requested; deterministic ties; serial root.
-        private static AtaxxAIEngine Engine(int depth, bool quiescence, bool training = false, bool parallel = false, AILogCoordinator coordinator = null) {
+        private static AtaxxAIEngine Engine(int depth, bool quiescence, bool training = false, bool parallel = false) {
             var cfg = new AIEngineConfig {
                 AiDepth = depth, TrainingMode = training, DisableParallelRootSearch = !parallel, DisableQuiescenceSearch = !quiescence,
                 DisableRandomRootTies = true, Seed = 1
             };
-            return new AtaxxAIEngine(Prm.Base(), cfg, null, null, coordinator) { CollectRootScores = true };
+            return new AtaxxAIEngine(Prm.Base(), cfg) { CollectRootScores = true };
         }
 
         private static void Place(AtaxxAIEngine e, BitboardState b, PlayerColor side) {
@@ -178,8 +178,7 @@ namespace Attax.Core.Tests {
         [InlineData(false)]
         [InlineData(true)]
         public void B4_PreCancelled_ReturnsCancelled_WithoutFallbackOrLogs(bool parallel) {
-            var coord = new AILogCoordinator();
-            var e = Engine(3, true, coordinator: coord);
+            var e = Engine(3, true);
             Place(e, Midgame(), PlayerColor.Red);
             using var cts = new CancellationTokenSource();
             cts.Cancel();
@@ -188,8 +187,6 @@ namespace Attax.Core.Tests {
             Assert.False(r.HasMove);
             Assert.True(r.Best.Equals(default(Move)));
             Assert.Empty(r.Ranked);
-            Assert.Empty(coord.GlobalLog);
-            Assert.Equal(0, coord.TurnIndex);
             Assert.False(e.LastSearchUsedFallback);
         }
 
@@ -197,8 +194,7 @@ namespace Attax.Core.Tests {
         [InlineData(false)]
         [InlineData(true)]
         public void B4_MidSearchCancel_StopsQuickly_AndEngineStaysUsable(bool parallel) {
-            var coord = new AILogCoordinator();
-            var e = Engine(3, true, coordinator: coord);
+            var e = Engine(3, true);
             Place(e, Midgame(), PlayerColor.Red);
             e.AIPlayerColor = PlayerColor.Red;
             using var cts = new CancellationTokenSource();
@@ -211,7 +207,6 @@ namespace Attax.Core.Tests {
             Assert.True(r.Cancelled);
             Assert.False(r.HasMove);
             Assert.False(e.LastSearchUsedFallback);
-            Assert.Empty(coord.GlobalLog);
 
             // Afterwards the engine behaves like a fresh one.
             var fresh = Engine(3, true);
@@ -440,9 +435,8 @@ namespace Attax.Core.Tests {
         [Theory]
         [InlineData(false)]
         [InlineData(true)]
-        public void Ai_PreCancelled_GetBestMove_ReturnsDefault_NoLog_NoFallback(bool parallel) {
-            var coord = new AILogCoordinator();
-            var e = Engine(3, true, parallel: parallel, coordinator: coord);
+        public void Ai_PreCancelled_GetBestMove_ReturnsDefault_NoFallback(bool parallel) {
+            var e = Engine(3, true, parallel: parallel);
             Place(e, Midgame(), PlayerColor.Red);
             e.AIPlayerColor = PlayerColor.Red;
             using var cts = new CancellationTokenSource();
@@ -450,17 +444,14 @@ namespace Attax.Core.Tests {
             e.SearchCancellation = cts.Token;
             var m = e.GetBestMove(PlayerColor.Red);
             Assert.True(m.Equals(default(Move)));
-            Assert.Empty(coord.GlobalLog);
-            Assert.Equal(0, coord.TurnIndex);
             Assert.False(e.LastSearchUsedFallback);
         }
 
         [Theory]
         [InlineData(false)]
         [InlineData(true)]
-        public void Ai_MidSearchCancel_StopsQuickly_NoLog_AndEngineIsUsableAfterwards(bool parallel) {
-            var coord = new AILogCoordinator();
-            var e = Engine(6, true, parallel: parallel, coordinator: coord);
+        public void Ai_MidSearchCancel_StopsQuickly_AndEngineIsUsableAfterwards(bool parallel) {
+            var e = Engine(6, true, parallel: parallel);
             e.MaxNodes = null;
             Place(e, Midgame(), PlayerColor.Red);
             e.AIPlayerColor = PlayerColor.Red;
@@ -471,7 +462,6 @@ namespace Attax.Core.Tests {
             cts.Cancel();
             Assert.True(task.Wait(TimeSpan.FromSeconds(20)), "cancelled AI search did not stop in time");
             Assert.True(task.Result.Equals(default(Move)));
-            Assert.Empty(coord.GlobalLog);
             Assert.False(e.LastSearchUsedFallback);
 
             // A fresh token makes the same engine search normally again.

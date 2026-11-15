@@ -23,11 +23,11 @@ namespace Attax.Core.Utils {
             SideToMoveKey = BitConverter.ToUInt64(sideBytes, 0);
         }
 
-        public static ulong GetPieceKey(int x, int y, int pieceTypeIndex) {
+        internal static ulong GetPieceKey(int x, int y, int pieceTypeIndex) {
             return Table[x, y, pieceTypeIndex];
         }
 
-        public static ulong GetSideToMoveKey() {
+        internal static ulong GetSideToMoveKey() {
             return SideToMoveKey;
         }
 

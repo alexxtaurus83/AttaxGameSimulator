@@ -21,11 +21,7 @@ namespace Attax.Core.Utils {
             return copy;
         }
 
-        public AbilityText GetAbilityText(AbilityKind kind) {
-            return abilityTexts != null ? abilityTexts.Get(kind) : null;
-        }
-
-        public bool IsAbilityEnabled(PlayerColor player, AbilityKind kind) {
+        internal bool IsAbilityEnabled(PlayerColor player, AbilityKind kind) {
             if (kind == AbilityKind.None) return true;
             if (playerAbilities == null) return false;
             return playerAbilities.IsEnabled(player, kind);

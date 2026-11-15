@@ -8,30 +8,27 @@ namespace Attax.Core.Utils {
     /// without any dependency on AI search, transposition tables, or machine learning models.
     /// </summary>
     public static class AttaxRules {
-        public static int GetBitIndex(int x, int y) => BoardLookup.GetBitIndex(x, y);
+        internal static int GetBitIndex(int x, int y) => BoardLookup.GetBitIndex(x, y);
 
-        public static PlayerColor SwitchPlayer(PlayerColor current) =>
+        internal static PlayerColor SwitchPlayer(PlayerColor current) =>
             current == PlayerColor.Red ? PlayerColor.Blue :
             current == PlayerColor.Blue ? PlayerColor.Red :
             PlayerColor.None;
 
-        public static int GetPieceTypeIndex(PlayerColor color) =>
+        internal static int GetPieceTypeIndex(PlayerColor color) =>
             color == PlayerColor.Red ? 0 :
             color == PlayerColor.Blue ? 1 : 2;
 
-        public static bool IsCloneMove(Move move) =>
+        internal static bool IsCloneMove(Move move) =>
             Math.Max(Math.Abs(move.ToX - move.FromX), Math.Abs(move.ToY - move.FromY)) == 1;
 
-        public static bool IsJumpMove(Move move) =>
-            Math.Max(Math.Abs(move.ToX - move.FromX), Math.Abs(move.ToY - move.FromY)) == 2;
-
-        public static bool IsSuperJump(Move move) =>
+        internal static bool IsSuperJump(Move move) =>
             Math.Max(Math.Abs(move.ToX - move.FromX), Math.Abs(move.ToY - move.FromY)) >= 3;
 
         /// <summary>
         /// Validates whether a move is legal from geometry, source ownership, and destination availability.
         /// </summary>
-        public static bool IsLegalMove(BitboardState board, PlayerColor player, Move move, bool allowSuperJump = false) {
+        internal static bool IsLegalMove(BitboardState board, PlayerColor player, Move move, bool allowSuperJump = false) {
             int size = AttaxConstants.BaseConst.BoardSize;
             if (move.FromX < 0 || move.FromY < 0 || move.FromX >= size || move.FromY >= size) return false;
             if (move.ToX < 0 || move.ToY < 0 || move.ToX >= size || move.ToY >= size) return false;
@@ -52,7 +49,7 @@ namespace Attax.Core.Utils {
         /// <summary>
         /// Allocation-free move execution on the bitboard state, flips adjacent enemy pieces, and updates Zobrist hash.
         /// </summary>
-        public static void MakeMoveMasks(BitboardState board, Move move, PlayerColor player, out ulong flippedMask) {
+        internal static void MakeMoveMasks(BitboardState board, Move move, PlayerColor player, out ulong flippedMask) {
             int fromIndex = GetBitIndex(move.FromX, move.FromY);
             int toIndex = GetBitIndex(move.ToX, move.ToY);
             ulong fromMask = 1UL << fromIndex;
@@ -109,7 +106,7 @@ namespace Attax.Core.Utils {
         /// <summary>
         /// Executes a validated move on the bitboard state, flips adjacent enemy pieces, and updates Zobrist hash.
         /// </summary>
-        public static MoveResult MakeMove(BitboardState boardState, Move move, PlayerColor player) {
+        internal static MoveResult MakeMove(BitboardState boardState, Move move, PlayerColor player) {
             ulong prevHash = boardState.ZobristHash;
             MakeMoveMasks(boardState, move, player, out ulong flippedMask);
             var moveResult = new MoveResult {
@@ -135,7 +132,7 @@ namespace Attax.Core.Utils {
         /// <summary>
         /// Places a wall on an empty square, making it a blocked square. Does not touch side-to-move key.
         /// </summary>
-        public static bool TryPlaceWall(BitboardState board, int x, int y) {
+        internal static bool TryPlaceWall(BitboardState board, int x, int y) {
             int size = AttaxConstants.BaseConst.BoardSize;
             if (x < 0 || y < 0 || x >= size || y >= size) return false;
             ulong mask = 1UL << GetBitIndex(x, y);
@@ -149,7 +146,7 @@ namespace Attax.Core.Utils {
         /// <summary>
         /// Unblocks a blocked square, making it empty. Does not touch side-to-move key.
         /// </summary>
-        public static bool TryUnblock(BitboardState board, int x, int y) {
+        internal static bool TryUnblock(BitboardState board, int x, int y) {
             int size = AttaxConstants.BaseConst.BoardSize;
             if (x < 0 || y < 0 || x >= size || y >= size) return false;
             ulong mask = 1UL << GetBitIndex(x, y);
@@ -163,7 +160,7 @@ namespace Attax.Core.Utils {
         /// <summary>
         /// Removes an enemy chip from the board, leaving the cell empty (Bomb). Does not touch side-to-move key.
         /// </summary>
-        public static bool TryRemoveEnemyChip(BitboardState board, PlayerColor player, int x, int y) {
+        internal static bool TryRemoveEnemyChip(BitboardState board, PlayerColor player, int x, int y) {
             int size = AttaxConstants.BaseConst.BoardSize;
             if (player != PlayerColor.Red && player != PlayerColor.Blue) return false;
             if (x < 0 || y < 0 || x >= size || y >= size) return false;
@@ -181,7 +178,7 @@ namespace Attax.Core.Utils {
         /// Places a chip of the given player on an empty square (Spawn or SuperClone).
         /// If capture is true, flips adjacent enemy pieces. Does not touch side-to-move key.
         /// </summary>
-        public static bool TryPlaceChip(BitboardState board, PlayerColor player, int x, int y, bool capture, out ulong flippedMask) {
+        internal static bool TryPlaceChip(BitboardState board, PlayerColor player, int x, int y, bool capture, out ulong flippedMask) {
             flippedMask = 0;
             int size = AttaxConstants.BaseConst.BoardSize;
             if (player != PlayerColor.Red && player != PlayerColor.Blue) return false;
@@ -211,7 +208,7 @@ namespace Attax.Core.Utils {
         /// <summary>
         /// Converts targeted enemy chip to own chip or blocked square. Does not advance turn.
         /// </summary>
-        public static bool TryConvertEnemyChip(BitboardState board, PlayerColor player, int x, int y, ChipConversion conversion = ChipConversion.ToPlayer) {
+        internal static bool TryConvertEnemyChip(BitboardState board, PlayerColor player, int x, int y, ChipConversion conversion = ChipConversion.ToPlayer) {
             int size = AttaxConstants.BaseConst.BoardSize;
             if (player != PlayerColor.Red && player != PlayerColor.Blue) return false;
             if (x < 0 || y < 0 || x >= size || y >= size) return false;
@@ -234,7 +231,7 @@ namespace Attax.Core.Utils {
             return true;
         }
 
-        public static List<(int X, int Y)> GetConvertibleChips(BitboardState board, PlayerColor player) {
+        internal static List<(int X, int Y)> GetConvertibleChips(BitboardState board, PlayerColor player) {
             var cells = new List<(int X, int Y)>();
             int size = AttaxConstants.BaseConst.BoardSize;
             ulong enemy = (player == PlayerColor.Red) ? board.BluePieces : board.RedPieces;
@@ -298,7 +295,7 @@ namespace Attax.Core.Utils {
             return false;
         }
 
-        public static bool IsGameOver(BitboardState boardState) {
+        internal static bool IsGameOver(BitboardState boardState) {
             int redCount = BitboardOps.PopCount(boardState.RedPieces);
             int blueCount = BitboardOps.PopCount(boardState.BluePieces);
             int emptyCount = BitboardOps.PopCount(boardState.EmptySquares());
@@ -329,7 +326,7 @@ namespace Attax.Core.Utils {
             return TerminalResult.Draw;
         }
 
-        public static int GetTerminalOutcomeFor(BitboardState boardState, PlayerColor player) {
+        internal static int GetTerminalOutcomeFor(BitboardState boardState, PlayerColor player) {
             switch (GetTerminalResult(boardState)) {
                 case TerminalResult.RedWins: return player == PlayerColor.Red ? 1 : -1;
                 case TerminalResult.BlueWins: return player == PlayerColor.Blue ? 1 : -1;
@@ -337,7 +334,7 @@ namespace Attax.Core.Utils {
             }
         }
 
-        public static int CountFlippedEnemies(BitboardState boardState, Move move, PlayerColor player) {
+        internal static int CountFlippedEnemies(BitboardState boardState, Move move, PlayerColor player) {
             ulong opponentPieces = (player == PlayerColor.Red)
                 ? boardState.BluePieces
                 : boardState.RedPieces;

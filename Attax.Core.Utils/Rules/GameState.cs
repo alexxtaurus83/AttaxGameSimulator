@@ -58,40 +58,6 @@ namespace Attax.Core.Utils {
             return 0;
         }
 
-        public bool IsHashConsistent() {
-            return Board.ZobristHash == ZobristHasher.ComputeHash(Board, SideToMove);
-        }
-
-        public bool AreInvariantsValid() {
-            if (!IsHashConsistent()) return false;
-
-            if (((Board.RedPieces | Board.BluePieces | Board.BlockedSquares) & ~BitboardState.BoardMask) != 0) return false;
-            if ((Board.RedPieces & Board.BluePieces) != 0) return false;
-            if ((Board.RedPieces & Board.BlockedSquares) != 0) return false;
-            if ((Board.BluePieces & Board.BlockedSquares) != 0) return false;
-
-            ulong empty = Board.EmptySquares();
-            if (((RedFootprints | BlueFootprints) & ~empty) != 0) return false;
-            if ((RedFootprints & BlueFootprints) != 0) return false;
-
-            if (_rules.economy == null || !_rules.economy.enabled) {
-                if (RedCredits != 0 || BlueCredits != 0 || RedFootprints != 0 || BlueFootprints != 0) return false;
-                if (AbilityActionsUsedThisTurn != 0 || MovesRemainingThisTurn != 1) return false;
-            } else {
-                if (RedCredits < 0 || RedCredits > _rules.economy.maxCredits) return false;
-                if (BlueCredits < 0 || BlueCredits > _rules.economy.maxCredits) return false;
-            }
-
-            if (SideToMove != PlayerColor.Red && SideToMove != PlayerColor.Blue) return false;
-            if (TurnNumber < 0 || ActionCount < 0 || TurnNumber > ActionCount) return false;
-            if (MovesRemainingThisTurn < 1 || MovesRemainingThisTurn > 2) return false;
-            if (AbilityActionsUsedThisTurn < 0 || AbilityActionsUsedThisTurn > 1) return false;
-            if (MovesRemainingThisTurn == 2 && AbilityActionsUsedThisTurn != 1) return false;
-            if (ActionCount == 0 && (TurnNumber != 0 || AbilityActionsUsedThisTurn != 0 || MovesRemainingThisTurn != 1)) return false;
-
-            return true;
-        }
-
         public ulong ComputeFingerprint() {
             ulong hash = 14695981039346656037UL;
             hash = FnvFeed(hash, Board.RedPieces);
@@ -186,6 +152,26 @@ namespace Attax.Core.Utils {
             state.Result = AttaxRules.GetTerminalResult(state.Board);
 
             return state;
+        }
+
+        public static GameState CreateInitial(BitboardState board, PlayerColor firstPlayer, GameRulesConfig rules) {
+            if (board == null) throw new ArgumentNullException(nameof(board));
+            if (rules == null) throw new ArgumentNullException(nameof(rules));
+            int startingCredits = rules.economy != null && rules.economy.enabled ? rules.economy.startingCredits : 0;
+            return Restore(
+                board.RedPieces,
+                board.BluePieces,
+                board.BlockedSquares,
+                0UL,
+                0UL,
+                firstPlayer,
+                startingCredits,
+                startingCredits,
+                0,
+                0,
+                1,
+                0,
+                rules);
         }
 
         private static ulong FnvFeed(ulong hash, ulong val) {

@@ -64,6 +64,51 @@ namespace Attax.Core.Tests {
         }
 
         [Fact]
+        public void GameState_CreateInitial_MatchesRestore_WithEconomyEnabledAndDisabled() {
+            var board = StartPosition.Create(6, 42, PlayerColor.Red);
+
+            var enabledRules = ValidTestRules();
+            var fromCreateEnabled = GameState.CreateInitial(board, PlayerColor.Red, enabledRules);
+            var fromRestoreEnabled = GameState.Restore(
+                board.RedPieces, board.BluePieces, board.BlockedSquares,
+                0UL, 0UL, PlayerColor.Red,
+                enabledRules.economy.startingCredits, enabledRules.economy.startingCredits,
+                0, 0, 1, 0, enabledRules);
+            Assert.Equal(fromRestoreEnabled.ComputeFingerprint(), fromCreateEnabled.ComputeFingerprint());
+            Assert.Equal(fromRestoreEnabled.Board.ZobristHash, fromCreateEnabled.Board.ZobristHash);
+
+            var disabledRules = ValidTestRules();
+            disabledRules.economy.enabled = false;
+            var fromCreateDisabled = GameState.CreateInitial(board, PlayerColor.Blue, disabledRules);
+            var fromRestoreDisabled = GameState.Restore(
+                board.RedPieces, board.BluePieces, board.BlockedSquares,
+                0UL, 0UL, PlayerColor.Blue,
+                0, 0, 0, 0, 1, 0, disabledRules);
+            Assert.Equal(fromRestoreDisabled.ComputeFingerprint(), fromCreateDisabled.ComputeFingerprint());
+            Assert.Equal(fromRestoreDisabled.Board.ZobristHash, fromCreateDisabled.Board.ZobristHash);
+        }
+
+        [Fact]
+        public void IsCloneMove_ZeroDistance_NeverProducedByMoveGenerators_AndEngineMatchesRulesForNonZeroMoves() {
+            var engine = new AtaxxAIEngine(Prm.Base(), new AtaxxAIEngine.AIEngineConfig { AiDepth = 1 });
+            foreach (var (b, side) in RefactorGoldenTests.RandomPositions(25, 901)) {
+                foreach (var m in engine.GetAllValidMoves(b, side)) {
+                    Assert.NotEqual((m.FromX, m.FromY), (m.ToX, m.ToY));
+                    Assert.Equal(AttaxRules.IsCloneMove(m), engine.IsCloneMove(m));
+                }
+                for (int y = 0; y < 7; y++) {
+                    for (int x = 0; x < 7; x++) {
+                        foreach (var m in engine.GetValidMovesFrom(b, side, x, y, superJump: true)) {
+                            Assert.NotEqual((m.FromX, m.FromY), (m.ToX, m.ToY));
+                            Assert.Equal(AttaxRules.IsCloneMove(m), engine.IsCloneMove(m));
+                        }
+                    }
+                }
+            }
+            Assert.False(AttaxRules.IsCloneMove(new Move(3, 3, 3, 3)));
+        }
+
+        [Fact]
         public void BlankConfig_FailsValidationWithAllMissingGroups() {
             var blank = new GameRulesConfig();
             var errors = blank.Validate();

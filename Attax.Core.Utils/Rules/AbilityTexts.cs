@@ -7,7 +7,7 @@ namespace Attax.Core.Utils {
         public string description;
         public string instruction;
 
-        public AbilityText Clone() {
+        internal AbilityText Clone() {
             return new AbilityText {
                 name = this.name,
                 description = this.description,

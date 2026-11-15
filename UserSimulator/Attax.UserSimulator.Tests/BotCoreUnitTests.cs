@@ -129,7 +129,8 @@ namespace Attax.UserSimulator.Tests {
         [Fact]
         public void SnapshotMapper_ToState_RoundtripsFingerprint() {
             var coreRules = GameRulesConfigTests.ValidTestRules();
-            var initialCoreState = AttaxGame.NewGame(coreRules, new StartOptions(0, 42, PlayerColor.Red));
+            var startBoard = StartPosition.Create(0, 42, PlayerColor.Red);
+            var initialCoreState = GameState.CreateInitial(startBoard, PlayerColor.Red, coreRules);
 
             var rulesDto = new GameRulesConfigDto {
                 SchemaVersion = coreRules.schemaVersion,
@@ -179,7 +180,7 @@ namespace Attax.UserSimulator.Tests {
                 Rules = rulesDto
             };
 
-            var restored = SnapshotMapper.ToState(snapshot);
+            var restored = BotSnapshot.ToState(snapshot);
             Assert.Equal(initialCoreState.ComputeFingerprint(), restored.ComputeFingerprint());
             Assert.Equal(PlayerColor.Red, restored.SideToMove);
         }

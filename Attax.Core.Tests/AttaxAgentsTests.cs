@@ -47,7 +47,7 @@ namespace Attax.Core.Tests {
         [Fact]
         public void AgentTurnPlanner_Decide_ReturnsLegalMove() {
             var rules = GameRulesConfigTests.ValidTestRules();
-            var state = AttaxGame.NewGame(rules, new StartOptions(0, 42, PlayerColor.Red));
+            var state = TestStates.NewGame(rules, 0, 42, PlayerColor.Red);
             var spec = PlayerSpec.Parse("random");
             using var player = PlayerFactory.Create(spec, null!, seed: 123, defaultTrain: false);
 

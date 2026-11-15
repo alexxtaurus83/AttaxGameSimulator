@@ -22,7 +22,7 @@ namespace Attax.Core.Utils {
         /// Optional evaluator for scoring board leaves during target selection (e.g. from HeuristicEvaluator in Attax.Core).
         /// When null, target selection falls back to material piece difference (scored mode).
         /// </summary>
-        public Func<BitboardState, PlayerColor, float> TargetEvaluator { get; set; }
+        internal Func<BitboardState, PlayerColor, float> TargetEvaluator { get; set; }
 
         public AiAbilityPolicy(AiAbilityConfig config, int seed, bool enabled) {
             if (config == null) throw new ArgumentNullException(nameof(config));
@@ -36,7 +36,7 @@ namespace Attax.Core.Utils {
             UsesThisGame = 0;
         }
 
-        public void ResetGame() {
+        internal void ResetGame() {
             UsesThisGame = 0;
             _rng = new Random(_seed); // NOSONAR
             _lastDecidedTurn = -1;

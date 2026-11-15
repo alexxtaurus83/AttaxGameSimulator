@@ -13,9 +13,9 @@ namespace Attax.Core.Tests {
         }
 
         [Fact]
-        public void NewGame_InitializesBoardAndStateCleanly() {
+        public void StartFixture_InitializesBoardAndStateCleanly() {
             var rules = CreateTestRules(500);
-            var state = AttaxGame.NewGame(rules, new StartOptions(3, 42, PlayerColor.Red));
+            var state = TestStates.NewGame(rules, 3, 42, PlayerColor.Red);
 
             Assert.Equal(PlayerColor.Red, state.SideToMove);
             Assert.Equal(500, state.RedCredits);
@@ -26,39 +26,23 @@ namespace Attax.Core.Tests {
             Assert.Equal(0, state.AbilityActionsUsedThisTurn);
             Assert.Equal(TerminalResult.NotOver, state.Result);
             Assert.Equal(3, BitboardOps.PopCount(state.Board.BlockedSquares));
-            Assert.True(state.IsHashConsistent());
-            Assert.True(state.AreInvariantsValid());
+            TestStates.AssertInvariants(state);
         }
 
         [Fact]
-        public void NewGame_EdgeCasesAndInputValidation() {
+        public void StartFixture_BlueFirstPlayerHashDiffersFromRed() {
             var rules = CreateTestRules();
 
-            // Null rules
-            Assert.Throws<ArgumentNullException>(() => AttaxGame.NewGame(null, new StartOptions(0, 0)));
-
-            // Null start
-            Assert.Throws<ArgumentNullException>(() => AttaxGame.NewGame(rules, null));
-
-            // Invalid FirstPlayer
-            Assert.Throws<ArgumentException>(() => AttaxGame.NewGame(rules, new StartOptions(0, 0, PlayerColor.None)));
-            Assert.Throws<ArgumentException>(() => AttaxGame.NewGame(rules, new StartOptions(0, 0, PlayerColor.Blocked)));
-
-            // BlockedCells out of range
-            Assert.Throws<ArgumentException>(() => AttaxGame.NewGame(rules, new StartOptions(-1, 0)));
-            Assert.Throws<ArgumentException>(() => AttaxGame.NewGame(rules, new StartOptions(13, 0)));
-
-            // Blue first player
-            var blueGame = AttaxGame.NewGame(rules, new StartOptions(0, 42, PlayerColor.Blue));
+            var blueGame = TestStates.NewGame(rules, 0, 42, PlayerColor.Blue);
             Assert.Equal(PlayerColor.Blue, blueGame.SideToMove);
-            Assert.True(blueGame.IsHashConsistent());
+            Assert.True(TestStates.IsHashConsistent(blueGame));
             Assert.NotEqual(StartPosition.Standard(PlayerColor.Red).ZobristHash, blueGame.Board.ZobristHash);
         }
 
         [Fact]
         public void ValidationMatrix_CoversActionErrors() {
             var rules = CreateTestRules(1000);
-            var state = AttaxGame.NewGame(rules, new StartOptions(0, 0, PlayerColor.Red));
+            var state = TestStates.NewGame(rules, 0, 0, PlayerColor.Red);
 
             // 1. GameOver (1)
             var overState = state.Clone();
@@ -111,13 +95,13 @@ namespace Attax.Core.Tests {
             // 13. AbilityDisabled (14) - Via price == 0 or toggle == false
             var disabledRules = CreateTestRules();
             disabledRules.economy.abilityCosts.wall = 0; // disabled globally
-            var disState = AttaxGame.NewGame(disabledRules, new StartOptions(0, 0, PlayerColor.Red));
+            var disState = TestStates.NewGame(disabledRules, 0, 0, PlayerColor.Red);
             Assert.Equal(ActionError.AbilityDisabled, AttaxGame.Validate(disState, PlayerColor.Red, GameAction.Targeted(ActionKind.Wall, 3, 3)));
 
             // 14. AbilityDisabled per player toggle
             var perPlayerRules = CreateTestRules();
             perPlayerRules.playerAbilities.red.bomb = false; // Red cannot Bomb, Blue can
-            var ppState = AttaxGame.NewGame(perPlayerRules, new StartOptions(0, 0, PlayerColor.Red));
+            var ppState = TestStates.NewGame(perPlayerRules, 0, 0, PlayerColor.Red);
             // Red at (0,0) and (6,6), Blue at (0,6) and (6,0). Red trying Bomb on enemy at (0,6) gives AbilityDisabled:
             Assert.Equal(ActionError.AbilityDisabled, AttaxGame.Validate(ppState, PlayerColor.Red, GameAction.Targeted(ActionKind.Bomb, 0, 6)));
             // But Blue has Bomb enabled:
@@ -143,7 +127,7 @@ namespace Attax.Core.Tests {
             var rules = CreateTestRules(0); // 0 credits
             rules.economy.abilityCosts.wall = 0; // Wall disabled
 
-            var state = AttaxGame.NewGame(rules, new StartOptions(0, 0, PlayerColor.Red));
+            var state = TestStates.NewGame(rules, 0, 0, PlayerColor.Red);
             state.Result = TerminalResult.RedWins;
 
             // GameOver precedes NotYourTurn
@@ -163,7 +147,7 @@ namespace Attax.Core.Tests {
 
             // InsufficientCredits precedes AbilityLimitReachedThisTurn
             var activeRules = CreateTestRules(0); // have 0, cannot afford ability
-            var s = AttaxGame.NewGame(activeRules, new StartOptions(0, 0, PlayerColor.Red));
+            var s = TestStates.NewGame(activeRules, 0, 0, PlayerColor.Red);
             s.AbilityActionsUsedThisTurn = 1;
             Assert.Equal(ActionError.InsufficientCredits, AttaxGame.Validate(s, PlayerColor.Red, GameAction.Targeted(ActionKind.Wall, 3, 3)));
 
@@ -178,7 +162,7 @@ namespace Attax.Core.Tests {
         public void StateUntouchedOnAllActionErrors() {
             var rules = CreateTestRules(0); // 0 credits (cannot afford ability)
             rules.playerAbilities.red.bomb = false;
-            var state = AttaxGame.NewGame(rules, new StartOptions(0, 0, PlayerColor.Red));
+            var state = TestStates.NewGame(rules, 0, 0, PlayerColor.Red);
             ulong baseFp = state.ComputeFingerprint();
 
             var errorActions = new List<GameAction> {
@@ -230,7 +214,7 @@ namespace Attax.Core.Tests {
         public void EconomyDisabledOrZeroCost_DisablesAbilitiesCompletely() {
             var disabledRules = CreateTestRules();
             disabledRules.economy.enabled = false;
-            var state = AttaxGame.NewGame(disabledRules, new StartOptions(0, 0, PlayerColor.Red));
+            var state = TestStates.NewGame(disabledRules, 0, 0, PlayerColor.Red);
 
             Assert.Equal(0, AttaxGame.GetAvailableAbilities(state));
             for (int k = 1; k <= 9; k++) {
@@ -240,7 +224,7 @@ namespace Attax.Core.Tests {
 
             var zeroCostRules = CreateTestRules();
             zeroCostRules.economy.abilityCosts = new AbilityCosts(); // all 0
-            var zState = AttaxGame.NewGame(zeroCostRules, new StartOptions(0, 0, PlayerColor.Red));
+            var zState = TestStates.NewGame(zeroCostRules, 0, 0, PlayerColor.Red);
 
             Assert.Equal(0, AttaxGame.GetAvailableAbilities(zState));
             for (int k = 1; k <= 9; k++) {
@@ -307,26 +291,23 @@ namespace Attax.Core.Tests {
         [Fact]
         public void QueryConsistency_TargetsMatchValidationAndExistingEngine() {
             var rules = CreateTestRules(1000);
-            var state = AttaxGame.NewGame(rules, new StartOptions(2, 42, PlayerColor.Red));
+            var state = TestStates.NewGame(rules, 2, 42, PlayerColor.Red);
 
-            // Compare GetMoveTargets with AttaxRules.GetValidMovesFrom
+            // Every legacy normal move validates as legal; every other destination is rejected
             for (int y = 0; y < 7; y++) {
                 for (int x = 0; x < 7; x++) {
-                    ulong moveTargetsNormal = AttaxGame.GetMoveTargets(state, x, y, false);
                     var legacyMovesNormal = AttaxRules.GetValidMovesFrom(state.Board, PlayerColor.Red, x, y, false);
                     ulong legacyMaskNormal = 0UL;
                     foreach (var m in legacyMovesNormal) {
                         legacyMaskNormal |= 1UL << BoardLookup.GetBitIndex(m.ToX, m.ToY);
+                        if (Math.Max(Math.Abs(m.ToX - m.FromX), Math.Abs(m.ToY - m.FromY)) < 3) {
+                            Assert.Equal(ActionError.None, AttaxGame.Validate(state, PlayerColor.Red, GameAction.MoveAction(m)));
+                        }
                     }
-                    Assert.Equal(legacyMaskNormal, moveTargetsNormal);
 
-                    ulong moveTargetsSuper = AttaxGame.GetMoveTargets(state, x, y, true);
-                    var legacyMovesSuper = AttaxRules.GetValidMovesFrom(state.Board, PlayerColor.Red, x, y, true);
-                    ulong legacyMaskSuper = 0UL;
-                    foreach (var m in legacyMovesSuper) {
-                        legacyMaskSuper |= 1UL << BoardLookup.GetBitIndex(m.ToX, m.ToY);
+                    if ((state.Board.RedPieces & (1UL << BoardLookup.GetBitIndex(x, y))) == 0) {
+                        Assert.Equal(0UL, legacyMaskNormal);
                     }
-                    Assert.Equal(legacyMaskSuper, moveTargetsSuper);
                 }
             }
 
@@ -355,7 +336,7 @@ namespace Attax.Core.Tests {
             var rules = CreateTestRules(500);
 
             // 1. Mid-DoubleMove state
-            var s1 = AttaxGame.NewGame(rules, new StartOptions(0, 0, PlayerColor.Red));
+            var s1 = TestStates.NewGame(rules, 0, 0, PlayerColor.Red);
             AttaxGame.TryApply(s1, PlayerColor.Red, GameAction.DoubleMoveAction(), out _);
             AttaxGame.TryApply(s1, PlayerColor.Red, GameAction.MoveAction(new Move(0, 0, 1, 1)), out _);
             Assert.Equal(1, s1.MovesRemainingThisTurn);
@@ -369,7 +350,7 @@ namespace Attax.Core.Tests {
             Assert.Equal(s1.ComputeFingerprint(), r1.ComputeFingerprint());
 
             // 2. State with footprints
-            var s2 = AttaxGame.NewGame(rules, new StartOptions(0, 0, PlayerColor.Red));
+            var s2 = TestStates.NewGame(rules, 0, 0, PlayerColor.Red);
             AttaxGame.TryApply(s2, PlayerColor.Red, GameAction.MoveAction(new Move(0, 0, 2, 2)), out _);
             Assert.NotEqual(0UL, s2.RedFootprints);
 
@@ -397,7 +378,7 @@ namespace Attax.Core.Tests {
             var rules = CreateTestRules();
             rules.economy.enabled = false;
 
-            var state = AttaxGame.NewGame(rules, new StartOptions(2, 77, PlayerColor.Red));
+            var state = TestStates.NewGame(rules, 2, 77, PlayerColor.Red);
             var plainBoard = state.Board.Clone();
             var side = PlayerColor.Red;
 

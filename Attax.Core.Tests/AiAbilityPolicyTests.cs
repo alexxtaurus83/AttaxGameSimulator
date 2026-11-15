@@ -71,7 +71,7 @@ namespace Attax.Core.Tests {
         public void DisabledPolicy_NeverReturnsChoice_DoesNotAdvanceRng() {
             var cfg = TestConfig(enabled: false);
             var policy = new AiAbilityPolicy(cfg, seed: 12345, enabled: false);
-            var state = AttaxGame.NewGame(TestRules(), new StartOptions(0, 0, PlayerColor.Red));
+            var state = TestStates.NewGame(TestRules(), 0, 0, PlayerColor.Red);
 
             Assert.False(policy.TryChoose(state, PlayerColor.Red, out var choice));
             Assert.Equal(default, choice);
@@ -82,7 +82,7 @@ namespace Attax.Core.Tests {
         public void UseChancePercent_0_NeverReturnsChoice_100_ReturnsChoice() {
             var cfg0 = TestConfig(chance: 0);
             var policy0 = new AiAbilityPolicy(cfg0, seed: 42, enabled: true);
-            var state = AttaxGame.NewGame(TestRules(), new StartOptions(0, 0, PlayerColor.Red));
+            var state = TestStates.NewGame(TestRules(), 0, 0, PlayerColor.Red);
             Assert.False(policy0.TryChoose(state, PlayerColor.Red, out _));
 
             var cfg100 = TestConfig(chance: 100);
@@ -94,7 +94,7 @@ namespace Attax.Core.Tests {
         public void DuplicateCallInSameTurn_ReturnsFalseWithoutRerolling() {
             var cfg = TestConfig(chance: 100);
             var policy = new AiAbilityPolicy(cfg, seed: 42, enabled: true);
-            var state = AttaxGame.NewGame(TestRules(), new StartOptions(0, 0, PlayerColor.Red));
+            var state = TestStates.NewGame(TestRules(), 0, 0, PlayerColor.Red);
 
             // First call chooses an ability
             bool chosen = policy.TryChoose(state, PlayerColor.Red, out var choice1);
@@ -109,7 +109,7 @@ namespace Attax.Core.Tests {
         public void FailedChanceRoll_DoesNotRerollInSameTurn() {
             var cfg = TestConfig(chance: 1); // 1% chance, high likelihood of failing
             var policy = new AiAbilityPolicy(cfg, seed: 999, enabled: true);
-            var state = AttaxGame.NewGame(TestRules(), new StartOptions(0, 0, PlayerColor.Red));
+            var state = TestStates.NewGame(TestRules(), 0, 0, PlayerColor.Red);
 
             bool first = policy.TryChoose(state, PlayerColor.Red, out _);
             if (!first) {
@@ -127,7 +127,7 @@ namespace Attax.Core.Tests {
             var cfg = TestConfig(chance: 100);
             var policy = new AiAbilityPolicy(cfg, seed: 42, enabled: true);
 
-            var state = AttaxGame.NewGame(rules, new StartOptions(0, 0, PlayerColor.Red));
+            var state = TestStates.NewGame(rules, 0, 0, PlayerColor.Red);
             Assert.True(policy.TryChoose(state, PlayerColor.Red, out var choice));
             Assert.Equal(AbilityKind.Spawn, choice.Ability);
             Assert.Equal(ActionKind.Spawn, choice.Action.Kind);
@@ -150,7 +150,7 @@ namespace Attax.Core.Tests {
 
                 var cfg = TestConfig(chance: 100);
                 var policy = new AiAbilityPolicy(cfg, seed: 10, enabled: true);
-                var state = AttaxGame.NewGame(rules, new StartOptions(0, 0, PlayerColor.Red));
+                var state = TestStates.NewGame(rules, 0, 0, PlayerColor.Red);
 
                 if (policy.TryChoose(state, PlayerColor.Red, out var choice)) {
                     if (k == AbilityKind.SuperJump || k == AbilityKind.SuperClone) {
@@ -170,7 +170,7 @@ namespace Attax.Core.Tests {
 
             for (int seed = 0; seed < 100; seed++) {
                 var policy = new AiAbilityPolicy(cfg, seed: seed, enabled: true);
-                var state = AttaxGame.NewGame(rules, new StartOptions(0, seed, PlayerColor.Red));
+                var state = TestStates.NewGame(rules, 0, seed, PlayerColor.Red);
                 if (policy.TryChoose(state, PlayerColor.Red, out var choice)) {
                     if (!counts.ContainsKey(choice.Ability)) counts[choice.Ability] = 0;
                     counts[choice.Ability]++;
@@ -185,7 +185,7 @@ namespace Attax.Core.Tests {
         public void RecordAppliedAbility_Validation() {
             var cfg = TestConfig(chance: 100);
             var policy = new AiAbilityPolicy(cfg, seed: 42, enabled: true);
-            var state = AttaxGame.NewGame(TestRules(), new StartOptions(0, 0, PlayerColor.Red));
+            var state = TestStates.NewGame(TestRules(), 0, 0, PlayerColor.Red);
 
             Assert.True(policy.TryChoose(state, PlayerColor.Red, out var choice));
             Assert.Equal(0, policy.UsesThisGame);
@@ -213,7 +213,7 @@ namespace Attax.Core.Tests {
         public void MaxUsesPerGame_StopsAtCap_AndResetGameRestores() {
             var cfg = TestConfig(chance: 100, maxUses: 1);
             var policy = new AiAbilityPolicy(cfg, seed: 42, enabled: true);
-            var state = AttaxGame.NewGame(TestRules(), new StartOptions(0, 0, PlayerColor.Red));
+            var state = TestStates.NewGame(TestRules(), 0, 0, PlayerColor.Red);
 
             Assert.True(policy.TryChoose(state, PlayerColor.Red, out var choice));
             AttaxGame.TryApply(state, PlayerColor.Red, choice.Action, out var outcome);
@@ -221,7 +221,7 @@ namespace Attax.Core.Tests {
             Assert.Equal(1, policy.UsesThisGame);
 
             // Next turn for Red
-            var state2 = AttaxGame.NewGame(TestRules(), new StartOptions(0, 0, PlayerColor.Red));
+            var state2 = TestStates.NewGame(TestRules(), 0, 0, PlayerColor.Red);
             state2.TurnNumber = 2; // distinct turn
             Assert.False(policy.TryChoose(state2, PlayerColor.Red, out _));
 
@@ -235,7 +235,7 @@ namespace Attax.Core.Tests {
         public void ResetGame_ClearsUses_RestartsRngDeterministically() {
             var cfg = TestConfig(chance: 100);
             var policy1 = new AiAbilityPolicy(cfg, seed: 999, enabled: true);
-            var state1 = AttaxGame.NewGame(TestRules(), new StartOptions(0, 0, PlayerColor.Red));
+            var state1 = TestStates.NewGame(TestRules(), 0, 0, PlayerColor.Red);
 
             Assert.True(policy1.TryChoose(state1, PlayerColor.Red, out var choice1));
 
@@ -243,7 +243,7 @@ namespace Attax.Core.Tests {
             policy1.ResetGame();
             Assert.Equal(0, policy1.UsesThisGame);
 
-            var state2 = AttaxGame.NewGame(TestRules(), new StartOptions(0, 0, PlayerColor.Red));
+            var state2 = TestStates.NewGame(TestRules(), 0, 0, PlayerColor.Red);
             Assert.True(policy1.TryChoose(state2, PlayerColor.Red, out var choice2));
 
             // Should choose the exact same action because RNG was reset to seed 999
@@ -262,7 +262,7 @@ namespace Attax.Core.Tests {
             var cfg = TestConfig(chance: 100, reserve: 1000 - minCost + 1); // reserve prevents spending
             var policy = new AiAbilityPolicy(cfg, seed: 42, enabled: true);
 
-            var state = AttaxGame.NewGame(rules, new StartOptions(0, 0, PlayerColor.Red));
+            var state = TestStates.NewGame(rules, 0, 0, PlayerColor.Red);
             Assert.False(policy.TryChoose(state, PlayerColor.Red, out _));
         }
 
@@ -331,7 +331,7 @@ namespace Attax.Core.Tests {
                 var redPolicy = new AiAbilityPolicy(cfg, seed: seed, enabled: true);
                 var bluePolicy = new AiAbilityPolicy(cfg, seed: seed + 50, enabled: true);
 
-                var state = AttaxGame.NewGame(rules, new StartOptions(0, 0, PlayerColor.Red));
+                var state = TestStates.NewGame(rules, 0, 0, PlayerColor.Red);
                 var referee = TestBoards.NewEngine(depth: 1);
 
                 int plies = 0;
@@ -366,7 +366,7 @@ namespace Attax.Core.Tests {
                     plies++;
                 }
 
-                Assert.True(state.AreInvariantsValid());
+                TestStates.AssertInvariants(state);
             }
 
             Assert.True(totalAbilitiesUsed > 50, $"Expected abilities to be actively used across 100 games, got {totalAbilitiesUsed}");

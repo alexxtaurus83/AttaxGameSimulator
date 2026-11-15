@@ -25,9 +25,9 @@ Shipped `game-rules.json` ability costs are: Block 40, Wall 50, Spawn 60, Conver
 ### 1.2 Rule Decisions (D1 - D12)
 
 - **D1, Self-stranding free actions:** A Wall, Block, Convert, or Bomb may leave the acting player (or opponent) without a standard move, ending the game immediately under the no-pass rule. This is allowed and evaluated immediately (winner decided strictly by chip count). `AttaxGame.WouldEndGame` allows UI warning beforehand.
-- **D2, Credits never create moves:** A player lacking a standard clone/jump cannot bypass game termination even if they have enough credits for Spawn, SuperClone, or SuperJump. `HasStandardMove` strictly checks clone/jump availability, and the winner is decided strictly by chip count.
+- **D2, Credits never create moves:** A player lacking a standard clone/jump cannot bypass game termination even if they have enough credits for Spawn, SuperClone, or SuperJump. `AttaxRules.HasAnyLegalMove` strictly checks clone/jump availability, and the winner is decided strictly by chip count.
 - **D3, Terminal state is global:** `AttaxRules.GetTerminalResult` evaluates both sides regardless of whose turn it is, and runs after every accepted action (including free actions).
-- **D4, Initial result:** `AttaxGame.NewGame` immediately evaluates terminal state.
+- **D4, Initial result:** `EngineStateFactory.NewGame` (server) immediately evaluates terminal state.
 - **D5, Double Move edge case:** After the first move of Double Move, global terminal check applies. If the actor has no moves left for the second move, the game terminates (winner decided strictly by chip count).
 - **D6, Strictly one ability per turn:** `turn.maxAbilityActionsPerTurn = 1`. Double Move uses the turn's sole ability use. Spawn also consumes the sole ability use.
 - **D7, Opening blocks are normal blocks:** Unblock can clear blocks placed during the opening.

@@ -17,13 +17,13 @@ namespace Attax.Core.Utils {
     /// there are no pass actions.
     /// </summary>
     public static class ActionCodec {
-        public const int BoardSize = AttaxConstants.BaseConst.BoardSize;
-        public const int Squares = BoardSize * BoardSize;
-        public const int CloneKind = 0;
-        public const int JumpKinds = 16;
-        public const int Kinds = JumpKinds + 1;
+        internal const int BoardSize = AttaxConstants.BaseConst.BoardSize;
+        internal const int Squares = BoardSize * BoardSize;
+        internal const int CloneKind = 0;
+        internal const int JumpKinds = 16;
+        internal const int Kinds = JumpKinds + 1;
         public const int ActionCount = Kinds * Squares;
-        public const int SymmetryCount = 8;
+        internal const int SymmetryCount = 8;
         public const int NoAction = -1;
 
         private static readonly int[] OffsetDx = new int[Kinds];
@@ -74,7 +74,7 @@ namespace Attax.Core.Utils {
         /// coordinates, which the codec relies on to transform jump sources that lie outside the board.
         /// Kept here, not in Core, because only the policy action space needs it.
         /// </summary>
-        public static void TransformXY(int x, int y, int symmetryIndex, out int tx, out int ty) {
+        internal static void TransformXY(int x, int y, int symmetryIndex, out int tx, out int ty) {
             const int n = BoardSize;
             switch (symmetryIndex) {
                 case 0: tx = x; ty = y; break;
@@ -90,7 +90,7 @@ namespace Attax.Core.Utils {
         }
 
         /// <summary>Maps a square index (y * 7 + x) through a symmetry.</summary>
-        public static int TransformSquare(int squareIndex, int symmetryIndex) {
+        internal static int TransformSquare(int squareIndex, int symmetryIndex) {
             TransformXY(squareIndex % BoardSize, squareIndex / BoardSize, symmetryIndex, out int tx, out int ty);
             return ty * BoardSize + tx;
         }
@@ -111,20 +111,11 @@ namespace Attax.Core.Utils {
             return newKind * Squares + newTo;
         }
 
-        public static int KindOf(int action) => action / Squares;
-        public static int ToSquareOf(int action) => action % Squares;
         public static bool IsClone(int action) => action < Squares;
-        public static bool IsValidIndex(int action) => action >= 0 && action < ActionCount;
-
-        /// <summary>Jump offset (source minus destination) for a kind in 1..16.</summary>
-        public static void GetJumpOffset(int kind, out int dx, out int dy) {
-            if (kind < 1 || kind >= Kinds) throw new ArgumentOutOfRangeException(nameof(kind));
-            dx = OffsetDx[kind];
-            dy = OffsetDy[kind];
-        }
+        internal static bool IsValidIndex(int action) => action >= 0 && action < ActionCount;
 
         /// <summary>Source square of a jump action, or -1 when it lies off the board. Throws for clone actions.</summary>
-        public static int JumpSourceOf(int action) {
+        internal static int JumpSourceOf(int action) {
             int kind = action / Squares;
             if (kind == CloneKind) throw new ArgumentException("Clone actions have no fixed source.", nameof(action));
             int to = action % Squares;
@@ -217,7 +208,7 @@ namespace Attax.Core.Utils {
         }
 
         /// <summary>Appends the legal actions in ascending index order.</summary>
-        public static void GetLegalActions(BitboardState board, PlayerColor player, List<int> actions) {
+        internal static void GetLegalActions(BitboardState board, PlayerColor player, List<int> actions) {
             var mask = new bool[ActionCount];
             FillLegalMask(board, player, mask);
             actions.Clear();
@@ -231,9 +222,9 @@ namespace Attax.Core.Utils {
             return PermTable[symmetryIndex][action];
         }
 
-        public static int InverseSymmetry(int symmetryIndex) => InverseSym[symmetryIndex];
+        internal static int InverseSymmetry(int symmetryIndex) => InverseSym[symmetryIndex];
 
         /// <summary>Copy of the permutation table for a symmetry: newIndex = perm[oldIndex].</summary>
-        public static int[] GetPermutation(int symmetryIndex) => (int[])PermTable[symmetryIndex].Clone();
+        internal static int[] GetPermutation(int symmetryIndex) => (int[])PermTable[symmetryIndex].Clone();
     }
 }

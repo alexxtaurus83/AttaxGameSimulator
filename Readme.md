@@ -250,13 +250,13 @@ EngineParams p = JsonConvert.DeserializeObject<EngineParams>(jsonText);      // 
 var errors = p.Validate();                                                   // empty list = OK; a partial file or a typo'd value is reported here (the constructor checks too)
 
 // Heuristic engine: no evaluator argument, the engine builds it from the same parameters.
-var engine = new AtaxxAIEngine(p, new AtaxxAIEngine.AIEngineConfig { AiDepth = 3 }, null, logger, coordinator);
+var engine = new AtaxxAIEngine(p, new AtaxxAIEngine.AIEngineConfig { AiDepth = 3 }, null, logger);
 
 // Model (Sentis) evaluator at every leaf: pass it as the third argument. It replaces the heuristic; the root and search groups still apply.
-var modelEngine = new AtaxxAIEngine(p, new AtaxxAIEngine.AIEngineConfig { AiDepth = 2 }, sentisEvaluator, logger, coordinator);
+var modelEngine = new AtaxxAIEngine(p, new AtaxxAIEngine.AIEngineConfig { AiDepth = 2 }, sentisEvaluator, logger);
 ```
 
-New constructor: `AtaxxAIEngine(EngineParams engineParams, AIEngineConfig config = default, IValueEvaluator evaluator = null, ILogSink logger = null, AILogCoordinator coordinator = null)`.
+New constructor: `AtaxxAIEngine(EngineParams engineParams, AIEngineConfig config = default, IValueEvaluator evaluator = null, ILogSink logger = null)`.
 
 - `engineParams` is validated and copied at construction (`ArgumentNullException` for null, `ArgumentException` listing every problem otherwise), so there are no checks left inside the search, and editing the object afterwards changes nothing. Two engines with different parameters in one process do not interfere. A blank `new EngineParams()` is all zeros and is rejected, so a forgotten field can never silently become 0.
 - `evaluator = null` means the heuristic evaluator, built by the engine from `engineParams`. Passing a `HeuristicEvaluator` object is rejected (it could disagree with the parameters).

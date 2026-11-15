@@ -7,7 +7,7 @@ namespace Attax.Core {
         /// <summary>
         /// Returns a bitboard of all squares a player can move to (clone or jump) from their current pieces.
         /// </summary>
-        public static ulong GetMoveDestinationsBitboard(BitboardState board, PlayerColor player) {
+        internal static ulong GetMoveDestinationsBitboard(BitboardState board, PlayerColor player) {
             ulong playerPieces = (player == PlayerColor.Red) ? board.RedPieces : board.BluePieces;
             ulong emptySquares = board.EmptySquares();
             ulong destinations = 0UL;
@@ -25,7 +25,7 @@ namespace Attax.Core {
         /// <summary>
         /// Calculates potential mobility from a bitboard of destination squares.
         /// </summary>
-        public static int GetPotentialMobilityInternal(BitboardState boardState, ulong destinationSquares) {
+        internal static int GetPotentialMobilityInternal(BitboardState boardState, ulong destinationSquares) {
             ulong emptySquares = boardState.EmptySquares();
             ulong potentialMobilitySquares = 0UL;
 
@@ -43,7 +43,7 @@ namespace Attax.Core {
         /// <summary>
         /// Calculates a weighted score for center control using pre‑computed weights.
         /// </summary>
-        public static int GetCenterControl(BitboardState boardState, PlayerColor player) {
+        internal static int GetCenterControl(BitboardState boardState, PlayerColor player) {
             int controlScore = 0;
             ulong playerPieces = (player == PlayerColor.Red) ? boardState.RedPieces : boardState.BluePieces;
 
@@ -60,7 +60,7 @@ namespace Attax.Core {
         /// <summary>
         /// Calculates the stability bonus for a player.
         /// </summary>
-        public static int GetStabilityBonus(BitboardState boardState, PlayerColor player) {
+        internal static int GetStabilityBonus(BitboardState boardState, PlayerColor player) {
             int bonus = 0;
             ulong playerPieces = (player == PlayerColor.Red) ? boardState.RedPieces : boardState.BluePieces;
 
@@ -83,7 +83,7 @@ namespace Attax.Core {
         /// <summary>
         /// Checks if a piece at a given coordinate is stable.
         /// </summary>
-        public static bool IsStable(BitboardState boardState, int x, int y, PlayerColor player) {
+        internal static bool IsStable(BitboardState boardState, int x, int y, PlayerColor player) {
             bool isCorner = (x == 0 || x == AttaxConstants.BaseConst.BoardSize - 1) &&
                             (y == 0 || y == AttaxConstants.BaseConst.BoardSize - 1);
             if (isCorner) return true;
@@ -116,7 +116,7 @@ namespace Attax.Core {
         /// <summary>
         /// Checks if there is at least one empty square within a 2‑tile radius of a given coordinate.
         /// </summary>
-        public static bool HasAdjacentEmpty(BitboardState boardState, int x, int y) {
+        internal static bool HasAdjacentEmpty(BitboardState boardState, int x, int y) {
             ulong emptySquares = boardState.EmptySquares();
             int checkIndex = BoardLookup.GetBitIndex(x, y);
             ulong allNeighborsMask = BoardLookup.SingleStepMoves[checkIndex] | BoardLookup.TwoStepMoves[checkIndex];

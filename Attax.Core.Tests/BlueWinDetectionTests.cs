@@ -20,9 +20,8 @@ namespace Attax.Core.Tests {
                 "..." + me + me + me + me,
                 ".......", ".......", ".......", ".......", ".......");
 
-            var coordinator = new AILogCoordinator();
             var cfg = new AIEngineConfig { DisableRandomRootTies = true, AiDepth = 2, TrainingMode = true, DisableParallelRootSearch = !parallelRoot, DisableQuiescenceSearch = true, Seed = 1 };
-            var e = new AtaxxAIEngine(Prm.Base(), cfg, null, null, coordinator);
+            var e = new AtaxxAIEngine(Prm.Base(), cfg) { CollectRootScores = true };
             TestBoards.SetBoard(e, b, mover);
             e.AIPlayerColor = mover;
 
@@ -31,10 +30,8 @@ namespace Attax.Core.Tests {
             e.MakeMove(after, move, mover);
             Assert.Equal(0, AtaxxAIEngine.PopCount(mover == PlayerColor.Red ? after.BluePieces : after.RedPieces));
 
-            var turn = coordinator.GlobalLog[0];
-            var details = (turn.opponentMove ?? turn.playerMove).aIMoveDetails;
-            var chosen = details.aiMoveCandidates.Values.First(c => c.move.Equals(move));
-            Assert.Equal(ImmediateWinScore, chosen.finalScore);
+            var chosen = e.LastRootScores.First(r => r.Move.Equals(move));
+            Assert.Equal(ImmediateWinScore, chosen.Final);
         }
 
         [Fact]
@@ -51,19 +48,16 @@ namespace Attax.Core.Tests {
                 ".......",
                 "......R");
 
-            var coordinatorAhead = new AILogCoordinator();
             var cfgAhead = new AIEngineConfig { DisableRandomRootTies = true, AiDepth = 1, TrainingMode = true, DisableParallelRootSearch = true, DisableQuiescenceSearch = true, Seed = 1 };
-            var eAhead = new AtaxxAIEngine(Prm.Base(), cfgAhead, null, null, coordinatorAhead);
+            var eAhead = new AtaxxAIEngine(Prm.Base(), cfgAhead) { CollectRootScores = true };
             TestBoards.SetBoard(eAhead, bAhead, PlayerColor.Red);
             eAhead.AIPlayerColor = PlayerColor.Red;
 
             var moveAhead = new Move(2, 3, 2, 2);
             eAhead.GetBestMove(PlayerColor.Red);
 
-            var turnAhead = coordinatorAhead.GlobalLog[0];
-            var detailsAhead = (turnAhead.opponentMove ?? turnAhead.playerMove).aIMoveDetails;
-            var candidateAhead = detailsAhead.aiMoveCandidates.Values.First(c => c.move.Equals(moveAhead));
-            Assert.Equal(ImmediateWinScore, candidateAhead.finalScore);
+            var candidateAhead = eAhead.LastRootScores.First(r => r.Move.Equals(moveAhead));
+            Assert.Equal(ImmediateWinScore, candidateAhead.Final);
 
             // Case 2: Red is behind (Red 1 chip at (2,3), Blue 3 chips: (0,0) trapped except (2,2), plus (5,6) and (6,6) trapped).
             // Red clones to (2,2): Blue is trapped, but Blue has 3 chips vs Red 2 chips. Red loses -> not ImmediateWinScore.
@@ -76,19 +70,16 @@ namespace Attax.Core.Tests {
                 "....XXB",
                 "....XBB");
 
-            var coordinatorBehind = new AILogCoordinator();
             var cfgBehind = new AIEngineConfig { DisableRandomRootTies = true, AiDepth = 1, TrainingMode = true, DisableParallelRootSearch = true, DisableQuiescenceSearch = true, Seed = 1 };
-            var eBehind = new AtaxxAIEngine(Prm.Base(), cfgBehind, null, null, coordinatorBehind);
+            var eBehind = new AtaxxAIEngine(Prm.Base(), cfgBehind) { CollectRootScores = true };
             TestBoards.SetBoard(eBehind, bBehind, PlayerColor.Red);
             eBehind.AIPlayerColor = PlayerColor.Red;
 
             var moveBehind = new Move(2, 3, 2, 2);
             eBehind.GetBestMove(PlayerColor.Red);
 
-            var turnBehind = coordinatorBehind.GlobalLog[0];
-            var detailsBehind = (turnBehind.opponentMove ?? turnBehind.playerMove).aIMoveDetails;
-            var candidateBehind = detailsBehind.aiMoveCandidates.Values.First(c => c.move.Equals(moveBehind));
-            Assert.NotEqual(ImmediateWinScore, candidateBehind.finalScore);
+            var candidateBehind = eBehind.LastRootScores.First(r => r.Move.Equals(moveBehind));
+            Assert.NotEqual(ImmediateWinScore, candidateBehind.Final);
         }
     }
 }

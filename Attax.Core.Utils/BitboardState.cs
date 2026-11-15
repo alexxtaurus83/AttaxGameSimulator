@@ -25,18 +25,16 @@ namespace Attax.Core.Utils {
         // A mask representing all valid squares on the 7x7 board (bits 0-48).
         public const ulong BoardMask = (1UL << 49) - 1;
 
+        /// <summary>
+        /// Bitmask of all squares occupied by either Red or Blue pieces.
+        /// </summary>
+        internal ulong AllPlayerPieces => RedPieces | BluePieces;
+
         public BitboardState() {
             RedPieces = 0UL;
             BluePieces = 0UL;
             BlockedSquares = 0UL;
             ZobristHash = 0UL;
-        }
-
-        /// <summary>
-        /// Gets a bitboard representing all squares occupied by player pieces (Red or Blue).
-        /// </summary>
-        public ulong AllPlayerPieces() {
-            return RedPieces | BluePieces;
         }
 
         /// <summary>

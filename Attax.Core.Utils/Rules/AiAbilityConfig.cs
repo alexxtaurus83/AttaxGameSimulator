@@ -13,7 +13,7 @@ namespace Attax.Core.Utils {
         public bool safetyFilter;
         public string targetSelection;
 
-        public AiAbilityConfig Clone() {
+        internal AiAbilityConfig Clone() {
             AiAbilityConfig copy = new AiAbilityConfig();
             copy.schemaVersion = this.schemaVersion;
             copy.aiAbilitiesEnabled = this.aiAbilitiesEnabled;

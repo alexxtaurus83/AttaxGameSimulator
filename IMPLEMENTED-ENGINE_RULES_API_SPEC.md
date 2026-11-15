@@ -12,7 +12,7 @@ Related documents: [engineReadme.md](engineReadme.md) (engine overview and rule 
 
 | Consumer | How it uses the layer |
 |---|---|
-| Authoritative server (`merge-conflict-server`) | References `Attax.Core.Utils` only (never `Attax.Core`). Creates games with `AttaxGame.NewGame` (`Attax.Server.Infrastructure/Games/InitialGameFactory.cs`) and applies player actions with `AttaxGame.TryApply` (`Attax.Server.Infrastructure/Gameplay/GameCommandService.cs`). Persisted games are rebuilt with `GameState.Restore` and checked with the fingerprints in section 8. |
+| Authoritative server (`merge-conflict-server`) | References `Attax.Core.Utils` only (never `Attax.Core`). Creates games with `EngineStateFactory.NewGame` (`Attax.Server.Application/Games`, composed from `StartPosition.Create` and `GameState.CreateInitial`; called from `Attax.Server.Infrastructure/Games/InitialGameFactory.cs`) and applies player actions with `AttaxGame.TryApply` (`Attax.Server.Infrastructure/Gameplay/GameCommandService.cs`). Persisted games are rebuilt with `GameState.Restore` and checked with the fingerprints in section 8. |
 | Unity client (`AttaxUnity`) | Receives a synchronized copy of `Attax.Core.Utils` and `Attax.Core`. Presentation, animation, and UI stay in Unity. This document does not re-audit the Unity code. |
 | Bots and console tools | `UserSimulator/Attax.Agents/AgentTurnPlanner.cs` asks `AiAbilityPolicy` first and falls back to the engine search. |
 
@@ -20,7 +20,7 @@ Out of scope for this layer: networking, persistence, UI, AI search, evaluation,
 
 ## 2. Layout and constraints
 
-Source: `Attax.Core.Utils/Rules/` (namespace `Attax.Core.Utils`). Public types: `AttaxGame`, `GameState`, `GameAction`, `ActionKind`, `ActionError`, `ActionOutcome`, `AbilityKind`, `StartOptions`, `StartPosition`, `EngineInfo`, `GameRulesConfig` and its group classes, `AiAbilityConfig`, `AiAbilityOptions`, `AiAbilityChoice`, `AiAbilityPolicy`.
+Source: `Attax.Core.Utils/Rules/` (namespace `Attax.Core.Utils`). Public types: `AttaxGame`, `GameState`, `GameAction`, `ActionKind`, `ActionError`, `ActionOutcome`, `AbilityKind`, `StartPosition`, `EngineInfo`, `GameRulesConfig` and its group classes, `AiAbilityConfig`, `AiAbilityOptions`, `AiAbilityChoice`, `AiAbilityPolicy`. Namespace `Attax.Core.Utils.Validation` holds the dependency-free shared rules `DisplayNameValidator`, `DisplayNameCheck` and `RoomCodeValidator`. `NewGame` and `StartOptions` are server code (`Attax.Server.Application.Games`: `EngineStateFactory`, `StartOptions`).
 
 Low-level board primitives live in `AttaxRules` (`Attax.Core.Utils/AttaxRules.cs`): `MakeMoveMasks`, `TryPlaceWall`, `TryUnblock`, `TryRemoveEnemyChip`, `TryPlaceChip`, `TryConvertEnemyChip`. They maintain the Zobrist hash incrementally and never touch credits or footprints.
 
@@ -69,25 +69,25 @@ enum ActionKind  { Move = 0, Convert = 1, Block = 2, Wall = 3, DoubleMove = 4,
 
 `ActionOutcome` reports `Kind`, `Ability`, `Actor`, the masks `FlippedMask`, `RemovedMask`, `PlacedMask`, `BlockedAddedMask`, `BlockedClearedMask`, `FootprintPlacedMask`, `FootprintClearedMask`, and `CreditsSpent`, `ActorCreditsGained` (footprint reward actually granted), `VictimCreditsGained` (capture reward actually granted), `TurnAdvanced`, `Result`.
 
-`StartOptions { BlockedCells (0..12), Seed, FirstPlayer = Red }` has a three-argument constructor `StartOptions(blockedCells, seed, firstPlayer = Red)`.
+The server-side `StartOptions { BlockedCells (0..12), Seed, FirstPlayer = Red }` (`Attax.Server.Application.Games`) has a three-argument constructor `StartOptions(blockedCells, seed, firstPlayer = Red)`; it is no longer part of Core.Utils.
 
 ## 4. `AttaxGame` API
 
 | Member | Behavior |
 |---|---|
-| `NewGame(GameRulesConfig, StartOptions)` | Validates rules (throws `ArgumentException` listing every problem), validates `FirstPlayer` and `BlockedCells`, clones the rules into the state, builds the opening with `StartPosition.Create`, sets both balances to `startingCredits` (0 when the economy is off), counters to 0, one move remaining, and evaluates `Result`. |
+| `EngineStateFactory.NewGame(GameRulesConfig, StartOptions)` (server, not `AttaxGame`) | Validates rules (throws `ArgumentException` listing every problem), validates `FirstPlayer` and `BlockedCells`, builds the opening with `StartPosition.Create`, then calls `GameState.Restore`, which clones the rules, sets both balances to `startingCredits` (0 when the economy is off), counters to 0, one move remaining, and evaluates `Result`. |
 | `Validate(state, actor, in action)` | Pure, no mutation. Returns the first applicable `ActionError` (section 6). |
 | `TryApply(state, actor, in action, out outcome)` | Validates first. On error the state is untouched and `outcome` is default. On success it applies the action (section 7). |
-| `AbilityOf(in action)` | `None` for clone/jump, `SuperJump` for a `Move` with Chebyshev distance >= 3, otherwise the matching kind. |
-| `GetAbilityCost(state, kind)` | Configured price; 0 means disabled. |
-| `CanAfford(state, side, kind)` | Economy on, price above 0, and balance at least the price. |
-| `GetMoveTargets(state, x, y, includeSuperJump)` | Empty destinations for the side-to-move chip at `(x, y)`; 0 otherwise. Does not check price. |
+| `AbilityOf(in action)` (internal) | `None` for clone/jump, `SuperJump` for a `Move` with Chebyshev distance >= 3, otherwise the matching kind. |
+| `GameRulesConfig.GetAbilityCost(kind)` | Configured price; 0 means disabled. The former `AttaxGame` wrapper was removed; Unity queries its session directly. |
+| `CanAfford(state, side, kind)` (internal) | Economy on, price above 0, and balance at least the price. |
+| `RulesSession.MoveTargets(x, y)` (Unity, not shared) | Empty clone/jump destinations for the side-to-move chip at `(x, y)`; 0 otherwise. Super-jump targets remain in the authoritative shared ability query. |
 | `GetAbilityTargets(state, kind)` and `(state, side, kind)` | Valid target cells now; 0 when disabled, unaffordable, limit reached, or game over. `DoubleMove` always returns 0. |
 | `CanUseAbility(state, kind)` and `(state, side, kind)` | Enabled, affordable, limit not reached, and (for `DoubleMove`) exactly one move remaining or (otherwise) at least one target. |
-| `GetAvailableAbilities(state)` and `(state, side)` | Bit mask with bit `1 << (int)kind` per usable ability. |
-| `HasStandardMove(state, side)` | Clone or jump available; ignores credits. |
-| `GetScore(state, side)` | Chip count. |
-| `WouldEndGame(state, actor, in action)` | False if invalid; otherwise simulates on a clone and reports whether the result is terminal. |
+| `GetAvailableAbilities(state)` and `(state, side)` (internal) | Bit mask with bit `1 << (int)kind` per usable ability. |
+| `AttaxRules.HasAnyLegalMove(board, side)` | Clone or jump available; ignores credits. The Unity-only `HasStandardMove` wrapper was removed. |
+| `GetScore(state, side)` (internal) | Chip count. |
+| `WouldEndGame(state, actor, in action)` (internal) | False if invalid; otherwise simulates on a clone and reports whether the result is terminal. |
 
 Side-aware overloads (`GetAbilityTargets`, `CanUseAbility`, `GetAvailableAbilities` with an explicit `side`) exist in addition to the side-to-move overloads.
 
@@ -127,7 +127,7 @@ An ability is usable when the player's balance covers its price. There are no pe
 - D1: free actions may strand a side; the game ends immediately and `WouldEndGame` lets a UI warn first.
 - D2: credits never create moves; a side without a standard clone/jump ends the game immediately even with credits for Super Jump, Spawn, or Super Clone, and the winner is decided strictly by chip count (equal chips is a draw).
 - D3: terminal state is global and evaluated after every accepted action.
-- D4: `NewGame` evaluates the initial result.
+- D4: `EngineStateFactory.NewGame` (server) evaluates the initial result.
 - D5: if Double Move leaves the actor without a standard move for the second move, the game ends; the facade does not skip the move.
 - D6: one ability per turn; Double Move and Spawn consume that use.
 - D7: opening blocks are ordinary blocks and can be cleared by Unblock.
@@ -170,7 +170,7 @@ Turn handling:
 
 ## 8. State, restore, and fingerprints
 
-`GameState` fields: `Board` (`BitboardState`), `RedFootprints`, `BlueFootprints`, `RedCredits`, `BlueCredits`, `SideToMove`, `TurnNumber`, `ActionCount`, `MovesRemainingThisTurn` (1, or 2 after Double Move), `AbilityActionsUsedThisTurn` (0 or 1), `Result`, `RulesFingerprint`. Methods: `ExportRules()` (deep copy), `Clone()`, `GetCredits`, `IsHashConsistent()`, `AreInvariantsValid()`, `ComputeFingerprint()`.
+`GameState` fields: `Board` (`BitboardState`), `RedFootprints`, `BlueFootprints`, `RedCredits`, `BlueCredits`, `SideToMove`, `TurnNumber`, `ActionCount`, `MovesRemainingThisTurn` (1, or 2 after Double Move), `AbilityActionsUsedThisTurn` (0 or 1), `Result`, `RulesFingerprint`. Methods: `ExportRules()` (deep copy), `Clone()`, `GetCredits`, `ComputeFingerprint()`. `GameState.CreateInitial(board, firstPlayer, rules)` constructs initial states, and `GameState.Restore(...)` validates invariants on restoration.
 
 `GameState.Restore(red, blue, blocked, redFootprints, blueFootprints, sideToMove, redCredits, blueCredits, turnNumber, actionCount, movesRemainingThisTurn, abilityActionsUsedThisTurn, rules)` validates strictly and throws `ArgumentException` for: invalid rules, bits outside the 7x7 board, overlapping chip masks, footprints on occupied or blocked cells, overlapping footprints, invalid side to move, negative counters, `turnNumber > actionCount`, ability uses outside 0..1, moves remaining outside 1..2, moves remaining 2 without an ability use, a non-initial counter set when `actionCount` is 0, credits outside `[0, maxCredits]`, and (for a disabled economy) any credits, footprints, ability use, or extra move. It recomputes the Zobrist hash and `Result`.
 
@@ -206,8 +206,8 @@ Rules for the classes:
 - No code defaults: a freshly constructed `GameRulesConfig` has null groups and fails `Validate()`.
 - `Validate()` returns every problem and never throws. It checks the schema version, all groups present, `maxCredits > 0`, `0 <= startingCredits <= maxCredits`, non-negative rewards and costs, `maxAbilityActionsPerTurn == 1`, and complete `abilityTexts`.
 - `GetAbilityCost(kind)` returns 0 for `None`, a disabled economy, or a cost of 0 (a 0 cost disables that ability).
-- `IsAbilityEnabled(player, kind)` reads the per-player toggles.
-- `NewGame` and `Restore` clone the rules, so later changes to the caller's object do not affect a running game. Server-side per-ruleset overlays are merged at the JSON level by the server before deserialization.
+- `IsAbilityEnabled(player, kind)` (internal, as are the per-config `IsEnabled` helpers and the config `Clone` helpers except `GameRulesConfig.Clone` and `AbilityTexts.Clone`) reads the per-player toggles.
+- `EngineStateFactory.NewGame` (server) and `Restore` clone the rules, so later changes to the caller's object do not affect a running game. Server-side per-ruleset overlays are merged at the JSON level by the server before deserialization.
 
 ## 10. Opening generator
 
@@ -215,7 +215,7 @@ Rules for the classes:
 
 The algorithm is zoned: `zoneCount = ceil(sqrt(count))`, `zoneSize = 7 / zoneCount` (integer division, so some zones do not cover the whole board), zones shuffled with `OrderBy(rnd.Next())`, then up to 1000 attempts picking `rnd.Next(minX, maxX)` and `rnd.Next(minY, maxY)` per zone. This output is intentionally stable for a given seed.
 
-`EngineInfo.OpeningAlgorithmId` is `"zoned-system-random-v1"`. `EngineInfo.VerifyOpeningCompatibility(out string error)` checks four golden vectors (seed/count pairs `(0,3)`, `(42,6)`, `(123,1)`, `(999,12)`) so a runtime change in `System.Random` would be noticed. `EngineInfo.RulesRevision` is `1`; it is informational (logs and diagnostics), and client compatibility is enforced by the server's client-version policy.
+`EngineInfo.OpeningAlgorithmId` is `"zoned-system-random-v1"`. `EngineInfo.VerifyOpeningCompatibility(out string error)` checks four golden vectors (seed/count pairs `(0,3)`, `(42,6)`, `(123,1)`, `(999,12)`) so a runtime change in `System.Random` would be noticed. `EngineInfo.RulesRevision` (public, like `OpeningAlgorithmId`; engine diagnostics only, not a wire value) is `1`; it is informational (logs and diagnostics), and client compatibility is enforced by the server's client-version policy.
 
 ## 11. AI ability policy
 

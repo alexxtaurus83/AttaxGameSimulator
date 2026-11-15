@@ -5,7 +5,7 @@ namespace Attax.Core.Utils {
     public sealed class TurnRules {
         public int maxAbilityActionsPerTurn;
 
-        public TurnRules Clone() {
+        internal TurnRules Clone() {
             var copy = new TurnRules();
             copy.maxAbilityActionsPerTurn = this.maxAbilityActionsPerTurn;
             return copy;
