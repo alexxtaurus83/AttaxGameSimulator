@@ -78,7 +78,6 @@ namespace Attax.UserSimulator {
                     var state = BotSnapshot.ToState(subReply.Snapshot);
                     long currentServerVersion = subReply.Snapshot.ServerVersion;
                     TurnPhaseDto currentTurnPhase = subReply.Snapshot.TurnPhase;
-                    PlayerColorDto myDtoColor = myColor == PlayerColor.Red ? PlayerColorDto.Red : PlayerColorDto.Blue;
 
                     if (initialTerminal) {
                         _log.Information("Game {GameId} finished with status {Status} (outcome: {Outcome})", gameId, subReply.Snapshot.Status, subReply.Snapshot.Outcome);
@@ -133,8 +132,11 @@ namespace Attax.UserSimulator {
                                     currentServerVersion = ackResp.Snapshot.ServerVersion;
                                     currentTurnPhase = ackResp.Snapshot.TurnPhase;
                                 }
-                            } catch (ServerErrorException ex) when (ErrorCodeClassifier.IsStaleState(ex.Code)) {
-                                _log.Warning("Readiness ack conflict {Code}. Resyncing snapshot.", ex.Code);
+                            } catch (ServerErrorException ex) {
+                                _log.Warning("Readiness ack rejected ({Code}). Resyncing snapshot.", ex.Code);
+                                needsResync = true;
+                            } catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested) {
+                                _log.Warning(ex, "Readiness ack failed. Resyncing snapshot.");
                                 needsResync = true;
                             }
                         }

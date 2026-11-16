@@ -16,5 +16,12 @@ namespace Attax.UserSimulator.Tests {
             var ex = new ServerErrorException("SOMETHING_NEW", "raw server message");
             Assert.Equal("raw server message", ex.UserMessage);
         }
+
+        [Fact]
+        public void TurnNotReady_UsesSharedText_AndIsStaleState() {
+            var ex = new ServerErrorException(Attax.Server.Contracts.Errors.ErrorCodes.Gameplay.TURN_NOT_READY, "raw");
+            Assert.Equal("Turn is still preparing. Syncing...", ex.UserMessage);
+            Assert.True(Attax.Client.Protocol.ErrorCodeClassifier.IsStaleState(ex.Code));
+        }
     }
 }
