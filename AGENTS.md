@@ -6,31 +6,29 @@
 
 | Area | Location | Responsibility |
 | --- | --- | --- |
-| Shared rules engine | `Attax.Core.Utils/` | Dependency-free board state, move/action codecs, Zobrist hashing, authoritative rules validation, and rule execution. This code is shared with the server and copied into the Unity client. |
-| AI engine | `Attax.Core/` | Negamax search, heuristic evaluation, engine parameters, and search helpers. |
+| Shared rules & AI engine | `..\AttaxShared\src\Attax.Core.Utils\`, `..\AttaxShared\src\Attax.Core\` | Authoritative rules, codecs, Zobrist hashing, heuristic negamax search, `engine-params.json`, `game-rules.json`, and `ai-ability-config.json`. Referenced via MSBuild `<ProjectReference>` (`AttaxSharedRepoPath`, default `..\AttaxShared`). |
+| Shared protocol & sync | `..\AttaxShared\src\Attax.Server.Contracts\`, `Attax.Client.Protocol\`, `Attax.Client.Sync\` | Wire DTOs, error codes, mappers, and `GameSyncReconciler` referenced by `Attax.UserSimulator` via `AttaxSharedRepoPath`. |
 | Model contract | `Attax.Model/` | Board encoding and policy/value interfaces used for training and evaluation. Do not copy this project into Unity. |
 | Data and play tools | `Attax.Data/`, `Attax.Play/`, `Attax.Console/` | Training-log format, self-play, arenas, relabeling, validation, and command-line tooling. |
 | ONNX evaluation | `Attax.Eval.OnnxRuntime/` | CPU-only ONNX Runtime model adapter for local tooling. |
 | Training | `train.py`, `ataxx_*.py`, `tests_py/` | PyTorch training, ONNX export, data parsing, and contract-parity tests. |
 
-The primary client repository is `F:\Unity_projects\AttaxUnity`. It consumes synchronized copies of `Attax.Core.Utils` (authoritative rules) and `Attax.Core` (heuristic search and engine parameters). It owns Unity UI, lifecycle, animation, Sentis inference, and client presentation. Do not add Unity APIs, Unity packages, UI behavior, or Editor concerns to this repository.
-
-The backend is maintained as the Attax server project (`client_id: "attax-server"` in Zengram). It references `Attax.Core.Utils` for authoritative gameplay rules and must not depend on `Attax.Core`, model training, or the console AI tooling. Server/networking behavior is not implemented here.
+The primary shared code repository is `F:\github\repo\AttaxShared`. `AttaxUnity` consumes compiled `netstandard2.1` DLLs and JSONs exported from `AttaxShared` (`tools/Export-Unity.ps1`), and `merge-conflict-server` consumes `AttaxShared` via `ProjectReference`. Do not add Unity APIs, Unity packages, UI behavior, or Editor concerns here or in `AttaxShared`.
 
 ## Architecture Boundaries
 
-- Keep `Attax.Core.Utils` free of third-party dependencies, file I/O, ONNX, PyTorch, search, and AI allocations. Changes here affect both the Unity project and the server.
+- Shared code (`Attax.Core.Utils`, `Attax.Core`, `Attax.Server.Contracts`, `Attax.Client.Protocol`, `Attax.Client.Sync`) lives in `..\AttaxShared`, not in this repository. Keep `Attax.Core.Utils` free of third-party dependencies beyond `ZLinq`, file I/O, ONNX, PyTorch, search, and AI allocations.
 - Keep `Attax.Core` free of model, ONNX, log-format, and filesystem code so it remains portable to Unity.
-- Keep training-only model code in `Attax.Model`, `Attax.Eval.OnnxRuntime`, and Python files. `Attax.Model` is never copied to Unity.
-- `Attax.Core/engine-params.json` is the single source of engine parameter values. Do not introduce hidden code defaults or duplicate parameter files.
+- Keep training-only model code in `Attax.Model`, `Attax.Eval.OnnxRuntime`, and Python files. `Attax.Model` is never exported to Unity.
+- `..\AttaxShared\src\Attax.Core\engine-params.json` is the single source of engine parameter values. Do not introduce hidden code defaults or duplicate parameter files.
 - Preserve the `attax-pv-1` model contract and v4 (`ATLG`) log-format compatibility unless an explicit coordinated migration updates all consumers and fixtures.
 - Treat generated logs, checkpoints, ONNX artifacts, `data/`, `models/`, `runs/`, `bin/`, and `obj/` as generated outputs. Do not commit them unless the user explicitly requests it.
 
 ## Engine Rules Documentation
 
-- [IMPLEMENTED-ENGINE_RULES_API_SPEC.md](IMPLEMENTED-ENGINE_RULES_API_SPEC.md) is the maintained `AttaxGame` API reference: abilities, credits, footprints, validation order, turn flow, fingerprints, opening generator, and AI ability policy. It is also the canonical copy referenced by the server repository (`merge-conflict-server`).
-- [engineReadme.md](engineReadme.md) is the engine overview and rule-decision log.
-- Update the API reference in the same change as any behavior, enum value, fingerprint order, opening algorithm, or AI policy change in `Attax.Core.Utils`. The source code wins over the document if they disagree.
+- `..\AttaxShared\docs\IMPLEMENTED-ENGINE_RULES_API_SPEC.md` is the maintained `AttaxGame` API reference: abilities, credits, footprints, validation order, turn flow, fingerprints, opening generator, and AI ability policy.
+- `..\AttaxShared\docs\engineReadme.md` is the engine overview and rule-decision log.
+- Update the API reference in `AttaxShared` in the same change as any behavior, enum value, fingerprint order, opening algorithm, or AI policy change in `Attax.Core.Utils`. The source code wins over the document if they disagree.
 
 ## Required Skills And Planning
 
@@ -90,7 +88,7 @@ Verification commands (each one is a separate `COMMAND` for the runner):
 | Bot and simulator tests | repository root | `dotnet test UserSimulator/Attax.UserSimulator.Tests/Attax.UserSimulator.Tests.csproj -c Release` |
 | Python training, data, and parity tests | repository root | `python -m unittest discover -s tests_py -t .` |
 
-- `Attax.sln` also contains `Attax.Server.Contracts` and `Attax.Client.Sync` from the sibling `..\merge-conflict-server` checkout. A solution build needs that checkout to exist; build individual projects when it does not.
+- `Attax.sln` references the five shared projects (`Attax.Core.Utils`, `Attax.Core`, `Attax.Server.Contracts`, `Attax.Client.Protocol`, `Attax.Client.Sync`) from the sibling `..\AttaxShared` checkout (override with `-p:AttaxSharedRepoPath=<path>`). Run `dotnet test ..\AttaxShared\AttaxShared.sln -c Release` when changing shared code.
 - Test projects use xUnit v3 in VSTest mode (`xunit.v3.mtp-off` with `Microsoft.NET.Test.Sdk`), so `dotnet test --filter` works. Do not switch to the Microsoft Testing Platform runner without updating these commands.
 - Shared-rule, action-codec, board-encoding, symmetry, log-format, or model-contract changes require both C# tests and Python tests, including parity fixtures where applicable.
 - Search/heuristic/parameter changes must preserve classic regression behavior unless an intentional, documented parameter or golden update is part of the request.

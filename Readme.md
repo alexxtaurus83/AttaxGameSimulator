@@ -15,9 +15,9 @@ Three ways to play, all driven by the same player spec and all comparable in one
 
 | Project / file | Purpose |
 | --- | --- |
-| `Attax.Core.Utils` | **Lightweight domain rules and state utilities (shared with server and client)**: zero third-party dependencies. Bitboards (`BitboardState`), board lookups, bit operations, Zobrist hashing (`ZobristHasher`), move encoding (`ActionCodec`), and pure authoritative rules validation/execution (`AttaxRules`). No search, tree evaluation, or AI allocations. |
-| `Attax.Core` | **The AI game engine**: search, `HeuristicEvaluator`, `EngineParams` and its values in `engine-params.json`, transposition tables, and search thread helpers. References `Attax.Core.Utils`. |
-| `Attax.Model` | Training/evaluation only, never copied into Unity: policy action space (`ActionCodec`), model input encoding (`BoardEncoder`), model contract (`IPolicyValueModel`), value/policy consumers |
+| `..\AttaxShared\src\Attax.Core.Utils` | **Lightweight domain rules and state utilities (in `AttaxShared`)**: bitboards (`BitboardState`), board lookups, bit operations, Zobrist hashing (`ZobristHasher`), move encoding (`ActionCodec`), and pure authoritative rules validation/execution (`AttaxGame`). |
+| `..\AttaxShared\src\Attax.Core` | **The AI game engine (in `AttaxShared`)**: search, `HeuristicEvaluator`, `EngineParams` and its values in `engine-params.json`, transposition tables, and search thread helpers. References `Attax.Core.Utils`. |
+| `Attax.Model` | Training/evaluation only, never exported to Unity: policy action space (`ActionCodec`), model input encoding (`BoardEncoder`), model contract (`IPolicyValueModel`), value/policy consumers |
 | `Attax.Data` | log writer/reader/validator (format v4, class names keep "V3") |
 | `Attax.Play` | player specs (`classic:depth=3,params=...`), players, engine-parameter file loading (`EngineParamsFile`), pair statistics and the sequential test |
 | `Attax.Eval.OnnxRuntime` | `OnnxPolicyValueModel`: ONNX Runtime adapter that validates the contract at load |

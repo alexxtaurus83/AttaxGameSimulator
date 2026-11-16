@@ -6,27 +6,21 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
-    <AttaxServerRepoPath Condition="'$(AttaxServerRepoPath)' == ''">..\..\..\merge-conflict-server</AttaxServerRepoPath>
   </PropertyGroup>
 
   <ItemGroup>
     <InternalsVisibleTo Include="Attax.UserSimulator.Tests" />
   </ItemGroup>
 
-  <Target Name="CheckServerRepoPath" BeforeTargets="BeforeBuild">
-    <Error Condition="!Exists('$(AttaxServerRepoPath)\Attax.Server.Contracts\Attax.Server.Contracts.csproj')"
-           Text="Cannot find Attax.Server.Contracts at '$(AttaxServerRepoPath)\Attax.Server.Contracts\Attax.Server.Contracts.csproj'. Please specify -p:AttaxServerRepoPath=&lt;path&gt;." />
-  </Target>
-
   <ItemGroup>
     <ProjectReference Include="..\Attax.Agents\Attax.Agents.csproj" />
     <ProjectReference Include="..\..\Attax.Play\Attax.Play.csproj" />
-    <ProjectReference Include="..\..\Attax.Core\Attax.Core.csproj" />
-    <ProjectReference Include="..\..\Attax.Core.Utils\Attax.Core.Utils.csproj" />
+    <ProjectReference Include="$(AttaxSharedRepoPath)\src\Attax.Core\Attax.Core.csproj" />
+    <ProjectReference Include="$(AttaxSharedRepoPath)\src\Attax.Core.Utils\Attax.Core.Utils.csproj" />
     <ProjectReference Include="..\..\Attax.Eval.OnnxRuntime\Attax.Eval.OnnxRuntime.csproj" />
-    <ProjectReference Include="$(AttaxServerRepoPath)\Attax.Server.Contracts\Attax.Server.Contracts.csproj" />
-    <ProjectReference Include="$(AttaxServerRepoPath)\Attax.Client.Sync\Attax.Client.Sync.csproj" />
-    <ProjectReference Include="$(AttaxServerRepoPath)\Attax.Client.Protocol\Attax.Client.Protocol.csproj" />
+    <ProjectReference Include="$(AttaxSharedRepoPath)\src\Attax.Server.Contracts\Attax.Server.Contracts.csproj" />
+    <ProjectReference Include="$(AttaxSharedRepoPath)\src\Attax.Client.Sync\Attax.Client.Sync.csproj" />
+    <ProjectReference Include="$(AttaxSharedRepoPath)\src\Attax.Client.Protocol\Attax.Client.Protocol.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -42,7 +36,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="..\..\Attax.Core\engine-params.json" Link="engine-params.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(AttaxSharedRepoPath)\src\Attax.Core\engine-params.json" Link="engine-params.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

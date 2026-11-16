@@ -7,8 +7,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Attax.Core\Attax.Core.csproj" />
-    <ProjectReference Include="..\Attax.Core.Utils\Attax.Core.Utils.csproj" />
+    <ProjectReference Include="$(AttaxSharedRepoPath)\src\Attax.Core\Attax.Core.csproj" />
+    <ProjectReference Include="$(AttaxSharedRepoPath)\src\Attax.Core.Utils\Attax.Core.Utils.csproj" />
     <ProjectReference Include="..\Attax.Model\Attax.Model.csproj" />
   </ItemGroup>
 

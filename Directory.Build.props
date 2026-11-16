@@ -1,0 +1,9 @@
+<Project>
+  <PropertyGroup>
+    <AttaxSharedRepoPath Condition="'$(AttaxSharedRepoPath)' == ''">$(MSBuildThisFileDirectory)..\AttaxShared</AttaxSharedRepoPath>
+  </PropertyGroup>
+  <Target Name="ValidateAttaxSharedRepoPath" BeforeTargets="BeforeBuild;BeforeResolveReferences;CollectPackageReferences;PrepareForBuild;_GenerateRestoreProjectSpec;_IsProjectRestoreSupported">
+    <Error Condition="!Exists('$(AttaxSharedRepoPath)\AttaxShared.sln')"
+           Text="Cannot find AttaxShared at '$(AttaxSharedRepoPath)'. Ensure the sibling repository 'AttaxShared' is checked out or pass -p:AttaxSharedRepoPath=&lt;path&gt;." />
+  </Target>
+</Project>

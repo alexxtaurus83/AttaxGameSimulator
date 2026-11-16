@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using Attax.Client.Protocol;
 using Attax.Core;
-using Attax.Core.Tests;
 using Attax.Core.Utils;
 using Attax.Play;
 using Attax.Server.Contracts.Actions;
@@ -128,7 +127,7 @@ namespace Attax.UserSimulator.Tests {
 
         [Fact]
         public void SnapshotMapper_ToState_RoundtripsFingerprint() {
-            var coreRules = GameRulesConfigTests.ValidTestRules();
+            var coreRules = ValidTestRules();
             var startBoard = StartPosition.Create(0, 42, PlayerColor.Red);
             var initialCoreState = GameState.CreateInitial(startBoard, PlayerColor.Red, coreRules);
 
@@ -205,5 +204,36 @@ namespace Attax.UserSimulator.Tests {
             var dmIntent = ActionIntentMapper.ToIntent(doubleMove);
             Assert.Equal(ActionKindDto.DoubleMove, dmIntent.Kind);
         }
+
+        private static GameRulesConfig ValidTestRules() => new GameRulesConfig {
+            schemaVersion = 1,
+            economy = new EconomyRules {
+                enabled = true,
+                startingCredits = 0,
+                maxCredits = 300,
+                captureReward = 10,
+                footprintReward = 5,
+                abilityCosts = new AbilityCosts {
+                    superJump = 100, convert = 60, block = 40, wall = 50,
+                    doubleMove = 120, spawn = 60, superClone = 150, unblock = 80, bomb = 170
+                }
+            },
+            turn = new TurnRules { maxAbilityActionsPerTurn = 1 },
+            playerAbilities = new PlayerAbilitiesConfig {
+                red = new AbilityToggles { superJump = true, convert = true, block = true, wall = true, doubleMove = true, spawn = true, superClone = true, unblock = true, bomb = true },
+                blue = new AbilityToggles { superJump = true, convert = true, block = true, wall = true, doubleMove = true, spawn = true, superClone = true, unblock = true, bomb = true }
+            },
+            abilityTexts = new AbilityTexts {
+                superJump = new AbilityText { name = "Super Jump", description = "d", instruction = "i" },
+                convert = new AbilityText { name = "Chief", description = "d", instruction = "i" },
+                block = new AbilityText { name = "Block", description = "d", instruction = "i" },
+                wall = new AbilityText { name = "Wall", description = "d", instruction = "i" },
+                doubleMove = new AbilityText { name = "Double Move", description = "d", instruction = "i" },
+                spawn = new AbilityText { name = "Spawn", description = "d", instruction = "i" },
+                superClone = new AbilityText { name = "Super Clone", description = "d", instruction = "i" },
+                unblock = new AbilityText { name = "Unblock", description = "d", instruction = "i" },
+                bomb = new AbilityText { name = "Bomb", description = "d", instruction = "i" }
+            }
+        };
     }
 }

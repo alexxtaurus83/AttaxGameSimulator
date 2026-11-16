@@ -1,8 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\Attax.Core\Attax.Core.csproj" />
-    <ProjectReference Include="..\Attax.Core.Utils\Attax.Core.Utils.csproj" />
+    <ProjectReference Include="$(AttaxSharedRepoPath)\src\Attax.Core\Attax.Core.csproj" />
+    <ProjectReference Include="$(AttaxSharedRepoPath)\src\Attax.Core.Utils\Attax.Core.Utils.csproj" />
     <ProjectReference Include="..\Attax.Model\Attax.Model.csproj" />
     <ProjectReference Include="..\Attax.Data\Attax.Data.csproj" />
     <ProjectReference Include="..\Attax.Play\Attax.Play.csproj" />
@@ -12,11 +12,13 @@
 
   <ItemGroup>
     <PackageReference Include="CommandLineParser" />
+    <PackageReference Include="Serilog" />
+    <PackageReference Include="Serilog.Sinks.File" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- The one source of the engine parameter values lives in the Core folder; the console reads the copy next to the exe. -->
-    <Content Include="..\Attax.Core\engine-params.json" Link="engine-params.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <!-- The one source of the engine parameter values lives in AttaxShared; the console reads the copy next to the exe. -->
+    <Content Include="$(AttaxSharedRepoPath)\src\Attax.Core\engine-params.json" Link="engine-params.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 
   <PropertyGroup>

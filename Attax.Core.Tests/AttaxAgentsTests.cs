@@ -46,8 +46,8 @@ namespace Attax.Core.Tests {
 
         [Fact]
         public void AgentTurnPlanner_Decide_ReturnsLegalMove() {
-            var rules = GameRulesConfigTests.ValidTestRules();
-            var state = TestStates.NewGame(rules, 0, 42, PlayerColor.Red);
+            var rules = ValidTestRules();
+            var state = NewGame(rules, 0, 42, PlayerColor.Red);
             var spec = PlayerSpec.Parse("random");
             using var player = PlayerFactory.Create(spec, null!, seed: 123, defaultTrain: false);
 
@@ -59,5 +59,41 @@ namespace Attax.Core.Tests {
             Assert.True(decision.HasMove);
             Assert.Equal(ActionError.None, AttaxGame.Validate(state, PlayerColor.Red, action));
         }
+
+        private static GameState NewGame(GameRulesConfig rules, int blockedCells, int seed, PlayerColor firstPlayer) {
+            BitboardState board = StartPosition.Create(blockedCells, seed, firstPlayer);
+            return GameState.CreateInitial(board, firstPlayer, rules);
+        }
+
+        private static GameRulesConfig ValidTestRules() => new GameRulesConfig {
+            schemaVersion = 1,
+            economy = new EconomyRules {
+                enabled = true,
+                startingCredits = 0,
+                maxCredits = 300,
+                captureReward = 10,
+                footprintReward = 5,
+                abilityCosts = new AbilityCosts {
+                    superJump = 100, convert = 60, block = 40, wall = 50,
+                    doubleMove = 120, spawn = 60, superClone = 150, unblock = 80, bomb = 170
+                }
+            },
+            turn = new TurnRules { maxAbilityActionsPerTurn = 1 },
+            playerAbilities = new PlayerAbilitiesConfig {
+                red = new AbilityToggles { superJump = true, convert = true, block = true, wall = true, doubleMove = true, spawn = true, superClone = true, unblock = true, bomb = true },
+                blue = new AbilityToggles { superJump = true, convert = true, block = true, wall = true, doubleMove = true, spawn = true, superClone = true, unblock = true, bomb = true }
+            },
+            abilityTexts = new AbilityTexts {
+                superJump = new AbilityText { name = "Super Jump", description = "d", instruction = "i" },
+                convert = new AbilityText { name = "Chief", description = "d", instruction = "i" },
+                block = new AbilityText { name = "Block", description = "d", instruction = "i" },
+                wall = new AbilityText { name = "Wall", description = "d", instruction = "i" },
+                doubleMove = new AbilityText { name = "Double Move", description = "d", instruction = "i" },
+                spawn = new AbilityText { name = "Spawn", description = "d", instruction = "i" },
+                superClone = new AbilityText { name = "Super Clone", description = "d", instruction = "i" },
+                unblock = new AbilityText { name = "Unblock", description = "d", instruction = "i" },
+                bomb = new AbilityText { name = "Bomb", description = "d", instruction = "i" }
+            }
+        };
     }
 }

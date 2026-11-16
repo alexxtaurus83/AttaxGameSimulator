@@ -14,7 +14,7 @@ Status: tooling is built and tested. **No tuning run has been done.** Everything
    (176 tests, about 2.5 minutes on a free machine) and `python -m unittest discover -s tests_py -t .` (59, 5 skipped).
 2. Publish to a scratch folder, never over a folder another job may be running from:
    `dotnet publish Attax.Console/Attax.Console.csproj -c Release -o E:\tmp_attax\tune_exe`. The base file `engine-params.json` is copied next to it.
-3. **Parameter values live in `Attax.Core/engine-params.json` only.** To test a candidate: a small file with only the changed values
+3. **Parameter values live in `..\AttaxShared\src\Attax.Core\engine-params.json` only.** To test a candidate: a small file with only the changed values
    (`params=file.json`) or `p.<group>.<name>=value` in the player spec. Layers: base file, then file, then overrides. See the Readme.
 4. Use `--blocked 0,6` in every arena and every position log for tuning: that is the game.
 5. Keep experiment state in `tuning/` (add it to `.gitignore`): `ledger.csv`, `params/*.json`, `logs/*.txt`.

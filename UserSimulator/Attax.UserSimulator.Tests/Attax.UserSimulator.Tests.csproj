@@ -10,7 +10,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Attax.UserSimulator\Attax.UserSimulator.csproj" />
-    <ProjectReference Include="..\..\Attax.Core.Tests\Attax.Core.Tests.csproj" />
+    <ProjectReference Include="$(AttaxSharedRepoPath)\src\Attax.Core\Attax.Core.csproj" />
+    <ProjectReference Include="$(AttaxSharedRepoPath)\src\Attax.Core.Utils\Attax.Core.Utils.csproj" />
+    <ProjectReference Include="$(AttaxSharedRepoPath)\src\Attax.Server.Contracts\Attax.Server.Contracts.csproj" />
+    <ProjectReference Include="$(AttaxSharedRepoPath)\src\Attax.Client.Protocol\Attax.Client.Protocol.csproj" />
+    <ProjectReference Include="$(AttaxSharedRepoPath)\src\Attax.Client.Sync\Attax.Client.Sync.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -27,7 +31,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="..\..\Attax.Core\engine-params.json" Link="engine-params.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="$(AttaxSharedRepoPath)\src\Attax.Core\engine-params.json" Link="engine-params.json" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

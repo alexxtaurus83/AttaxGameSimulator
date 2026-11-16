@@ -3,7 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Attax.Core", "Attax.Core\Attax.Core.csproj", "{39A9732D-5D1B-4821-9F8E-0C4ECB9A8FA8}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Attax.Core", "..\AttaxShared\src\Attax.Core\Attax.Core.csproj", "{39A9732D-5D1B-4821-9F8E-0C4ECB9A8FA8}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Attax.Console", "Attax.Console\Attax.Console.csproj", "{F2DF8E3A-A3B0-4232-B6F9-8E3B8BCBFA16}"
 EndProject
@@ -17,7 +17,7 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Attax.Play", "Attax.Play\At
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Attax.Model", "Attax.Model\Attax.Model.csproj", "{22371710-63FC-45EA-9007-0F24EC52BAB3}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Attax.Core.Utils", "Attax.Core.Utils\Attax.Core.Utils.csproj", "{6C868B09-E396-4EE9-BF7D-DF8DC2C179AF}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Attax.Core.Utils", "..\AttaxShared\src\Attax.Core.Utils\Attax.Core.Utils.csproj", "{6C868B09-E396-4EE9-BF7D-DF8DC2C179AF}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "UserSimulator", "UserSimulator", "{463C0013-F865-7800-790B-2A247EA697C4}"
 EndProject
@@ -25,9 +25,11 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Attax.Agents", "UserSimulat
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Attax.UserSimulator", "UserSimulator\Attax.UserSimulator\Attax.UserSimulator.csproj", "{74ED63AE-038B-40A5-8709-600CB90EC2A0}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Attax.Server.Contracts", "..\merge-conflict-server\Attax.Server.Contracts\Attax.Server.Contracts.csproj", "{753DC7CC-D747-4C53-900A-F3893B44281E}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Attax.Server.Contracts", "..\AttaxShared\src\Attax.Server.Contracts\Attax.Server.Contracts.csproj", "{753DC7CC-D747-4C53-900A-F3893B44281E}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Attax.Client.Sync", "..\merge-conflict-server\Attax.Client.Sync\Attax.Client.Sync.csproj", "{9D3C8894-92F3-4AA2-8FC9-B7399B11A64B}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Attax.Client.Sync", "..\AttaxShared\src\Attax.Client.Sync\Attax.Client.Sync.csproj", "{9D3C8894-92F3-4AA2-8FC9-B7399B11A64B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Attax.Client.Protocol", "..\AttaxShared\src\Attax.Client.Protocol\Attax.Client.Protocol.csproj", "{813D6A4E-2B21-4C0F-8A1E-42B1E11D3001}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Attax.UserSimulator.Tests", "UserSimulator\Attax.UserSimulator.Tests\Attax.UserSimulator.Tests.csproj", "{659872AD-6DCF-40F7-B4CB-467E2DC67B39}"
 EndProject
@@ -185,6 +187,18 @@ Global
 		{9D3C8894-92F3-4AA2-8FC9-B7399B11A64B}.Release|x64.Build.0 = Release|Any CPU
 		{9D3C8894-92F3-4AA2-8FC9-B7399B11A64B}.Release|x86.ActiveCfg = Release|Any CPU
 		{9D3C8894-92F3-4AA2-8FC9-B7399B11A64B}.Release|x86.Build.0 = Release|Any CPU
+		{813D6A4E-2B21-4C0F-8A1E-42B1E11D3001}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{813D6A4E-2B21-4C0F-8A1E-42B1E11D3001}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{813D6A4E-2B21-4C0F-8A1E-42B1E11D3001}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{813D6A4E-2B21-4C0F-8A1E-42B1E11D3001}.Debug|x64.Build.0 = Debug|Any CPU
+		{813D6A4E-2B21-4C0F-8A1E-42B1E11D3001}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{813D6A4E-2B21-4C0F-8A1E-42B1E11D3001}.Debug|x86.Build.0 = Debug|Any CPU
+		{813D6A4E-2B21-4C0F-8A1E-42B1E11D3001}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{813D6A4E-2B21-4C0F-8A1E-42B1E11D3001}.Release|Any CPU.Build.0 = Release|Any CPU
+		{813D6A4E-2B21-4C0F-8A1E-42B1E11D3001}.Release|x64.ActiveCfg = Release|Any CPU
+		{813D6A4E-2B21-4C0F-8A1E-42B1E11D3001}.Release|x64.Build.0 = Release|Any CPU
+		{813D6A4E-2B21-4C0F-8A1E-42B1E11D3001}.Release|x86.ActiveCfg = Release|Any CPU
+		{813D6A4E-2B21-4C0F-8A1E-42B1E11D3001}.Release|x86.Build.0 = Release|Any CPU
 		{659872AD-6DCF-40F7-B4CB-467E2DC67B39}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{659872AD-6DCF-40F7-B4CB-467E2DC67B39}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{659872AD-6DCF-40F7-B4CB-467E2DC67B39}.Debug|x64.ActiveCfg = Debug|Any CPU
@@ -204,6 +218,7 @@ Global
 	GlobalSection(NestedProjects) = preSolution
 		{C2923A83-6AC8-417D-A7C5-31FFE373DB56} = {463C0013-F865-7800-790B-2A247EA697C4}
 		{74ED63AE-038B-40A5-8709-600CB90EC2A0} = {463C0013-F865-7800-790B-2A247EA697C4}
+		{813D6A4E-2B21-4C0F-8A1E-42B1E11D3001} = {463C0013-F865-7800-790B-2A247EA697C4}
 		{659872AD-6DCF-40F7-B4CB-467E2DC67B39} = {463C0013-F865-7800-790B-2A247EA697C4}
 	EndGlobalSection
 EndGlobal
