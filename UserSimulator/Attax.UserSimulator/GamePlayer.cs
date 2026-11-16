@@ -77,6 +77,8 @@ namespace Attax.UserSimulator {
 
                     var state = BotSnapshot.ToState(subReply.Snapshot);
                     long currentServerVersion = subReply.Snapshot.ServerVersion;
+                    TurnPhaseDto currentTurnPhase = subReply.Snapshot.TurnPhase;
+                    PlayerColorDto myDtoColor = myColor == PlayerColor.Red ? PlayerColorDto.Red : PlayerColorDto.Blue;
 
                     if (initialTerminal) {
                         _log.Information("Game {GameId} finished with status {Status} (outcome: {Outcome})", gameId, subReply.Snapshot.Status, subReply.Snapshot.Outcome);
@@ -99,6 +101,7 @@ namespace Attax.UserSimulator {
                             reconciler.OnSnapshot(freshSnapshot.ServerVersion, isTerminalStatus);
                             state = BotSnapshot.ToState(freshSnapshot);
                             currentServerVersion = freshSnapshot.ServerVersion;
+                            currentTurnPhase = freshSnapshot.TurnPhase;
 
                             if (isTerminalStatus) {
                                 var outcome = new GameOutcomeDto {
@@ -119,7 +122,24 @@ namespace Attax.UserSimulator {
                             return outcome;
                         }
 
-                        if (state.SideToMove == myColor && !isSubmitting) {
+                        if (state.SideToMove == myColor && currentTurnPhase == TurnPhaseDto.AwaitingReadiness) {
+                            try {
+                                var ackResp = await _connection.CallAsync<AcknowledgeTurnReadyResponse>(
+                                    "AcknowledgeTurnReady",
+                                    gameId,
+                                    new AcknowledgeTurnReadyRequest { ExpectedVersion = currentServerVersion });
+                                if (ackResp?.Snapshot != null) {
+                                    state = BotSnapshot.ToState(ackResp.Snapshot);
+                                    currentServerVersion = ackResp.Snapshot.ServerVersion;
+                                    currentTurnPhase = ackResp.Snapshot.TurnPhase;
+                                }
+                            } catch (ServerErrorException ex) when (ErrorCodeClassifier.IsStaleState(ex.Code)) {
+                                _log.Warning("Readiness ack conflict {Code}. Resyncing snapshot.", ex.Code);
+                                needsResync = true;
+                            }
+                        }
+
+                        if (state.SideToMove == myColor && currentTurnPhase == TurnPhaseDto.Active && !isSubmitting) {
                             isSubmitting = true;
                             try {
                                 int thinkDelay = _rng.Next(_options.ParsedThinkMs.Min, _options.ParsedThinkMs.Max + 1);
@@ -143,6 +163,7 @@ namespace Attax.UserSimulator {
                                 _log.Debug("Action {ReqId} executed cleanly. Success: {Success}", reqId, res.Success);
                                 state = BotSnapshot.ToState(res.Snapshot);
                                 currentServerVersion = res.ServerVersion;
+                                currentTurnPhase = res.Snapshot.TurnPhase;
                             } catch (ServerErrorException ex) when (ErrorCodeClassifier.IsStaleState(ex.Code)) {
                                 _log.Warning("Transient action conflict {Code}. Resyncing snapshot.", ex.Code);
                                 needsResync = true;
