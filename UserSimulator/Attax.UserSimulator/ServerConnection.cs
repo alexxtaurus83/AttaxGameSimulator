@@ -406,7 +406,7 @@ namespace Attax.UserSimulator {
                     } catch (Exception recoverEx) {
                         _log.Error(recoverEx, "Automatic hub recovery failed");
                     }
-                });
+                }, lifetimeToken);
                 return Task.CompletedTask;
             };
 
@@ -476,7 +476,7 @@ namespace Attax.UserSimulator {
 
         public async ValueTask DisposeAsync() {
             _disposed = true;
-            try { _lifetimeCts?.Cancel(); } catch (ObjectDisposedException) { }
+            try { if (_lifetimeCts != null) await _lifetimeCts.CancelAsync(); } catch (ObjectDisposedException) { }
             if (_heartbeatTimer != null) await _heartbeatTimer.DisposeAsync();
             if (_hub != null) await _hub.DisposeAsync();
             _http?.Dispose();
