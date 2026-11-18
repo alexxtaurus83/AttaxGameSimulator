@@ -82,8 +82,9 @@ namespace Attax.Console {
                     using var referee = LocalGameRunner.NewReferee();
                     // The opening is generated once and played twice, swapping colours: luck of the opening cancels inside a pair.
                     var openRng = new Random(CombineSeed(o.Seed, pi * 7919 + 1)); // NOSONAR
-                    // Blocks first (as in the game), then the random opening plies. Own rng, consulted only when blocks are requested.
-                    var opening = StartBoard.Create(referee, blockMin, blockMax, new Random(CombineSeed(o.Seed, pi * 104729 + 7))); // NOSONAR
+                    var opening = !string.IsNullOrWhiteSpace(o.Board)
+                        ? StartBoard.CreateFromShape(o.Board, CombineSeed(o.Seed, pi * 104729 + 7))
+                        : StartBoard.Create(referee, blockMin, blockMax, new Random(CombineSeed(o.Seed, pi * 104729 + 7))); // NOSONAR
                     opening.ZobristHash = referee.ComputeZobristHash(opening, PlayerColor.Red);
                     int played = 0;
                     for (; played < o.OpeningPlies; played++) {
@@ -94,7 +95,7 @@ namespace Attax.Console {
                         referee.MakeMove(opening, d.Move, side);
                     }
 
-                    var po = new PairOutcome { OpeningPlies = played, Blocked = PopCount(opening.BlockedSquares) };
+                    var po = new PairOutcome { OpeningPlies = played, Blocked = PopCount(opening.ImpassableSquares) };
                     for (int g = 0; g < 2; g++) {
                         bool p1IsRed = g == 0;
                         int gameSeed = CombineSeed(o.Seed, pi * 2 + g);

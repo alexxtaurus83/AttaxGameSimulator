@@ -49,8 +49,11 @@ namespace Attax.Console {
         [Option("symmetry", Default = SymmetryModeOption.None, HelpText = "None, Random (one random symmetry per sample) or All (8 copies). Copies share the game identity.")]
         public SymmetryModeOption Symmetry { get; set; } = SymmetryModeOption.None;
 
-        [Option("blocked", Default = "0,0", HelpText = "Random blocked cells per game, N or min,max (inclusive). The game uses 0..6, so 0,6 matches it; 0,0 (default) = none. Placement is the game's own. Blocked squares are stored in the log.")]
+        [Option("blocked", Default = "0,0", HelpText = "Random blocked cells per game, N or min,max (inclusive). Ignored when --board is set.")]
         public string Blocked { get; set; } = "0,0";
+
+        [Option("board", HelpText = "Board shape ID (e.g. default, classic, diamond), 'all' (random from catalog), or 'random:holes=H,blocked=B'.")]
+        public string? Board { get; set; }
 
         [Option("maxPlies", Default = 400, HelpText = "Ply cap. A capped game is recorded as PlyCap and its outcome is not a real result.")]
         public int MaxPlies { get; set; } = 400;
@@ -85,8 +88,10 @@ namespace Attax.Console {
         public string P2 { get; set; } = "";
         [Option("pairs", Default = 50, HelpText = "Opening pairs. Each opening is played twice with colours swapped, so games = 2 * pairs.")]
         public int Pairs { get; set; } = 50;
-        [Option("blocked", Default = "0,0", HelpText = "Random blocked cells per pair, N or min,max (inclusive). The game uses 0..6, so 0,6 matches it; 0,0 (default) = none. Both games of a pair get the same blocks.")]
+        [Option("blocked", Default = "0,0", HelpText = "Random blocked cells per pair, N or min,max (inclusive). Ignored when --board is set.")]
         public string Blocked { get; set; } = "0,0";
+        [Option("board", HelpText = "Board shape ID, 'all' (random from catalog), or 'random:holes=H,blocked=B'.")]
+        public string? Board { get; set; }
         [Option("openingPlies", Default = 4, HelpText = "Random opening plies shared by both games of a pair (even recommended).")]
         public int OpeningPlies { get; set; } = 4;
         [Option("seed", Default = 0, HelpText = "Seed for openings and sampling.")]

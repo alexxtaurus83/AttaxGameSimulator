@@ -100,9 +100,10 @@ namespace Attax.UserSimulator {
                 if (candidates.Count == 0) return;
 
                 var target = candidates[_rng.Next(candidates.Count)];
-                _log.Information("Issuing challenge to {TargetId} ({DisplayName})", target.PlayerId, target.DisplayName);
+                var boardShape = BoardShapeCatalog.PickRandom(_rng);
+                _log.Information("Issuing challenge to {TargetId} ({DisplayName}) on board {BoardShapeId}", target.PlayerId, target.DisplayName, boardShape.Id);
 
-                var req = new CreateChallengeRequest { TargetPlayerId = target.PlayerId };
+                var req = new CreateChallengeRequest { TargetPlayerId = target.PlayerId, BoardShapeId = boardShape.Id };
                 await _connection.CallAsync<ChallengeDto>("CreateChallenge", req);
             } catch (ServerErrorException ex) {
                 _log.Debug("Challenge failed: {Code} ({UserMessage})", ex.Code, ex.UserMessage);

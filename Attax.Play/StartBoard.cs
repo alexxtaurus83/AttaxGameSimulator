@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using Attax.Core;
+using Attax.Core.Utils;
 
 namespace Attax.Play {
     /// <summary>
@@ -46,6 +47,44 @@ namespace Attax.Play {
             foreach (var (x, y) in referee.GenerateRandomBlockedCellPositions(count, board, rng.Next()))
                 board.BlockedSquares |= 1UL << AtaxxAIEngine.GetBitIndex(x, y);
             return board;
+        }
+
+        /// <summary>
+        /// Builds an opening board from a board shape ID, "all" (random catalog shape), or "random:holes=H,blocked=B".
+        /// </summary>
+        public static BitboardState CreateFromShape(string boardSpec, int seed, PlayerColor firstPlayer = PlayerColor.Red) {
+            if (string.IsNullOrWhiteSpace(boardSpec)) {
+                return RandomShapeGenerator.Generate(BoardShapeCatalog.Default, seed, firstPlayer);
+            }
+            string spec = boardSpec.Trim();
+            if (string.Equals(spec, "all", StringComparison.OrdinalIgnoreCase)) {
+                var shape = BoardShapeCatalog.PickRandom(new Random(seed)); // NOSONAR
+                return RandomShapeGenerator.Generate(shape, seed, firstPlayer);
+            }
+            if (spec.StartsWith("random:", StringComparison.OrdinalIgnoreCase)) {
+                int holes = 0;
+                int blocked = 0;
+                string rest = spec.Substring("random:".Length);
+                foreach (var part in rest.Split(',', StringSplitOptions.RemoveEmptyEntries)) {
+                    var kv = part.Split('=', 2);
+                    if (kv.Length != 2) throw new FormatException($"Invalid --board random spec '{boardSpec}'. Expected random:holes=H,blocked=B.");
+                    string k = kv[0].Trim().ToLowerInvariant();
+                    if (!int.TryParse(kv[1].Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out int v) || v < 0)
+                        throw new FormatException($"Invalid integer '{kv[1]}' in --board '{boardSpec}'.");
+                    if (k == "holes") holes = v;
+                    else if (k == "blocked") blocked = v;
+                    else throw new FormatException($"Unknown key '{k}' in --board '{boardSpec}'.");
+                }
+                return CreateRandom(holes, blocked, seed, firstPlayer);
+            }
+            if (!BoardShapeCatalog.TryGetById(spec, out var explicitShape)) {
+                throw new ArgumentException($"Unknown board shape '{boardSpec}'.", nameof(boardSpec));
+            }
+            return RandomShapeGenerator.Generate(explicitShape, seed, firstPlayer);
+        }
+
+        public static BitboardState CreateRandom(int holes, int blocked, int seed, PlayerColor firstPlayer = PlayerColor.Red) {
+            return RandomShapeGenerator.Generate(holes, blocked, seed, firstPlayer);
         }
     }
 }

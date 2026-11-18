@@ -16,6 +16,7 @@ namespace Attax.UserSimulator {
         private readonly GamePlayer _player;
         private readonly ILogger _log;
         private readonly IConsoleIO _io;
+        private readonly Random _rng;
 
         private TaskCompletionSource<PlayerNotificationDto>? _gameStartedTcs;
 
@@ -25,6 +26,7 @@ namespace Attax.UserSimulator {
             _player = player;
             _log = log;
             _io = io;
+            _rng = options.Seed != 0 ? new Random(options.Seed) : new Random(); // NOSONAR
             _gameStartedTcs = new TaskCompletionSource<PlayerNotificationDto>(TaskCreationOptions.RunContinuationsAsynchronously);
             _connection.OnPlayerNotification += HandleNotification;
         }
@@ -42,8 +44,9 @@ namespace Attax.UserSimulator {
         }
 
         private async Task RunHostAsync(CancellationToken ct) {
-            _log.Information("Creating private room as host");
-            var req = new CreateRoomRequest { RoomName = _options.Name };
+            var boardShape = BoardShapeCatalog.PickRandom(_rng);
+            _log.Information("Creating private room as host on board {BoardShapeId}", boardShape.Id);
+            var req = new CreateRoomRequest { RoomName = _options.Name, BoardShapeId = boardShape.Id };
             var reply = await _connection.CallAsync<RoomDto>("CreateRoom", req);
 
             _io.WriteLine($"ROOM CODE: {reply.RoomCode}");

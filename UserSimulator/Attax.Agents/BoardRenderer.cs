@@ -23,6 +23,8 @@ namespace Attax.Agents {
                     } else if ((b.BluePieces & bit) != 0) {
                         c = 'B';
                         blueCount++;
+                    } else if ((b.VoidSquares & bit) != 0) {
+                        c = ' ';
                     } else if ((b.BlockedSquares & bit) != 0) {
                         c = '#';
                     }

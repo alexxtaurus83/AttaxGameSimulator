@@ -59,8 +59,9 @@ namespace Attax.Console {
                 long gRolloutStart = Stopwatch.GetTimestamp();
                 long gTeacherTicks = 0, gNodes = 0, gSearchMoves = 0, gFallbacks = 0, gRandom = 0, gTeacherNodes = 0;
 
-                // Blocks as in the game; own rng consulted only when blocks are requested, so 0,0 keeps every other stream unchanged.
-                var board = StartBoard.Create(referee, blockMin, blockMax, new Random(CombineSeed(gameSeed, 0xB10C))); // NOSONAR
+                var board = !string.IsNullOrWhiteSpace(o.Board)
+                    ? StartBoard.CreateFromShape(o.Board, CombineSeed(gameSeed, 0xB10C))
+                    : StartBoard.Create(referee, blockMin, blockMax, new Random(CombineSeed(gameSeed, 0xB10C))); // NOSONAR
                 board.ZobristHash = referee.ComputeZobristHash(board, PlayerColor.Red);
 
                 var end = LocalGameRunner.RunGame(referee, board, 0, o.MaxPlies,
@@ -120,7 +121,7 @@ namespace Attax.Console {
                         if (teacherAction >= 0) flags |= LogV3.FlagTeacherValid;
                         if (teacherAction >= 0 && hasScore) flags |= LogV3.FlagTeacherScoreValid;
                         samples.Add(new LogV3.Sample {
-                            GameUid = uid, Ply = k.Ply, Red = tb.RedPieces, Blue = tb.BluePieces, Blocked = tb.BlockedSquares,
+                            GameUid = uid, Ply = k.Ply, Red = tb.RedPieces, Blue = tb.BluePieces, Blocked = tb.ImpassableSquares,
                             Side = (byte)(k.Side == PlayerColor.Red ? 0 : 1),
                             PlayedAction = (short)ActionCodec.TransformAction(k.PlayedAction, sym),
                             TeacherAction = (short)(teacherAction >= 0 ? ActionCodec.TransformAction(teacherAction, sym) : LogV3.NoAction),
