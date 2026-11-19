@@ -50,9 +50,19 @@ namespace Attax.Console {
         }
 
         internal static BitboardState ApplySymmetryToBoard(BitboardState board, int symmetryIndex) {
-            ulong red = board.RedPieces, blue = board.BluePieces, blocked = board.BlockedSquares;
+            ulong red = board.RedPieces, blue = board.BluePieces, blocked = board.BlockedSquares, voidSq = board.VoidSquares;
             BitboardOps.TransformState(ref red, ref blue, ref blocked, symmetryIndex);
-            return new BitboardState { RedPieces = red, BluePieces = blue, BlockedSquares = blocked, ZobristHash = 0UL };
+            if (voidSq != 0) {
+                ulong tmpA = 0UL, tmpB = 0UL;
+                BitboardOps.TransformState(ref tmpA, ref tmpB, ref voidSq, symmetryIndex);
+            }
+            return new BitboardState {
+                RedPieces = red,
+                BluePieces = blue,
+                BlockedSquares = blocked,
+                VoidSquares = voidSq,
+                ZobristHash = 0UL
+            };
         }
 
         internal static Attax.Data.LogV3.PlayerMode ToLogMode(Attax.Play.PlayerKind kind) {

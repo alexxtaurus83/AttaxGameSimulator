@@ -71,5 +71,29 @@ namespace Attax.Core.Tests {
                 }
             }
         }
+
+        [Fact]
+        public void ApplySymmetryToBoard_PreservesAndTransformsVoidSquares_WithOffCenterHole() {
+            int holeIdx = BoardLookup.GetBitIndex(1, 2); // off-center hole
+            var board = new BitboardState {
+                RedPieces = (1UL << 0) | (1UL << 48),
+                BluePieces = (1UL << 6) | (1UL << 42),
+                BlockedSquares = 1UL << BoardLookup.GetBitIndex(4, 1),
+                VoidSquares = 1UL << holeIdx
+            };
+
+            var distinctVoidMasks = new System.Collections.Generic.HashSet<ulong>();
+            for (int sym = 0; sym < 8; sym++) {
+                var transformed = Attax.Console.Program.ApplySymmetryToBoard(board, sym);
+                Assert.Equal(1, PopCount(transformed.VoidSquares));
+                Assert.Equal(1, PopCount(transformed.BlockedSquares));
+                Assert.Equal(0UL, transformed.VoidSquares & transformed.BlockedSquares);
+                Assert.Equal(0UL, transformed.VoidSquares & (transformed.RedPieces | transformed.BluePieces));
+                distinctVoidMasks.Add(transformed.VoidSquares);
+            }
+
+            // Off-center (1,2) has 8 distinct D4 images on a 7x7 board
+            Assert.Equal(8, distinctVoidMasks.Count);
+        }
     }
 }

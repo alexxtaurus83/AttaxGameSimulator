@@ -55,8 +55,8 @@ namespace Attax.UserSimulator {
         [Option("new-identity", Default = false, HelpText = "Ignore stored credentials and register fresh session.")]
         public bool NewIdentity { get; set; } = false;
 
-        [Option("client-version", Default = "1.1.0", HelpText = "Client version sent in headers.")]
-        public string ClientVersion { get; set; } = "1.1.0";
+        [Option("client-version", Default = "1.2.0", HelpText = "Client version sent in headers.")]
+        public string ClientVersion { get; set; } = "1.2.0";
 
         [Option("log-dir", Default = "./logs/bots", HelpText = "Directory for bot logs.")]
         public string LogDir { get; set; } = "./logs/bots";
