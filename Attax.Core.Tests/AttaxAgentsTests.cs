@@ -60,6 +60,21 @@ namespace Attax.Core.Tests {
             Assert.Equal(ActionError.None, AttaxGame.Validate(state, PlayerColor.Red, action));
         }
 
+        [Fact]
+        public void SimulatorReferee_UsesChipCountOnly_RegardlessOfWinRuleConfig() {
+            var rules = ValidTestRules();
+            Assert.Equal(WinRule.Chips, rules.GetWinRule());
+            using var referee = LocalGameRunner.NewReferee();
+            var board = new BitboardState {
+                RedPieces = 1UL << BoardLookup.GetBitIndex(0, 0),
+                BluePieces = 1UL << BoardLookup.GetBitIndex(6, 6),
+                BlockedSquares = BitboardState.BoardMask
+                    & ~((1UL << BoardLookup.GetBitIndex(0, 0)) | (1UL << BoardLookup.GetBitIndex(6, 6)) | (1UL << BoardLookup.GetBitIndex(3, 3)))
+            };
+            // Equal chips (1 vs 1) with neither side able to move is Draw under chip-only simulator rules
+            Assert.Equal(TerminalResult.Draw, referee.GetTerminalResult(board));
+        }
+
         private static GameState NewGame(GameRulesConfig rules, int blockedCells, int seed, PlayerColor firstPlayer) {
             BitboardState board = StartPosition.Create(blockedCells, seed, firstPlayer);
             return GameState.CreateInitial(board, firstPlayer, rules);
@@ -67,6 +82,7 @@ namespace Attax.Core.Tests {
 
         private static GameRulesConfig ValidTestRules() => new GameRulesConfig {
             schemaVersion = 1,
+            winRule = GameRulesConfig.WinRuleChips,
             economy = new EconomyRules {
                 enabled = true,
                 startingCredits = 0,

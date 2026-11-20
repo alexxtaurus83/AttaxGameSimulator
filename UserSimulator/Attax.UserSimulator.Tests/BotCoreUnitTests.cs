@@ -133,6 +133,7 @@ namespace Attax.UserSimulator.Tests {
 
             var rulesDto = new GameRulesConfigDto {
                 SchemaVersion = coreRules.schemaVersion,
+                WinRule = coreRules.winRule,
                 Economy = new EconomyRulesDto {
                     Enabled = coreRules.economy.enabled,
                     StartingCredits = coreRules.economy.startingCredits,
@@ -207,6 +208,7 @@ namespace Attax.UserSimulator.Tests {
 
         private static GameRulesConfig ValidTestRules() => new GameRulesConfig {
             schemaVersion = 1,
+            winRule = GameRulesConfig.WinRuleChips,
             economy = new EconomyRules {
                 enabled = true,
                 startingCredits = 0,
