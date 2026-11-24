@@ -1,0 +1,16 @@
+{
+  "providers": ["dotnet-csproj", "map"],
+  "sources": ["Attax.Model/**/*.cs", "Attax.Data/**/*.cs", "Attax.Play/**/*.cs", "Attax.Console/**/*.cs", "Attax.Eval.OnnxRuntime/**/*.cs", "UserSimulator/**/*.cs", "*.py"],
+  "tests": ["Attax.Core.Tests/**/*.cs", "UserSimulator/Attax.UserSimulator.Tests/**/*.cs", "tests_py/**/*.py"],
+  "ignore": ["**/*.md", "docsbackup/**", "docs/**", ".kilo/**", ".agents/**", "runs/**", "old-data/**", "**/bin/**", "**/obj/**", "UserSimulator/logs/**", "UserSimulator/bot-state/**", "**/*.cmd", "zlibwapi.dll", "__pycache__/**"],
+  "map": {
+    "*.py": ["cmd: python -m unittest discover -s tests_py -t ."],
+    "tests_py/**": ["cmd: python -m unittest discover -s tests_py -t ."]
+  },
+  "run": {
+    "command": "dotnet",
+    "args": ["test", "{project}", "-c", "Release", "--filter", "{selection}"],
+    "join": "|",
+    "prefix": "FullyQualifiedName~"
+  }
+}

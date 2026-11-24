@@ -362,3 +362,6 @@ Neither exists today, and neither is needed: policy self-play already takes seco
 - The GPU runs used default ONNX Runtime CUDA settings. Things that can reduce per-call overhead (IO binding, CUDA graphs, the TensorRT provider, one session per thread) were not tried, so a tuned GPU setup might beat the numbers above for single positions. It would still not fix point 2 (no batching) and I have no evidence it would beat a 0.35 ms CPU call.
 - The GPU numbers were measured before the GPU option was removed from the CLI, so they cannot be reproduced with the current `Attax.Console`. CPU latency at batch 1, 8 and 32 is still printed by `verify-model`.
 - Measured on one machine (RTX 2080 Ti, 12 cores, driver 617). A different GPU/CPU ratio, a laptop, or a much larger model shifts the crossover.
+
+
+> For agents: see [AGENTS.md](AGENTS.md). Related product repositories: [docs/productStructure.md](docs/productStructure.md).

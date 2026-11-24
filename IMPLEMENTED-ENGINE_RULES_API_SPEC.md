@@ -268,7 +268,7 @@ Host flow (see `UserSimulator/Attax.Agents/AgentTurnPlanner.cs`): if the policy 
 | AI ability policy | `Rules/AiAbilityPolicy.cs`, `Attax.Core/AiAbilityPolicyExtensions.cs` | `AiAbilityPolicyTests.cs` |
 | Bot orchestration | `UserSimulator/Attax.Agents/AgentTurnPlanner.cs` | `UserSimulator/Attax.UserSimulator.Tests/` |
 
-This reference was written from source reading. No build or test run was performed for it; run the commands in [AGENTS.md](AGENTS.md#verification) to verify the engine.
+This reference was written from source reading. No build or test run was performed for it; run the commands in [docs/TESTING.md](docs/TESTING.md) to verify the engine.
 
 ## 13. Maintenance
 
