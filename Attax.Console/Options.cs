@@ -52,7 +52,7 @@ namespace Attax.Console {
         [Option("blocked", Default = "0,0", HelpText = "Random blocked cells per game, N or min,max (inclusive). Ignored when --board is set.")]
         public string Blocked { get; set; } = "0,0";
 
-        [Option("board", HelpText = "Board shape ID (e.g. default, classic, diamond), 'all' (random from catalog), or 'random:holes=H,blocked=B'.")]
+        [Option("board", HelpText = "Board shape ID (e.g. default, story-02, classic-random), 'all' (random from catalog), or 'random:holes=H,blocked=B'.")]
         public string? Board { get; set; }
 
         [Option("maxPlies", Default = 400, HelpText = "Ply cap. A capped game is recorded as PlyCap and its outcome is not a real result.")]

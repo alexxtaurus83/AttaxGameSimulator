@@ -131,33 +131,7 @@ namespace Attax.UserSimulator.Tests {
             var startBoard = StartPosition.Create(0, 42, PlayerColor.Red);
             var initialCoreState = GameState.CreateInitial(startBoard, PlayerColor.Red, coreRules);
 
-            var rulesDto = new GameRulesConfigDto {
-                SchemaVersion = coreRules.schemaVersion,
-                WinRule = coreRules.winRule,
-                Economy = new EconomyRulesDto {
-                    Enabled = coreRules.economy.enabled,
-                    StartingCredits = coreRules.economy.startingCredits,
-                    MaxCredits = coreRules.economy.maxCredits,
-                    CaptureReward = coreRules.economy.captureReward,
-                    FootprintReward = coreRules.economy.footprintReward,
-                    AbilityCosts = new AbilityCostsDto {
-                        SuperJump = coreRules.economy.abilityCosts.superJump,
-                        Convert = coreRules.economy.abilityCosts.convert,
-                        Block = coreRules.economy.abilityCosts.block,
-                        Wall = coreRules.economy.abilityCosts.wall,
-                        DoubleMove = coreRules.economy.abilityCosts.doubleMove,
-                        Spawn = coreRules.economy.abilityCosts.spawn,
-                        SuperClone = coreRules.economy.abilityCosts.superClone,
-                        Unblock = coreRules.economy.abilityCosts.unblock,
-                        Bomb = coreRules.economy.abilityCosts.bomb
-                    }
-                },
-                Turn = new TurnRulesDto { MaxAbilityActionsPerTurn = coreRules.turn.maxAbilityActionsPerTurn },
-                PlayerAbilities = new PlayerAbilitiesConfigDto {
-                    Red = new AbilityTogglesDto(),
-                    Blue = new AbilityTogglesDto()
-                }
-            };
+            var rulesDto = ToRulesDto(coreRules);
 
             var snapshot = new GameSnapshotDto {
                 GameId = "game_1",
@@ -167,11 +141,15 @@ namespace Attax.UserSimulator.Tests {
                 SideToMove = PlayerColorDto.Red,
                 MovesRemainingThisTurn = 1,
                 AbilityActionsUsedThisTurn = 0,
+                FrozenSourcesMask = HexFormat.ToHex(initialCoreState.FrozenSourcesThisTurn),
+                ForbiddenLandingsMask = HexFormat.ToHex(initialCoreState.ForbiddenLandingsThisTurn),
+                ResolvedAbilityCosts = SnapshotMapper.ResolveAbilityCosts(rulesDto, initialCoreState.Board.VoidSquares),
                 RedCredits = initialCoreState.RedCredits,
                 BlueCredits = initialCoreState.BlueCredits,
                 RedPiecesMask = HexFormat.ToHex(initialCoreState.Board.RedPieces),
                 BluePiecesMask = HexFormat.ToHex(initialCoreState.Board.BluePieces),
                 BlockedSquaresMask = HexFormat.ToHex(initialCoreState.Board.BlockedSquares),
+                VoidSquaresMask = HexFormat.ToHex(initialCoreState.Board.VoidSquares),
                 RedFootprintsMask = "0x0000000000000000",
                 BlueFootprintsMask = "0x0000000000000000",
                 ZobristHash = HexFormat.ToHex(initialCoreState.Board.ZobristHash),
@@ -186,28 +164,135 @@ namespace Attax.UserSimulator.Tests {
         }
 
         [Fact]
+        public void BotSnapshot_ToState_RoundtripsRestrictedSnapshotAndScaledCosts() {
+            var coreRules = ValidTestRules();
+            coreRules.abilityAllowance = AbilityAllowance.All();
+            coreRules.abilityAllowance.red[(int)AbilityKind.Spawn] = 2;
+
+            ulong voidMask = (1UL << 10) | (1UL << 11) | (1UL << 12) |
+                             (1UL << 24) | (1UL << 25) | (1UL << 26) |
+                             (1UL << 31) | (1UL << 32) | (1UL << 33);
+            ulong redPieces = (1UL << 0) | (1UL << 1) | (1UL << 48);
+            ulong bluePieces = (1UL << 6) | (1UL << 42);
+            ulong frozenMask = 1UL << 1;
+
+            var restrictedState = GameState.Restore(
+                red: redPieces,
+                blue: bluePieces,
+                blocked: 0UL,
+                redFootprints: 0UL,
+                blueFootprints: 0UL,
+                sideToMove: PlayerColor.Red,
+                redCredits: 120,
+                blueCredits: 80,
+                turnNumber: 1,
+                actionCount: 2,
+                movesRemainingThisTurn: 1,
+                abilityActionsUsedThisTurn: 1,
+                rules: coreRules,
+                voidSquares: voidMask,
+                frozenSources: frozenMask,
+                forbiddenLandings: 0UL);
+
+            var rulesDto = ToRulesDto(coreRules);
+            var snapshot = new GameSnapshotDto {
+                GameId = "game_restricted",
+                ServerVersion = 3,
+                ActionCount = restrictedState.ActionCount,
+                TurnNumber = restrictedState.TurnNumber,
+                SideToMove = PlayerColorDto.Red,
+                MovesRemainingThisTurn = restrictedState.MovesRemainingThisTurn,
+                AbilityActionsUsedThisTurn = restrictedState.AbilityActionsUsedThisTurn,
+                FrozenSourcesMask = HexFormat.ToHex(restrictedState.FrozenSourcesThisTurn),
+                ForbiddenLandingsMask = HexFormat.ToHex(restrictedState.ForbiddenLandingsThisTurn),
+                ResolvedAbilityCosts = SnapshotMapper.ResolveAbilityCosts(rulesDto, voidMask),
+                RedCredits = restrictedState.RedCredits,
+                BlueCredits = restrictedState.BlueCredits,
+                RedPiecesMask = HexFormat.ToHex(restrictedState.Board.RedPieces),
+                BluePiecesMask = HexFormat.ToHex(restrictedState.Board.BluePieces),
+                BlockedSquaresMask = HexFormat.ToHex(restrictedState.Board.BlockedSquares),
+                VoidSquaresMask = HexFormat.ToHex(restrictedState.Board.VoidSquares),
+                RedFootprintsMask = HexFormat.ToHex(restrictedState.RedFootprints),
+                BlueFootprintsMask = HexFormat.ToHex(restrictedState.BlueFootprints),
+                ZobristHash = HexFormat.ToHex(restrictedState.Board.ZobristHash),
+                RulesFingerprint = HexFormat.ToHex(coreRules.Fingerprint()),
+                StateFingerprint = HexFormat.ToHex(restrictedState.ComputeFingerprint()),
+                Rules = rulesDto
+            };
+
+            var restored = BotSnapshot.ToState(snapshot);
+            Assert.Equal(restrictedState.ComputeFingerprint(), restored.ComputeFingerprint());
+            Assert.Equal(frozenMask, restored.FrozenSourcesThisTurn);
+            Assert.Equal(0UL, restored.ForbiddenLandingsThisTurn);
+            Assert.Equal(40, restored.PlayableCells);
+            Assert.Equal(restrictedState.GetAbilityCost(AbilityKind.Spawn, 2), restored.GetAbilityCost(AbilityKind.Spawn, 2));
+            Assert.Equal(ActionError.SourceFrozenThisTurn, AttaxGame.Validate(restored, PlayerColor.Red, GameAction.MoveAction(new Move(1, 0, 2, 0))));
+            Assert.Equal(ActionError.AbilityLevelNotAllowed, AttaxGame.Validate(restored, PlayerColor.Red, GameAction.Targeted(ActionKind.Spawn, 2, 3, 3)));
+
+            snapshot.ResolvedAbilityCosts["spawn"][0] += 5;
+            Assert.Throws<InvalidOperationException>(() => BotSnapshot.ToState(snapshot));
+        }
+
+        [Fact]
         public void ActionIntentMapper_ToIntent_MapsAllActionKinds() {
             var move = GameAction.MoveAction(new Move(0, 0, 1, 1));
             var moveIntent = ActionIntentMapper.ToIntent(move);
             Assert.Equal(ActionKindDto.Move, moveIntent.Kind);
+            Assert.Null(moveIntent.Level);
             Assert.Equal(0, moveIntent.FromX);
             Assert.Equal(0, moveIntent.FromY);
             Assert.Equal(1, moveIntent.ToX);
             Assert.Equal(1, moveIntent.ToY);
 
-            var spawn = GameAction.Targeted(ActionKind.Spawn, 2, 3);
+            var spawn = GameAction.Targeted(ActionKind.Spawn, 2, 3, 2);
             var spawnIntent = ActionIntentMapper.ToIntent(spawn);
             Assert.Equal(ActionKindDto.Spawn, spawnIntent.Kind);
+            Assert.Equal(2, spawnIntent.Level);
             Assert.Equal(2, spawnIntent.TargetX);
             Assert.Equal(3, spawnIntent.TargetY);
 
             var doubleMove = GameAction.DoubleMoveAction();
             var dmIntent = ActionIntentMapper.ToIntent(doubleMove);
             Assert.Equal(ActionKindDto.DoubleMove, dmIntent.Kind);
+            Assert.Equal(1, dmIntent.Level);
         }
 
+        private static GameRulesConfigDto ToRulesDto(GameRulesConfig coreRules) => new GameRulesConfigDto {
+            SchemaVersion = coreRules.schemaVersion,
+            WinRule = coreRules.winRule,
+            Economy = new EconomyRulesDto {
+                Enabled = coreRules.economy.enabled,
+                StartingCredits = coreRules.economy.startingCredits,
+                MaxCredits = coreRules.economy.maxCredits,
+                CaptureReward = coreRules.economy.captureReward,
+                FootprintReward = coreRules.economy.footprintReward,
+                AbilityCosts = new AbilityCostsDto {
+                    SuperJump = (int[])coreRules.economy.abilityCosts.superJump.Clone(),
+                    Convert = (int[])coreRules.economy.abilityCosts.convert.Clone(),
+                    Block = (int[])coreRules.economy.abilityCosts.block.Clone(),
+                    Wall = (int[])coreRules.economy.abilityCosts.wall.Clone(),
+                    DoubleMove = (int[])coreRules.economy.abilityCosts.doubleMove.Clone(),
+                    Spawn = (int[])coreRules.economy.abilityCosts.spawn.Clone(),
+                    SuperClone = (int[])coreRules.economy.abilityCosts.superClone.Clone(),
+                    Unblock = (int[])coreRules.economy.abilityCosts.unblock.Clone(),
+                    Bomb = (int[])coreRules.economy.abilityCosts.bomb.Clone()
+                },
+                BoardScaling = new BoardScalingDto {
+                    ReferencePlayable = coreRules.economy.boardScaling.referencePlayable,
+                    Alpha = coreRules.economy.boardScaling.alpha,
+                    MinFactor = coreRules.economy.boardScaling.minFactor,
+                    RoundStep = coreRules.economy.boardScaling.roundStep
+                }
+            },
+            Turn = new TurnRulesDto { MaxAbilityActionsPerTurn = coreRules.turn.maxAbilityActionsPerTurn },
+            AbilityAllowance = coreRules.abilityAllowance == null ? null : new AbilityAllowanceDto {
+                Red = (int[])coreRules.abilityAllowance.red.Clone(),
+                Blue = (int[])coreRules.abilityAllowance.blue.Clone()
+            }
+        };
+
         private static GameRulesConfig ValidTestRules() => new GameRulesConfig {
-            schemaVersion = 1,
+            schemaVersion = GameRulesConfig.CurrentSchemaVersion,
             winRule = GameRulesConfig.WinRuleChips,
             economy = new EconomyRules {
                 enabled = true,
@@ -216,26 +301,24 @@ namespace Attax.UserSimulator.Tests {
                 captureReward = 10,
                 footprintReward = 5,
                 abilityCosts = new AbilityCosts {
-                    superJump = 100, convert = 60, block = 40, wall = 50,
-                    doubleMove = 120, spawn = 60, superClone = 150, unblock = 80, bomb = 170
+                    superJump = new[] { 100 },
+                    convert = new[] { 60, 75, 90 },
+                    block = new[] { 40, 50 },
+                    wall = new[] { 50 },
+                    doubleMove = new[] { 120 },
+                    spawn = new[] { 60, 75, 90 },
+                    superClone = new[] { 150 },
+                    unblock = new[] { 50, 80 },
+                    bomb = new[] { 170, 215, 255 }
+                },
+                boardScaling = new BoardScaling {
+                    referencePlayable = 48,
+                    alpha = 1.0,
+                    minFactor = 0.5,
+                    roundStep = 5
                 }
             },
-            turn = new TurnRules { maxAbilityActionsPerTurn = 1 },
-            playerAbilities = new PlayerAbilitiesConfig {
-                red = new AbilityToggles { superJump = true, convert = true, block = true, wall = true, doubleMove = true, spawn = true, superClone = true, unblock = true, bomb = true },
-                blue = new AbilityToggles { superJump = true, convert = true, block = true, wall = true, doubleMove = true, spawn = true, superClone = true, unblock = true, bomb = true }
-            },
-            abilityTexts = new AbilityTexts {
-                superJump = new AbilityText { name = "Super Jump", description = "d", instruction = "i" },
-                convert = new AbilityText { name = "Chief", description = "d", instruction = "i" },
-                block = new AbilityText { name = "Block", description = "d", instruction = "i" },
-                wall = new AbilityText { name = "Wall", description = "d", instruction = "i" },
-                doubleMove = new AbilityText { name = "Double Move", description = "d", instruction = "i" },
-                spawn = new AbilityText { name = "Spawn", description = "d", instruction = "i" },
-                superClone = new AbilityText { name = "Super Clone", description = "d", instruction = "i" },
-                unblock = new AbilityText { name = "Unblock", description = "d", instruction = "i" },
-                bomb = new AbilityText { name = "Bomb", description = "d", instruction = "i" }
-            }
+            turn = new TurnRules { maxAbilityActionsPerTurn = 1 }
         };
     }
 }

@@ -56,8 +56,57 @@ namespace Attax.Core.Tests {
 
             Assert.False(isAbility);
             Assert.Equal(ActionKind.Move, action.Kind);
+            Assert.Equal(0, action.Level);
             Assert.True(decision.HasMove);
             Assert.Equal(ActionError.None, AttaxGame.Validate(state, PlayerColor.Red, action));
+        }
+
+        [Fact]
+        public void AgentTurnPlanner_WithAbilityPolicy_ReturnsExplicitAllowedLevel() {
+            var rules = ValidTestRules();
+            rules.abilityAllowance = AbilityAllowance.All();
+            var state = NewGame(rules, 0, 42, PlayerColor.Red);
+            state.RedCredits = 300;
+            var spec = PlayerSpec.Parse("random");
+            using var player = PlayerFactory.Create(spec, null!, seed: 123, defaultTrain: false);
+            var cfg = new AiAbilityConfig {
+                schemaVersion = AiAbilityConfig.CurrentSchemaVersion,
+                aiAbilitiesEnabled = true,
+                useChancePercent = 100,
+                creditReserve = 0,
+                maxUsesPerGame = 1,
+                safetyFilter = true,
+                targetSelection = "scored"
+            };
+            var policy = new AiAbilityPolicy(cfg, seed: 7, enabled: true);
+
+            var planner = new AgentTurnPlanner(player, policy);
+            var action = planner.Decide(state, PlayerColor.Red, out bool isAbility, out _);
+
+            Assert.True(isAbility);
+            Assert.True(action.Level >= 1);
+            Assert.Equal(ActionError.None, AttaxGame.Validate(state, PlayerColor.Red, action));
+        }
+
+        [Fact]
+        public void AgentTurnPlanner_FallsBackWhenRawSearchSelectsFrozenSource() {
+            var state = GameState.Restore(1UL | (1UL << 24), 1UL << 48, 0, 0, 0,
+                PlayerColor.Red, 0, 0, 0, 1, 1, 1, ValidTestRules(), frozenSources: 1UL << 24);
+            using var player = new FixedMovePlayer(new Move(3, 3, 4, 3));
+            var planner = new AgentTurnPlanner(player);
+            var action = planner.Decide(state, PlayerColor.Red, out bool isAbility, out var decision);
+
+            Assert.False(isAbility);
+            Assert.True(decision.HasMove);
+            Assert.True(decision.UsedFallback);
+            Assert.Equal(ActionCodec.Encode(action.Move), decision.Action);
+            Assert.Equal(ActionError.None, AttaxGame.Validate(state, PlayerColor.Red, action));
+        }
+
+        private sealed class FixedMovePlayer(Move move) : IPlayer {
+            public PlayerSpec Spec => PlayerSpec.Parse("random");
+            public MoveDecision Choose(BitboardState board, PlayerColor side) => new MoveDecision { HasMove = true, Move = move };
+            public void Dispose() { }
         }
 
         [Fact]
@@ -81,7 +130,7 @@ namespace Attax.Core.Tests {
         }
 
         private static GameRulesConfig ValidTestRules() => new GameRulesConfig {
-            schemaVersion = 1,
+            schemaVersion = GameRulesConfig.CurrentSchemaVersion,
             winRule = GameRulesConfig.WinRuleChips,
             economy = new EconomyRules {
                 enabled = true,
@@ -90,26 +139,24 @@ namespace Attax.Core.Tests {
                 captureReward = 10,
                 footprintReward = 5,
                 abilityCosts = new AbilityCosts {
-                    superJump = 100, convert = 60, block = 40, wall = 50,
-                    doubleMove = 120, spawn = 60, superClone = 150, unblock = 80, bomb = 170
+                    superJump = new[] { 100 },
+                    convert = new[] { 60, 75, 90 },
+                    block = new[] { 40, 50 },
+                    wall = new[] { 50 },
+                    doubleMove = new[] { 120 },
+                    spawn = new[] { 60, 75, 90 },
+                    superClone = new[] { 150 },
+                    unblock = new[] { 50, 80 },
+                    bomb = new[] { 170, 215, 255 }
+                },
+                boardScaling = new BoardScaling {
+                    referencePlayable = 48,
+                    alpha = 1.0,
+                    minFactor = 0.5,
+                    roundStep = 5
                 }
             },
-            turn = new TurnRules { maxAbilityActionsPerTurn = 1 },
-            playerAbilities = new PlayerAbilitiesConfig {
-                red = new AbilityToggles { superJump = true, convert = true, block = true, wall = true, doubleMove = true, spawn = true, superClone = true, unblock = true, bomb = true },
-                blue = new AbilityToggles { superJump = true, convert = true, block = true, wall = true, doubleMove = true, spawn = true, superClone = true, unblock = true, bomb = true }
-            },
-            abilityTexts = new AbilityTexts {
-                superJump = new AbilityText { name = "Super Jump", description = "d", instruction = "i" },
-                convert = new AbilityText { name = "Chief", description = "d", instruction = "i" },
-                block = new AbilityText { name = "Block", description = "d", instruction = "i" },
-                wall = new AbilityText { name = "Wall", description = "d", instruction = "i" },
-                doubleMove = new AbilityText { name = "Double Move", description = "d", instruction = "i" },
-                spawn = new AbilityText { name = "Spawn", description = "d", instruction = "i" },
-                superClone = new AbilityText { name = "Super Clone", description = "d", instruction = "i" },
-                unblock = new AbilityText { name = "Unblock", description = "d", instruction = "i" },
-                bomb = new AbilityText { name = "Bomb", description = "d", instruction = "i" }
-            }
+            turn = new TurnRules { maxAbilityActionsPerTurn = 1 }
         };
     }
 }

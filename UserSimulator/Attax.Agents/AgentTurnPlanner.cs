@@ -27,6 +27,19 @@ namespace Attax.Agents {
             }
 
             decision = player.Choose(state.Board, side);
+            if (side == state.SideToMove && (state.FrozenSourcesThisTurn | state.ForbiddenLandingsThisTurn) != 0 &&
+                (!decision.HasMove || !AttaxGame.IsLegalStandardMove(state, side, decision.Move))) {
+                // Temporary online-bot fallback. The raw search stays unchanged until 01c.
+                for (int from = 0; from < 49; from++) {
+                    ulong targets = AttaxGame.GetStandardMoveTargets(state, side, from % 7, from / 7);
+                    if (targets == 0) continue;
+                    int to = BitboardOps.TrailingZeroCount(targets);
+                    var move = new Move(from % 7, from / 7, to % 7, to / 7);
+                    decision = new MoveDecision { HasMove = true, Move = move, Action = ActionCodec.Encode(move), UsedFallback = true };
+                    return GameAction.MoveAction(move);
+                }
+                throw new InvalidOperationException($"No restriction-legal move remains for {side}.");
+            }
             if (!decision.HasMove) {
                 throw new InvalidOperationException($"No move returned by player for {side} when game state is not terminal.");
             }

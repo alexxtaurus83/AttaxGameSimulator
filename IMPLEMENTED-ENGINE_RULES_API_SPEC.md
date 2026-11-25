@@ -1,7 +1,7 @@
 # Engine Rules API Reference (`AttaxGame`)
 
-**Status:** current-state reference, not an implementation request. Verified against `Attax.Core.Utils` at engine commit `043d567` (2026-11-03).
-**Owner:** this repository (`AttaxSimulator`). The source code is authoritative. If this document and the code disagree, the code wins and this document must be fixed.
+**Status:** current-state reference, not an implementation request. Updated for v2 ability levels, allowance, turn-local restrictions, and board-scaled pricing (`schemaVersion = 2`, `EngineInfo.RulesRevision = 2`).
+**Owner:** this repository (`AttaxSimulator`); canonical engine implementation lives in `..\AttaxShared\src\Attax.Core.Utils`. The source code is authoritative. If this document and the code disagree, the code wins and this document must be fixed.
 **Supersedes:** the former implementation-request specification of the same name in the server repository (`merge-conflict-server`), which described the abilities as not yet implemented. That text remains in the server repository's Git history.
 
 Related documents: [engineReadme.md](engineReadme.md) (engine overview and rule decisions), [AGENTS.md](AGENTS.md) (repository boundaries).
@@ -20,9 +20,9 @@ Out of scope for this layer: networking, persistence, UI, AI search, evaluation,
 
 ## 2. Layout and constraints
 
-Source: `Attax.Core.Utils/Rules/` (namespace `Attax.Core.Utils`). Public types: `AttaxGame`, `GameState`, `GameAction`, `ActionKind`, `ActionError`, `ActionOutcome`, `AbilityKind`, `StartPosition`, `EngineInfo`, `GameRulesConfig` and its group classes, `AiAbilityConfig`, `AiAbilityOptions`, `AiAbilityChoice`, `AiAbilityPolicy`. Namespace `Attax.Core.Utils.Validation` holds the dependency-free shared rules `DisplayNameValidator`, `DisplayNameCheck` and `RoomCodeValidator`. `NewGame` and `StartOptions` are server code (`Attax.Server.Application.Games`: `EngineStateFactory`, `StartOptions`).
+Source: `Attax.Core.Utils/Rules/` (namespace `Attax.Core.Utils`). Public types: `AttaxGame`, `GameState`, `GameAction`, `ActionKind`, `ActionError`, `ActionOutcome`, `AbilityKind`, `AbilityLevelEffect`, `AbilityAllowance`, `BoardScaling`, `WinRule`, `StartPosition`, `EngineInfo`, `GameRulesConfig` and its group classes (`EconomyRules`, `AbilityCosts`, `TurnRules`), `AiAbilityConfig`, `AiAbilityOptions`, `AiAbilityChoice`, `AiAbilityPolicy`. Internal per-ability rule dispatch lives in `Rules/Abilities/IAbilityRule.cs` and `AbilityRuleRegistry.cs` (`WallRule`, `BlockRule`, `UnblockRule`, `SpawnRule`, `ConvertRule`, `BombRule`, `SuperJumpRule`, `DoubleMoveRule`, `SuperCloneRule`). Namespace `Attax.Core.Utils.Validation` holds the dependency-free shared rules `DisplayNameValidator`, `DisplayNameCheck` and `RoomCodeValidator`. `NewGame` and `StartOptions` are server code (`Attax.Server.Application.Games`: `EngineStateFactory`, `StartOptions`).
 
-Low-level board primitives live in `AttaxRules` (`Attax.Core.Utils/AttaxRules.cs`): `MakeMoveMasks`, `TryPlaceWall`, `TryUnblock`, `TryRemoveEnemyChip`, `TryPlaceChip`, `TryConvertEnemyChip`. They maintain the Zobrist hash incrementally and never touch credits or footprints.
+Low-level board primitives live in `AttaxRules` (`Attax.Core.Utils/AttaxRules.cs`): `MakeMoveMasks`, `TryPlaceWall`, `TryUnblock`, `TryRemoveEnemyChip`, `TryPlaceChip`, `TryConvertEnemyChip`, `HasAnyLegalMove`, `AdjudicateResult`, `GetScore`. They maintain the Zobrist hash incrementally and never touch credits or footprints. (`AbilityTexts`, `AbilityToggles`, and `PlayerAbilitiesConfig` were removed in v2.)
 
 Constraints that keep the folder copyable into Unity:
 
@@ -40,11 +40,13 @@ enum AbilityKind { None = 0, SuperJump = 1, Convert = 2, Block = 3, Wall = 4, Do
 
 enum ActionKind  { Move = 0, Convert = 1, Block = 2, Wall = 3, DoubleMove = 4,
                    Spawn = 5, SuperClone = 6, Unblock = 7, Bomb = 8 }
+
+enum AbilityLevelEffect { EndsTurn, FreeFrozenPlaced, FreeForbiddenLanding, Free, ConsumesMove, GrantsSecondMove }
 ```
 
-`ActionKind` equals `AbilityKind - 1` for every targeted ability (the AI policy relies on this).
+`AbilityRuleRegistry` maps `AbilityKind` and `ActionKind` to each `IAbilityRule` (`SuperJump` uses `ActionKind.Move` with distance >= 3 and `Level = 1`).
 
-`GameAction` carries `Kind`, a `Move` (only for `ActionKind.Move`), and `X`, `Y` for every other targeted kind. Factories: `GameAction.MoveAction(Move)`, `GameAction.Targeted(ActionKind, x, y)`, `GameAction.DoubleMoveAction()`.
+`GameAction` carries `Kind`, a `Move` (only for `ActionKind.Move`), `X`, `Y` for targeted actions, and `Level` (`0` for standard `Move`, `1..MaxLevel` for abilities including `SuperJump`). Factories: `GameAction.MoveAction(Move)`, `GameAction.SuperJump(Move)`, `GameAction.Targeted(ActionKind, x, y, level)`, `GameAction.DoubleMoveAction()`.
 
 `ActionError` values (stable):
 
@@ -55,19 +57,23 @@ enum ActionKind  { Move = 0, Convert = 1, Block = 2, Wall = 3, DoubleMove = 4,
 | 2 | `NotYourTurn` | Actor is not Red/Blue or not the side to move |
 | 3 | `OutOfBounds` | A coordinate is outside 0..6 |
 | 4 | `NotYourPiece` | Move source is not an own chip |
-| 5 | `DestinationNotEmpty` | Move, Wall, Spawn, or SuperClone target is occupied or blocked |
+| 5 | `DestinationNotEmpty` | Move, Wall, Spawn, or SuperClone target is occupied, blocked, or void |
 | 6 | `SameSquare` | Move source equals destination |
 | 7 | `IllegalDistance` | Reserved; `Validate` does not currently return it |
 | 8 | `NotEnemyChip` | Convert, Block, or Bomb target is not an enemy chip |
-| 9 | `NotBlockedCell` | Unblock target is not blocked |
-| 10 | `InsufficientCredits` | Balance is below the price |
+| 9 | `NotBlockedCell` | Unblock target is not a playable blocked cell |
+| 10 | `InsufficientCredits` | Balance is below the board-scaled price |
 | 11 | `AbilityLimitReachedThisTurn` | Ability use already spent this turn |
 | 12 | `DoubleMoveAlreadyActive` | `MovesRemainingThisTurn` is already above 1 |
 | 13 | `UnknownAction` | `ActionKind` outside 0..8 |
-| 14 | `AbilityDisabled` | Disabled for this player, economy off, or price 0 |
+| 14 | `AbilityDisabled` | Economy off or resolved price 0 |
 | 15 | `CounterOverflow` | `ActionCount` or `TurnNumber` would overflow |
+| 16 | `InvalidAbilityLevel` | Non-zero level on standard Move, or ability level outside `1..MaxLevel` |
+| 17 | `AbilityLevelNotAllowed` | Requested level exceeds `rules.GetMaxLevel(actor, kind)` |
+| 18 | `SourceFrozenThisTurn` | Move source is in `FrozenSourcesThisTurn` |
+| 19 | `LandingForbiddenThisTurn` | Move destination is in `ForbiddenLandingsThisTurn` |
 
-`ActionOutcome` reports `Kind`, `Ability`, `Actor`, the masks `FlippedMask`, `RemovedMask`, `PlacedMask`, `BlockedAddedMask`, `BlockedClearedMask`, `FootprintPlacedMask`, `FootprintClearedMask`, and `CreditsSpent`, `ActorCreditsGained` (footprint reward actually granted), `VictimCreditsGained` (capture reward actually granted), `TurnAdvanced`, `Result`.
+`ActionOutcome` reports `Kind`, `Ability`, `Level`, `Actor`, the masks `FlippedMask`, `RemovedMask`, `PlacedMask`, `BlockedAddedMask`, `BlockedClearedMask`, `FootprintPlacedMask`, `FootprintClearedMask`, `CreditsSpent`, `ActorCreditsGained` (footprint reward actually granted), `VictimCreditsGained` (capture reward actually granted), `TurnAdvanced`, `AutoPassed`, `FrozenMask`, `ForbiddenLandingMask`, and `Result`.
 
 The server-side `StartOptions { BlockedCells (0..12), Seed, FirstPlayer = Red }` (`Attax.Server.Application.Games`) has a three-argument constructor `StartOptions(blockedCells, seed, firstPlayer = Red)`; it is no longer part of Core.Utils.
 
@@ -75,139 +81,147 @@ The server-side `StartOptions { BlockedCells (0..12), Seed, FirstPlayer = Red }`
 
 | Member | Behavior |
 |---|---|
-| `EngineStateFactory.NewGame(GameRulesConfig, StartOptions)` (server, not `AttaxGame`) | Validates rules (throws `ArgumentException` listing every problem), validates `FirstPlayer` and `BlockedCells`, builds the opening with `StartPosition.Create`, then calls `GameState.Restore`, which clones the rules, sets both balances to `startingCredits` (0 when the economy is off), counters to 0, one move remaining, and evaluates `Result`. |
+| `EngineStateFactory.NewGame(GameRulesConfig, StartOptions)` (server, not `AttaxGame`) | Validates rules (throws `ArgumentException` listing every problem), validates `FirstPlayer` and `BlockedCells`, builds the opening with `StartPosition.Create`, then calls `GameState.Restore`, which clones the rules, computes `PlayableCells` and cached board-scaled prices, sets both balances to `startingCredits` (0 when the economy is off), counters to 0, one move remaining, and evaluates `Result`. |
 | `Validate(state, actor, in action)` | Pure, no mutation. Returns the first applicable `ActionError` (section 6). |
 | `TryApply(state, actor, in action, out outcome)` | Validates first. On error the state is untouched and `outcome` is default. On success it applies the action (section 7). |
 | `AbilityOf(in action)` (internal) | `None` for clone/jump, `SuperJump` for a `Move` with Chebyshev distance >= 3, otherwise the matching kind. |
-| `GameRulesConfig.GetAbilityCost(kind)` | Configured price; 0 means disabled. The former `AttaxGame` wrapper was removed; Unity queries its session directly. |
-| `CanAfford(state, side, kind)` (internal) | Economy on, price above 0, and balance at least the price. |
-| `RulesSession.MoveTargets(x, y)` (Unity, not shared) | Empty clone/jump destinations for the side-to-move chip at `(x, y)`; 0 otherwise. Super-jump targets remain in the authoritative shared ability query. |
-| `GetAbilityTargets(state, kind)` and `(state, side, kind)` | Valid target cells now; 0 when disabled, unaffordable, limit reached, or game over. `DoubleMove` always returns 0. |
-| `CanUseAbility(state, kind)` and `(state, side, kind)` | Enabled, affordable, limit not reached, and (for `DoubleMove`) exactly one move remaining or (otherwise) at least one target. |
-| `GetAvailableAbilities(state)` and `(state, side)` (internal) | Bit mask with bit `1 << (int)kind` per usable ability. |
-| `AttaxRules.HasAnyLegalMove(board, side)` | Clone or jump available; ignores credits. The Unity-only `HasStandardMove` wrapper was removed. |
-| `GetScore(state, side)` (internal) | Chip count. |
+| `GameRulesConfig.GetAbilityCost(kind, level)` | Base unscaled price from config (`0` when economy off or invalid level). |
+| `GameState.GetAbilityCost(kind, level)` / `AttaxGame.GetAbilityCost(state, kind, level)` | Cached board-scaled price for `state.PlayableCells` (`0` when economy off). `AttaxGame.GetAbilityCost(state, kind)` uses `GetMaxLevel(state.SideToMove, kind)`. |
+| `IsLegalStandardMove(state, side, in move)` / `GetStandardMoveTargets(state, side, x, y)` | Restriction-aware standard clone/jump destinations for `(x, y)` (excludes `FrozenSourcesThisTurn` and `ForbiddenLandingsThisTurn` when `side == state.SideToMove`). |
+| `GetSuperJumpTargets(state, side, x, y)` | Valid Super Jump destinations for `(x, y)` enforcing `CanUseAbility` and turn-local restriction masks. |
+| `GetAbilityTargets(state, kind)` / `(state, side, kind)` / `(state, side, kind, level)` | Valid target cells now; 0 when disabled, unaffordable, disallowed, limit reached, or game over. `DoubleMove` and `SuperJump` return 0 (2/3-arg overloads select `GetMaxLevel(side, kind)`). |
+| `GetAbilityEffect(kind, level)` | Returns `AbilityLevelEffect` for `(kind, level)`; throws `ArgumentOutOfRangeException` if invalid. |
+| `CanUseAbility(state, kind)` / `(state, side, kind)` / `(state, side, kind, level)` | Enabled, allowed, affordable, limit not reached, and (for `DoubleMove`) `MovesRemainingThisTurn == 1`, or (for `SuperJump`) at least one source has `GetSuperJumpTargets != 0`, or (otherwise) at least one target. |
+| `GetAvailableAbilities(state)` and `(state, side)` (internal) | Bit mask with bit `1 << (int)kind` per usable ability (at max allowed level). |
+| `AttaxRules.HasAnyLegalMove(board, side)` | Unrestricted clone or jump available; ignores credits and turn-local restrictions. |
+| `AttaxRules.AdjudicateResult(state)` | Global terminal evaluation using `state.WinRule` (`Chips` or `ChipsPlusFootprints`); `AttaxRules.GetTerminalResult(board)` remains chip-only for `AtaxxAIEngine`. |
+| `GetScore(state, side)` (internal) / `AttaxRules.GetScore(state, side)` | Score according to `state.WinRule` (`Chips` or `ChipsPlusFootprints`). |
 | `WouldEndGame(state, actor, in action)` (internal) | False if invalid; otherwise simulates on a clone and reports whether the result is terminal. |
 
-Side-aware overloads (`GetAbilityTargets`, `CanUseAbility`, `GetAvailableAbilities` with an explicit `side`) exist in addition to the side-to-move overloads.
+Side-aware and level-aware overloads (`GetAbilityTargets`, `CanUseAbility`, `GetAbilityCost`) exist in addition to the side-to-move overloads.
 
 ## 5. Rules model
 
 ### 5.1 The nine abilities
 
-An ability is usable when the player's balance covers its price. There are no per-ability charges. Strictly one ability use per turn (`turn.maxAbilityActionsPerTurn` must be 1). A normal clone or jump costs nothing and does not count; a Super Jump counts.
+An ability is usable at `level` in `1..rules.GetMaxLevel(side, kind)` when the player's balance covers the board-scaled price `state.GetAbilityCost(kind, level)` and `AbilityActionsUsedThisTurn < 1`. There are no per-ability charges. A normal clone or jump (`Level = 0`) costs nothing and does not count; a Super Jump (`Level = 1`) counts.
 
-| Ability | `ActionKind` | Target | Effect | Turn effect |
+| Ability | `ActionKind` | `MaxLevel` | Target | Level Effects (`GetEffect`) |
 |---|---|---|---|---|
-| Super Jump | `Move`, distance >= 3 | Empty cell | Jump; source vacated and gets a footprint; adjacent enemies flipped | Ends the move and uses the ability |
-| Chief (`Convert`) | `Convert` | Enemy chip | Chip becomes the actor's; no neighbors flipped | Free action |
-| Block | `Block` | Enemy chip | Chip removed, cell becomes blocked | Free action |
-| Wall | `Wall` | Empty cell | Cell becomes blocked; a footprint there is removed | Free action |
-| Double Move | `DoubleMove` | None | `MovesRemainingThisTurn` becomes 2 | Free action; uses the ability |
-| Spawn | `Spawn` | Empty cell | Own chip placed; no flips | Does not end the move; uses the ability; turn does not pass |
-| Super Clone | `SuperClone` | Empty cell | Own chip placed; adjacent enemies flipped | Ends the move and uses the ability |
-| Unblock | `Unblock` | Blocked cell | Cell becomes empty (also opening blocks) | Free action |
-| Bomb | `Bomb` | Enemy chip | Chip removed; cell empty; no footprint | Free action |
+| Super Jump | `Move` (d >= 3, `Level = 1`) | 1 | Empty cell | L1 `ConsumesMove` (vacates source with footprint; flips adjacent enemies) |
+| Chief (`Convert`) | `Convert` | 3 | Enemy chip | L1 `EndsTurn`, L2 `FreeFrozenPlaced`, L3 `Free` (converts enemy chip; no flips) |
+| Block | `Block` | 2 | Enemy chip | L1 `EndsTurn`, L2 `Free` (removes enemy chip, places block) |
+| Wall | `Wall` | 1 | Empty cell | L1 `Free` (places block; clears any footprint) |
+| Double Move | `DoubleMove` | 1 | None | L1 `GrantsSecondMove` (`MovesRemainingThisTurn` becomes 2) |
+| Spawn | `Spawn` | 3 | Empty cell | L1 `EndsTurn`, L2 `FreeFrozenPlaced`, L3 `Free` (places own chip; no flips) |
+| Super Clone | `SuperClone` | 1 | Empty cell | L1 `ConsumesMove` (places own chip; flips adjacent enemies) |
+| Unblock | `Unblock` | 2 | Blocked cell (`& ~Void`) | L1 `EndsTurn`, L2 `Free` (clears blocked cell) |
+| Bomb | `Bomb` | 3 | Enemy chip | L1 `EndsTurn`, L2 `FreeForbiddenLanding`, L3 `Free` (removes enemy chip; no footprint) |
 
 "Chief" is the game-facing name; the code identifier is `Convert`.
 
-### 5.2 Credits and footprints
+### 5.2 Credits, board scaling, and footprints
 
 - Names in the engine and on the wire are neutral: credits and footprints. Unity display strings ("ByteCode", "Bug", "Review") never appear in engine code or JSON.
 - Balances are `int` in `[0, economy.maxCredits]`. Rewards are clamped to remaining capacity (long intermediates). Credits never affect who wins.
+- Board scaling (`economy.boardScaling`): `playable = 49 - PopCount(VoidSquares)` computed once at `CreateInitial` / `Restore`. When `economy.enabled` is true, `factor = min(1, max(minFactor, (playable / referencePlayable)^alpha))`, and each level price is `max(previous + roundStep, roundStep * Round(base[level] * factor / roundStep, MidpointRounding.AwayFromZero))`.
 - Capture reward: the victim earns `captureReward` per flipped chip, from Move and Super Clone only. Chief, Block, and Bomb pay nothing.
-- Footprints: a jump (distance 2) or Super Jump leaves the actor's footprint on the vacated source cell when the economy is enabled; clones leave none. A cell holds at most one footprint, only on empty cells.
+- Footprints: a jump (distance 2) or Super Jump leaves the actor's footprint on the vacated source cell when the economy is enabled; clones leave none. A cell holds at most one footprint, only on empty playable cells.
 - Landing (destination of Move, Spawn, or Super Clone): an enemy footprint is removed and the lander earns `footprintReward`; an own footprint is removed with no reward. Wall removes any footprint on its cell.
 - Rewards stack: one action can pay the actor the footprint reward and the victim the capture reward.
 - Affordability is checked against the balance before the action, so an ability cannot be paid with credits that the same action earns.
-- With `economy.enabled = false`: balances stay 0, no footprints exist, and every ability reports `AbilityDisabled`.
+- With `economy.enabled = false`: balances stay 0, no footprints exist, all effective ability costs are 0, and every ability reports `AbilityDisabled`.
 
 ### 5.3 Rule decisions
 
-- D1: free actions may strand a side; the game ends immediately and `WouldEndGame` lets a UI warn first.
-- D2: credits never create moves; a side without a standard clone/jump ends the game immediately even with credits for Super Jump, Spawn, or Super Clone, and the winner is decided strictly by chip count (equal chips is a draw).
+- D1: abilities may strand a side; `AttaxRules.AdjudicateResult(state)` ignores turn-local restrictions (`FrozenSourcesThisTurn` / `ForbiddenLandingsThisTurn`) and ends the game immediately. Only when non-terminal and the turn did not already advance, if `!AttaxRules.HasAnyLegalMoveRestricted(...)`, the turn auto-passes (`AutoPassed = true`, `TurnAdvanced = true`, clearing restrictions). `WouldEndGame` lets a UI warn first.
+- D2: credits never create moves; a side without a standard clone/jump ends the game immediately even with credits for Super Jump, Spawn, or Super Clone, and the winner is decided by `state.WinRule` (`Chips` or `ChipsPlusFootprints`; equal score is a draw).
 - D3: terminal state is global and evaluated after every accepted action.
 - D4: `EngineStateFactory.NewGame` (server) evaluates the initial result.
 - D5: if Double Move leaves the actor without a standard move for the second move, the game ends; the facade does not skip the move.
-- D6: one ability per turn; Double Move and Spawn consume that use.
-- D7: opening blocks are ordinary blocks and can be cleared by Unblock.
+- D6: one ability per turn (`maxAbilityActionsPerTurn == 1`); Double Move and all levels of Spawn consume that use.
+- D7: opening blocks are ordinary blocks and can be cleared by Unblock (never `VoidSquares`).
 - D8: footprint and reward rules as in 5.2.
-- D9: credits and footprints are not in the Zobrist hash; desync detection uses fingerprints (section 8).
+- D9: credits, footprints, and turn-local restrictions are not in the Zobrist hash; desync detection uses fingerprints (section 8).
 
 ## 6. Validation order
 
 `Validate` is deterministic; target errors win over resource errors.
 
-1. `GameOver` if the game has ended.
-2. `NotYourTurn` if the actor is not Red/Blue or not the side to move.
-3. `UnknownAction` if `Kind` is outside 0..8.
-4. Per kind:
-   - `Move`: `OutOfBounds`, `SameSquare`, `NotYourPiece`, `DestinationNotEmpty`. Distance 1 or 2 needs no resource gate.
+1. `GameOver` if `state.Result != TerminalResult.NotOver`.
+2. `NotYourTurn` if the actor is not Red/Blue or not `state.SideToMove`.
+3. `UnknownAction` if `RuleOf(action) == null && action.Kind != ActionKind.Move`.
+4. Target checks:
+   - `Move` (standard or `SuperJump`): `OutOfBounds`, `SameSquare`, `NotYourPiece`, `DestinationNotEmpty`, `SourceFrozenThisTurn`, `LandingForbiddenThisTurn`.
    - `Convert`, `Block`, `Bomb`: `OutOfBounds`, `NotEnemyChip`.
    - `Wall`, `Spawn`, `SuperClone`: `OutOfBounds`, `DestinationNotEmpty`.
    - `Unblock`: `OutOfBounds`, `NotBlockedCell`.
-   - `DoubleMove`: `DoubleMoveAlreadyActive` when `MovesRemainingThisTurn > 1`.
-5. Resource gate when `AbilityOf` is not `None`, in this order: `AbilityDisabled` (disabled for the player, economy off, or price 0), `InsufficientCredits`, `AbilityLimitReachedThisTurn`.
-6. `CounterOverflow` if `ActionCount` is `int.MaxValue`, or a turn-passing action would overflow `TurnNumber`.
+   - `DoubleMove`: `DoubleMoveAlreadyActive` when `MovesRemainingThisTurn != 1`.
+5. Level and resource gate:
+   - Standard `Move`: `InvalidAbilityLevel` if `action.Level != 0`.
+   - Any ability (`RuleOf(action) != null`): `InvalidAbilityLevel` (`level < 1 || level > MaxLevel`), `AbilityLevelNotAllowed` (`level > rules.GetMaxLevel(actor, kind)`), `AbilityDisabled` (`cost == 0`, including economy off), `InsufficientCredits`, `AbilityLimitReachedThisTurn`.
+6. `CounterOverflow` if `ActionCount == int.MaxValue` or (`TurnNumber == int.MaxValue` and the action can advance the turn).
 
 ## 7. Application order and turn flow
 
 `TryApply` on success, in order:
 
-1. Deduct the ability price, increment `AbilityActionsUsedThisTurn`, record `CreditsSpent`.
-2. Apply the board change through the `AttaxRules` primitive; fill the outcome masks.
-3. For a jump or Super Jump, place the actor's footprint on the source cell.
-4. Landing resolution for Move, Spawn, and Super Clone (footprint removal and reward).
-5. Capture reward to the victim for flipped chips.
-6. `ActionCount++`.
-7. Turn handling, then terminal evaluation (`state.Result`, `outcome.Result`).
-
-Turn handling:
-
-- `Move` and `SuperClone` decrement `MovesRemainingThisTurn`. At 0 the turn passes: `SideToMove` flips, `TurnNumber++`, one move remaining, ability use reset, `TurnAdvanced = true`. Above 0 (Double Move active) the same player continues and `TurnAdvanced = false`.
-- All other actions (including Spawn) never change `SideToMove`, `TurnNumber`, or `MovesRemainingThisTurn`, and `TurnAdvanced = false`.
-- Side-to-move hash key: `AttaxRules.MakeMoveMasks` always toggles it, and `TryPlaceChip` and the free-action primitives never do. The facade corrects this so the key is toggled exactly once per turn change: after a `Move` that does not pass the turn it toggles again; after a `SuperClone` that passes the turn it toggles once.
+1. If ability: deduct `state.GetAbilityCost(ability, action.Level)`, increment `AbilityActionsUsedThisTurn`, record `CreditsSpent`.
+2. Apply the board change through the rule (`ApplyMove` or `rule.Apply`); fill outcome masks (`Level`, `Actor`, `Kind`, `Ability`).
+3. Landing resolution for Move, Spawn, and Super Clone (footprint removal and `ActorCreditsGained`).
+4. Capture reward to the victim (`VictimCreditsGained`) for flipped chips.
+5. `ActionCount++`.
+6. Apply `AbilityLevelEffect`:
+   - `ConsumesMove`: decrement `MovesRemainingThisTurn`; advances if `0`.
+   - `GrantsSecondMove`: increment `MovesRemainingThisTurn`.
+   - `EndsTurn`: marks `advances = true`.
+   - `FreeFrozenPlaced`: sets `FrozenSourcesThisTurn = outcome.FrozenMask = outcome.PlacedMask`.
+   - `FreeForbiddenLanding`: sets `ForbiddenLandingsThisTurn = outcome.ForbiddenLandingMask = outcome.RemovedMask`.
+   - `Free`: leaves move slots and restrictions unchanged.
+7. Global terminal evaluation (`AttaxRules.AdjudicateResult(state)`). If `!advances && Result == NotOver` and restrictions are non-zero and `!HasAnyLegalMoveRestricted(Board, actor, FrozenSourcesThisTurn, ForbiddenLandingsThisTurn)`, set `outcome.AutoPassed = advances = true`.
+8. If `advances`: `TurnAdvanced = true`, flip `SideToMove`, `TurnNumber++`, reset `MovesRemainingThisTurn = 1`, `AbilityActionsUsedThisTurn = 0`, and clear `FrozenSourcesThisTurn = ForbiddenLandingsThisTurn = 0UL`.
+9. Side-to-move hash key: `MakeMoveMasks` already flips it and cell abilities do not, so toggle when `advances != (action.Kind == ActionKind.Move)`.
 
 ## 8. State, restore, and fingerprints
 
-`GameState` fields: `Board` (`BitboardState`), `RedFootprints`, `BlueFootprints`, `RedCredits`, `BlueCredits`, `SideToMove`, `TurnNumber`, `ActionCount`, `MovesRemainingThisTurn` (1, or 2 after Double Move), `AbilityActionsUsedThisTurn` (0 or 1), `Result`, `RulesFingerprint`. Methods: `ExportRules()` (deep copy), `Clone()`, `GetCredits`, `ComputeFingerprint()`. `GameState.CreateInitial(board, firstPlayer, rules)` constructs initial states, and `GameState.Restore(...)` validates invariants on restoration.
+`GameState` fields: `Board` (`BitboardState`, including `VoidSquares`), `RedFootprints`, `BlueFootprints`, `RedCredits`, `BlueCredits`, `SideToMove`, `TurnNumber`, `ActionCount`, `MovesRemainingThisTurn` (1 or 2), `AbilityActionsUsedThisTurn` (0 or 1), `FrozenSourcesThisTurn`, `ForbiddenLandingsThisTurn`, `PlayableCells`, `WinRule`, `Result`, `RulesFingerprint`. Methods: `ExportRules()` (deep copy), `Clone()`, `GetCredits`, `GetFootprints`, `GetAbilityCost(kind, level)`, `ComputeFingerprint()`. `GameState.CreateInitial(board, firstPlayer, rules)` constructs initial states, and `GameState.Restore(...)` validates invariants on restoration.
 
-`GameState.Restore(red, blue, blocked, redFootprints, blueFootprints, sideToMove, redCredits, blueCredits, turnNumber, actionCount, movesRemainingThisTurn, abilityActionsUsedThisTurn, rules)` validates strictly and throws `ArgumentException` for: invalid rules, bits outside the 7x7 board, overlapping chip masks, footprints on occupied or blocked cells, overlapping footprints, invalid side to move, negative counters, `turnNumber > actionCount`, ability uses outside 0..1, moves remaining outside 1..2, moves remaining 2 without an ability use, a non-initial counter set when `actionCount` is 0, credits outside `[0, maxCredits]`, and (for a disabled economy) any credits, footprints, ability use, or extra move. It recomputes the Zobrist hash and `Result`.
+`GameState.Restore(red, blue, blocked, redFootprints, blueFootprints, sideToMove, redCredits, blueCredits, turnNumber, actionCount, movesRemainingThisTurn, abilityActionsUsedThisTurn, rules, voidSquares = 0UL, frozenSources = 0UL, forbiddenLandings = 0UL)` validates strictly and throws `ArgumentException` for: invalid rules, bits outside the 7x7 board, overlapping board masks (including `voidSquares`), footprints on occupied/blocked/void cells, overlapping footprints, invalid side to move, negative counters, `turnNumber > actionCount`, ability uses outside 0..1, both `frozenSources` and `forbiddenLandings` non-zero, any restriction non-zero without `abilityActionsUsedThisTurn == 1`, `frozenSources` outside the active side's pieces, `forbiddenLandings` outside playable empty cells, moves remaining outside 1..2, moves remaining 2 without an ability use, non-initial counters when `actionCount == 0`, credits outside `[0, maxCredits]`, and (for a disabled economy) any credits, footprints, ability use, or extra move. It recomputes the Zobrist hash, cached board-scaled prices, and `Result`.
 
-Fingerprints use 64-bit FNV-1a (offset basis `14695981039346656037`, prime `1099511628211`), feeding each value as 8 little-endian bytes (`int` and `bool` widened first).
+Fingerprints use 64-bit FNV-1a (offset basis `14695981039346656037`, prime `1099511628211`), feeding each value as 8 little-endian bytes (`int`, `bool`, and `double` bit patterns widened/converted first).
 
-- `GameRulesConfig.Fingerprint()` feed order: `schemaVersion`, `economy.enabled`, `startingCredits`, `maxCredits`, `captureReward`, `footprintReward`, the nine costs in the order `superJump, convert, block, wall, doubleMove, spawn, superClone, unblock, bomb`, `turn.maxAbilityActionsPerTurn`, the nine Red toggles, the nine Blue toggles. `abilityTexts` is not hashed.
-- `GameState.ComputeFingerprint()` feed order: Red mask, Blue mask, blocked mask, `ZobristHash`, `SideToMove`, `RedFootprints`, `BlueFootprints`, `RedCredits`, `BlueCredits`, `TurnNumber`, `ActionCount`, `MovesRemainingThisTurn`, `AbilityActionsUsedThisTurn`, `RulesFingerprint`.
+- `GameRulesConfig.Fingerprint()` feed order: `schemaVersion`, `economy.enabled`, `startingCredits`, `maxCredits`, `captureReward`, `footprintReward`, the 9 cost arrays (`length` then elements in `AbilityKind` order 1..9), `boardScaling` (`referencePlayable`, `alpha` bits, `minFactor` bits, `roundStep`), `turn.maxAbilityActionsPerTurn`, optional `abilityAllowance` (`red` then `blue` array length + elements when `abilityAllowance != null`), and `winRule` (fed only when parsed != `WinRule.Chips`).
+- `GameState.ComputeFingerprint()` feed order: `RedPieces`, `BluePieces`, `BlockedSquares`, `VoidSquares` (only when `!= 0`), `ZobristHash`, `SideToMove`, `RedFootprints`, `BlueFootprints`, `RedCredits`, `BlueCredits`, `TurnNumber`, `ActionCount`, `MovesRemainingThisTurn`, `AbilityActionsUsedThisTurn`, `FrozenSourcesThisTurn`, `ForbiddenLandingsThisTurn`, `RulesFingerprint`.
 
-Hosts format masks, hashes, and fingerprints as 18-character hex `0x{value:X16}` on the wire. The shipped `game-rules.json` fingerprint changes whenever a cost, reward, cap, or toggle changes; compute it with `GameRulesConfig.Fingerprint()` instead of copying an old value.
+Hosts format masks, hashes, and fingerprints as 18-character hex `0x{value:X16}` on the wire. The shipped `game-rules.json` fingerprint changes whenever a cost, scaling parameter, reward, cap, allowance, or win rule changes; compute it with `GameRulesConfig.Fingerprint()` instead of copying an old value.
 
 ## 9. Rules configuration: `game-rules.json`
 
-Source: `Attax.Core.Utils/Rules/game-rules.json`, shipped as a content item so it reaches consumer build and publish output. Classes: `GameRulesConfig` (`schemaVersion`, `economy`, `turn`, `playerAbilities`, `abilityTexts`), `EconomyRules`, `AbilityCosts`, `TurnRules`, `AbilityToggles`, `PlayerAbilitiesConfig`, `AbilityTexts`/`AbilityText`.
+Source: `Attax.Core.Utils/Rules/game-rules.json`, shipped as a content item so it reaches consumer build and publish output. Classes: `GameRulesConfig` (`schemaVersion`, `winRule`, `economy`, `turn`, runtime-only `[NonSerialized] abilityAllowance`), `EconomyRules`, `AbilityCosts`, `BoardScaling`, `TurnRules`, `AbilityAllowance`.
 
-Shipped values (check the file for the current numbers before relying on them):
+Shipped values (check `Attax.Core.Utils/Rules/game-rules.json` for current numbers):
 
 | Field | Shipped value |
 |---|---|
-| `schemaVersion` | 1 |
+| `schemaVersion` | 2 |
+| `winRule` | `"chipsPlusFootprints"` |
 | `economy.enabled` | true |
 | `economy.startingCredits` | 0 |
 | `economy.maxCredits` | 300 |
 | `economy.captureReward` | 10 |
 | `economy.footprintReward` | 5 |
-| `economy.abilityCosts.*` | superJump 100, convert 60, block 40, wall 50, doubleMove 120, spawn 60, superClone 150, unblock 80, bomb 170 |
+| `economy.abilityCosts.*` | `superJump`: `[100]`, `convert`: `[60, 75, 90]`, `block`: `[40, 50]`, `wall`: `[50]`, `doubleMove`: `[120]`, `spawn`: `[60, 75, 90]`, `superClone`: `[150]`, `unblock`: `[50, 80]`, `bomb`: `[170, 215, 255]` |
+| `economy.boardScaling` | `referencePlayable`: 48, `alpha`: 1.0, `minFactor`: 0.5, `roundStep`: 5 |
 | `turn.maxAbilityActionsPerTurn` | 1 |
-| `playerAbilities.red` / `.blue` | all nine abilities enabled |
-
-`abilityTexts` holds a display `name`, `description`, and `instruction` per ability (`instruction` is optional only for `doubleMove`). These are presentation strings supplied with the rules; they do not affect legality.
+| `abilityAllowance` | `null` in file JSON (all levels up to `MaxLevel` allowed by default) |
 
 Rules for the classes:
 
 - No code defaults: a freshly constructed `GameRulesConfig` has null groups and fails `Validate()`.
-- `Validate()` returns every problem and never throws. It checks the schema version, all groups present, `maxCredits > 0`, `0 <= startingCredits <= maxCredits`, non-negative rewards and costs, `maxAbilityActionsPerTurn == 1`, and complete `abilityTexts`.
-- `GetAbilityCost(kind)` returns 0 for `None`, a disabled economy, or a cost of 0 (a 0 cost disables that ability).
-- `IsAbilityEnabled(player, kind)` (internal, as are the per-config `IsEnabled` helpers and the config `Clone` helpers except `GameRulesConfig.Clone` and `AbilityTexts.Clone`) reads the per-player toggles.
-- `EngineStateFactory.NewGame` (server) and `Restore` clone the rules, so later changes to the caller's object do not affect a running game. Server-side per-ruleset overlays are merged at the JSON level by the server before deserialization.
+- `Validate()` returns every problem and never throws. It checks `schemaVersion == 2`, `winRule` (`"chips"` or `"chipsPlusFootprints"`), all groups present (`economy`, `abilityCosts`, `boardScaling`, `turn`), `maxCredits > 0`, `0 <= startingCredits <= maxCredits`, non-negative rewards, exact per-ability level counts, positive and `>= roundStep`-increasing costs when economy is enabled, valid `boardScaling` (`referencePlayable` 1..49, finite non-negative `alpha`, `0 < minFactor <= 1`, `roundStep > 0`), `maxAbilityActionsPerTurn == 1`, and valid `abilityAllowance` bounds when non-null.
+- `GameRulesConfig.GetAbilityCost(kind, level)` returns 0 for `None`, disabled economy, or out-of-range level; `GameState.GetAbilityCost(kind, level)` returns the board-scaled price.
+- `GetMaxLevel(player, kind)` reads `abilityAllowance` if present, otherwise returns `GameRulesConfig.GetMaxLevel(kind)`.
+- `EngineStateFactory.NewGame` (server) and `Restore` clone the rules, so later changes to the caller's object do not affect a running game. Server-side per-ruleset overlays are merged at the JSON level by the server before deserialization (rejecting `abilityAllowance` in file/overlay inputs).
 
 ## 10. Opening generator
 
@@ -215,7 +229,7 @@ Rules for the classes:
 
 The algorithm is zoned: `zoneCount = ceil(sqrt(count))`, `zoneSize = 7 / zoneCount` (integer division, so some zones do not cover the whole board), zones shuffled with `OrderBy(rnd.Next())`, then up to 1000 attempts picking `rnd.Next(minX, maxX)` and `rnd.Next(minY, maxY)` per zone. This output is intentionally stable for a given seed.
 
-`EngineInfo.OpeningAlgorithmId` is `"zoned-system-random-v1"`. `EngineInfo.VerifyOpeningCompatibility(out string error)` checks four golden vectors (seed/count pairs `(0,3)`, `(42,6)`, `(123,1)`, `(999,12)`) so a runtime change in `System.Random` would be noticed. `EngineInfo.RulesRevision` (public, like `OpeningAlgorithmId`; engine diagnostics only, not a wire value) is `1`; it is informational (logs and diagnostics), and client compatibility is enforced by the server's client-version policy.
+`EngineInfo.OpeningAlgorithmId` is `"zoned-system-random-v1"`. `EngineInfo.VerifyOpeningCompatibility(out string error)` checks four golden vectors (seed/count pairs `(0,3)`, `(42,6)`, `(123,1)`, `(999,12)`) so a runtime change in `System.Random` would be noticed. `EngineInfo.RulesRevision` (public, like `OpeningAlgorithmId`; engine diagnostics only, not a wire value) is `2`; it is informational (logs and diagnostics), and client compatibility is enforced by the server's client-version policy.
 
 ## 11. AI ability policy
 
@@ -240,16 +254,16 @@ Files: `AiAbilityConfig.cs`, `AiAbilityOptions.cs`, `AiAbilityChoice.cs`, `AiAbi
 1. Returns false when disabled, the game is over, `side` is not the side to move, the economy is off, or `maxUsesPerGame` is reached.
 2. Allows one decision per `TurnNumber` and side. Repeated calls in the same turn (including a Double Move continuation) return false without a new roll.
 3. Rolls `useChancePercent`.
-4. Builds candidates that pass `AttaxGame.CanUseAbility` and keep the balance at or above `creditReserve`; picks one uniformly at random, up to 4 attempts, removing rejected abilities.
+4. Builds candidates that pass `AttaxGame.CanUseAbility(state, side, kind, level)` (selecting the highest allowed level `rules.GetMaxLevel(side, kind)` down to 1) and keep the balance at or above `creditReserve`; picks one uniformly at random, up to 4 attempts, removing rejected abilities.
 5. Target choice depends on `targetSelection`:
-   - `random`: a random valid target (for Super Jump, a random own chip at distance >= 3).
-   - `scored` or `engine`: every valid action is simulated on a clone, scored by board evaluation, and the best is taken with a seeded random tie-break. `scored` uses a material difference; `engine` uses `TargetEvaluator` when one is set and otherwise falls back to the material difference. For free actions the best follow-up clone or jump is also scored.
+   - `random`: a random valid target (for Super Jump, a random own unrestricted chip at distance >= 3).
+   - `scored` or `engine`: every valid action is simulated on a clone, scored by board evaluation, and the best is taken with a seeded random tie-break. `scored` uses a material difference; `engine` uses `TargetEvaluator` when one is set and otherwise falls back to the material difference. For free actions the best follow-up clone or jump (filtered by `FrozenSourcesThisTurn` and `ForbiddenLandingsThisTurn`) is also scored.
 6. With `safetyFilter`, a candidate that results in an immediate AI loss is rejected.
-7. `EndsTurn` is true for Super Jump and Super Clone only.
+7. `EndsTurn` reflects `outcome.TurnAdvanced` (`true` for `EndsTurn`, `ConsumesMove`, or auto-pass).
 
 The ability is chosen uniformly among usable abilities; target selection is where the policy can use evaluation. The policy never returns an action that `Validate` rejects.
 
-`RecordAppliedAbility` must be called by the host right after `TryApply` succeeds for the chosen action; it matches the pending choice and increments `UsesThisGame` once.
+`RecordAppliedAbility` must be called by the host right after `TryApply` succeeds for the chosen action; it matches the pending choice (including `outcome.Level == _pendingChoice.Action.Level`) and increments `UsesThisGame` once.
 
 To use the engine's heuristic evaluator, `Attax.Core/AiAbilityPolicyExtensions.cs` provides `UseEngineEvaluator(EngineParams)` and `UseEngineEvaluator(IValueEvaluator)`. This extension lives in `Attax.Core` because `Attax.Core.Utils` must not reference it.
 
@@ -259,14 +273,14 @@ Host flow (see `UserSimulator/Attax.Agents/AgentTurnPlanner.cs`): if the policy 
 
 | Topic | Source | Tests (`Attax.Core.Tests/`) |
 |---|---|---|
-| Facade, validation, turn flow, parity | `Rules/AttaxGame.cs`, `AttaxRules.cs` | `AttaxGameTests.cs`, `AttaxGameAbilityTests.cs` |
-| Economy and caps | `Rules/AttaxGame.cs` | `AttaxGameEconomyTests.cs` |
+| Facade, validation, turn flow, parity | `Rules/AttaxGame.cs`, `Rules/Abilities/*.cs`, `AttaxRules.cs` | `AttaxGameTests.cs`, `AttaxGameAbilityTests.cs`, `AbilityLevelTests.cs` |
+| Economy and caps | `Rules/AttaxGame.cs`, `Rules/BoardScaling.cs` | `AttaxGameEconomyTests.cs`, `AbilityLevelTests.cs` |
 | Invariants, allocation | `Rules/GameState.cs` | `AttaxGameInvariantAndAllocationTests.cs` |
 | Rules config and fingerprints | `Rules/GameRulesConfig.cs`, `Rules/game-rules.json` | `GameRulesConfigTests.cs` |
 | Opening generator | `Rules/StartPosition.cs`, `Rules/EngineInfo.cs` | `StartPositionTests.cs`, `StartBoardTests.cs` |
 | Compatibility and golden fixtures | n/a | `CompatibilityTests.cs`, `RefactorGoldenTests.cs` |
 | AI ability policy | `Rules/AiAbilityPolicy.cs`, `Attax.Core/AiAbilityPolicyExtensions.cs` | `AiAbilityPolicyTests.cs` |
-| Bot orchestration | `UserSimulator/Attax.Agents/AgentTurnPlanner.cs` | `UserSimulator/Attax.UserSimulator.Tests/` |
+| Bot orchestration | `UserSimulator/Attax.Agents/AgentTurnPlanner.cs`, `UserSimulator/Attax.UserSimulator/BotSnapshot.cs` | `Attax.Core.Tests/AttaxAgentsTests.cs`, `UserSimulator/Attax.UserSimulator.Tests/BotCoreUnitTests.cs` |
 
 This reference was written from source reading. No build or test run was performed for it; run the commands in [docs/TESTING.md](docs/TESTING.md) to verify the engine.
 
