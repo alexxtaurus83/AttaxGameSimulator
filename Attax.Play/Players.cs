@@ -32,6 +32,16 @@ namespace Attax.Play {
         MoveDecision Choose(BitboardState board, PlayerColor side);
     }
 
+    /// <summary>A player backed by an alpha-beta search engine: lets ability AI reuse that engine and search under turn-local restrictions.</summary>
+    public interface ISearchEnginePlayer : IPlayer {
+        /// <summary>The player's own engine. Single-threaded use: the caller must not search it concurrently with <see cref="IPlayer.Choose"/>.</summary>
+        AtaxxAIEngine Engine { get; }
+        /// <summary>Configured search depth (the AI depth used for ability verification).</summary>
+        int SearchDepth { get; }
+        /// <summary>Like <see cref="IPlayer.Choose"/>, but chips on <paramref name="excludedSources"/> never move and nothing lands on <paramref name="excludedDestinations"/>.</summary>
+        MoveDecision ChooseRestricted(BitboardState board, PlayerColor side, ulong excludedSources, ulong excludedDestinations);
+    }
+
     /// <summary>Resolves model=&lt;path&gt; to a shared model. Implementations cache sessions so many games share one.</summary>
     public interface IModelSource {
         IPolicyValueModel Get(string path);
@@ -119,10 +129,28 @@ namespace Attax.Play {
         public void Dispose() { }
     }
 
-    internal sealed class SearchPlayer : IPlayer {
+    internal sealed class SearchPlayer : ISearchEnginePlayer {
         private readonly AtaxxAIEngine engine;
         private readonly bool collectScore;
         public PlayerSpec Spec { get; }
+        public AtaxxAIEngine Engine => engine;
+        public int SearchDepth => Spec.Depth;
+
+        public MoveDecision ChooseRestricted(BitboardState board, PlayerColor side, ulong excludedSources, ulong excludedDestinations) {
+            if ((excludedSources | excludedDestinations) == 0UL) return Choose(board, side);
+            long t0 = Stopwatch.GetTimestamp();
+            var result = engine.Search(side, new SearchOptions {
+                Root = board, Depth = Math.Max(1, Spec.Depth), ParallelRoot = false,
+                ExcludedSources = excludedSources, ExcludedDestinations = excludedDestinations
+            });
+            double ms = (Stopwatch.GetTimestamp() - t0) * 1000.0 / Stopwatch.Frequency;
+            if (!result.HasMove) return new MoveDecision { HasMove = false, Action = ActionCodec.NoAction, Milliseconds = ms };
+            var m = result.Best;
+            return new MoveDecision {
+                HasMove = true, Move = m, Action = ActionCodec.Encode(m), Milliseconds = ms, Nodes = result.Nodes,
+                Depth = result.CompletedDepth, LegalCount = result.Ranked.Count
+            };
+        }
 
         /// <param name="evaluator">null = the heuristic evaluator (built by the engine from <paramref name="engineParams"/>); a model evaluator replaces it.</param>
         public SearchPlayer(PlayerSpec spec, IValueEvaluator evaluator, int seed, bool train, bool model, EngineParams engineParams, bool collectScore = false) {

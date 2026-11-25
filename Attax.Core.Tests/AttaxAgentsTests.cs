@@ -51,7 +51,7 @@ namespace Attax.Core.Tests {
             var spec = PlayerSpec.Parse("random");
             using var player = PlayerFactory.Create(spec, null!, seed: 123, defaultTrain: false);
 
-            var planner = new AgentTurnPlanner(player, abilities: null);
+            var planner = new AgentTurnPlanner(player, abilityConfig: null);
             var action = planner.Decide(state, PlayerColor.Red, out bool isAbility, out var decision);
 
             Assert.False(isAbility);
@@ -62,29 +62,64 @@ namespace Attax.Core.Tests {
         }
 
         [Fact]
-        public void AgentTurnPlanner_WithAbilityPolicy_ReturnsExplicitAllowedLevel() {
+        public void AgentTurnPlanner_WithAbilityConfig_PlaysLegalActionsAndUsesAnAbilityOverAGame() {
             var rules = ValidTestRules();
             rules.abilityAllowance = AbilityAllowance.All();
             var state = NewGame(rules, 0, 42, PlayerColor.Red);
-            state.RedCredits = 300;
-            var spec = PlayerSpec.Parse("random");
-            using var player = PlayerFactory.Create(spec, null!, seed: 123, defaultTrain: false);
+            state.RedCredits = state.BlueCredits = 300;
+            using var player = PlayerFactory.Create(PlayerSpec.Parse("classic:depth=2"), null!, seed: 123, defaultTrain: false);
             var cfg = new AiAbilityConfig {
-                schemaVersion = AiAbilityConfig.CurrentSchemaVersion,
-                aiAbilitiesEnabled = true,
-                useChancePercent = 100,
-                creditReserve = 0,
-                maxUsesPerGame = 1,
-                safetyFilter = true,
-                targetSelection = "scored"
+                schemaVersion = AiAbilityConfig.CurrentSchemaVersion, aiAbilitiesEnabled = true, creditValueChips = 0.05f,
+                minGainChips = 0.3f, maxCandidatesVerified = 6, verifyDepthOffset = 1, savingEnabled = false
             };
-            var policy = new AiAbilityPolicy(cfg, seed: 7, enabled: true);
+            var planner = new AgentTurnPlanner(player, cfg);
 
-            var planner = new AgentTurnPlanner(player, policy);
+            int abilities = 0;
+            for (int ply = 0; ply < 120 && state.Result == TerminalResult.NotOver; ply++) {
+                var side = state.SideToMove;
+                var action = planner.Decide(state, side, out bool isAbility, out _);
+                Assert.Equal(ActionError.None, AttaxGame.TryApply(state, side, action, out _));
+                if (isAbility) abilities++;
+            }
+            Assert.True(abilities > 0, "the AI must verify and cast at least one ability");
+        }
+
+        [Fact]
+        public void AgentTurnPlanner_NonSearchPlayer_NeverCastsAbilities() {
+            var state = NewGame(ValidTestRules(), 0, 42, PlayerColor.Red);
+            state.RedCredits = 300;
+            using var player = PlayerFactory.Create(PlayerSpec.Parse("random"), null!, seed: 1, defaultTrain: false);
+            var cfg = new AiAbilityConfig {
+                schemaVersion = AiAbilityConfig.CurrentSchemaVersion, aiAbilitiesEnabled = true, creditValueChips = 0f,
+                minGainChips = 0f, maxCandidatesVerified = 8, verifyDepthOffset = 1, savingEnabled = true
+            };
+            planner_Decide(new AgentTurnPlanner(player, cfg), state);
+        }
+
+        private static void planner_Decide(AgentTurnPlanner planner, GameState state) {
             var action = planner.Decide(state, PlayerColor.Red, out bool isAbility, out _);
+            Assert.False(isAbility);
+            Assert.Equal(ActionKind.Move, action.Kind);
+        }
 
-            Assert.True(isAbility);
-            Assert.True(action.Level >= 1);
+        [Fact]
+        public void AgentTurnPlanner_RejectsAV1Config() {
+            using var player = PlayerFactory.Create(PlayerSpec.Parse("random"), null!, seed: 1, defaultTrain: false);
+            Assert.Throws<ArgumentException>(() => new AgentTurnPlanner(player, new AiAbilityConfig { schemaVersion = 1 }));
+        }
+
+        [Fact]
+        public void AgentTurnPlanner_SearchPlayer_HonoursFrozenSourceWithoutFallback() {
+            var state = GameState.Restore(1UL | (1UL << 24), 1UL << 48, 0, 0, 0,
+                PlayerColor.Red, 0, 0, 0, 1, 1, 1, ValidTestRules(), frozenSources: 1UL << 24);
+            using var player = PlayerFactory.Create(PlayerSpec.Parse("classic:depth=2"), null!, seed: 5, defaultTrain: false);
+            var planner = new AgentTurnPlanner(player);
+            var action = planner.Decide(state, PlayerColor.Red, out bool isAbility, out var decision);
+
+            Assert.False(isAbility);
+            Assert.True(decision.HasMove);
+            Assert.False(decision.UsedFallback);
+            Assert.NotEqual((3, 3), (action.Move.FromX, action.Move.FromY));
             Assert.Equal(ActionError.None, AttaxGame.Validate(state, PlayerColor.Red, action));
         }
 

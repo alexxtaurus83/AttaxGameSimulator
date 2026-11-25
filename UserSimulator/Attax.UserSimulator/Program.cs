@@ -44,7 +44,7 @@ namespace Attax.UserSimulator {
 
                 using var player = PlayerFactory.Create(spec, null!, options.Seed, defaultTrain: false);
 
-                AiAbilityPolicy? abilityPolicy = null;
+                AiAbilityConfig? abilityConfig = null;
                 if (options.Abilities == "policy") {
                     string cfgPath = options.AbilityConfig;
                     if (!File.Exists(cfgPath)) {
@@ -52,14 +52,18 @@ namespace Attax.UserSimulator {
                     }
                     if (File.Exists(cfgPath)) {
                         string json = await File.ReadAllTextAsync(cfgPath);
-                        var cfg = Newtonsoft.Json.JsonConvert.DeserializeObject<AiAbilityConfig>(json);
-                        abilityPolicy = new AiAbilityPolicy(cfg!, options.Seed != 0 ? options.Seed : 1234, enabled: true);
+                        var cfg = Newtonsoft.Json.JsonConvert.DeserializeObject<AiAbilityConfig>(json)
+                            ?? throw new ArgumentException($"Ability config {cfgPath} is empty.");
+                        var cfgErrors = cfg.Validate();
+                        if (cfgErrors.Count > 0) throw new ArgumentException($"Invalid ability config {cfgPath}: {string.Join("; ", cfgErrors)}");
+                        cfg.aiAbilitiesEnabled = true;
+                        abilityConfig = cfg;
                     } else {
                         log.Warning("Ability config file {Path} not found. Running with abilities disabled.", options.AbilityConfig);
                     }
                 }
 
-                var planner = new AgentTurnPlanner(player, abilityPolicy);
+                var planner = new AgentTurnPlanner(player, abilityConfig);
 
                 await using var connection = new ServerConnection(options, log);
                 await connection.StartAsync();

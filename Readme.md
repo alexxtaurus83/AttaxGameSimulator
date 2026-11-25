@@ -204,6 +204,9 @@ One shared conv trunk (no BatchNorm), a spatial policy head (17×7×7) and a val
 - Resumable checkpoints (`--resume`), warm start (`--init-from`), `--keep-best`, refusing a non-empty `--out` unless told otherwise, non-finite loss aborts.
 - Exports `model.onnx` with the contract stamp, validates it against torch (names, shapes, finiteness, value range, numerical parity, batch independence) and writes `report.json` (data stats, per-epoch metrics, timings, artifact sha256).
 
+## Ability-aware bots
+
+`UserSimulator` bots with `--abilities policy --ability-config ai-ability-config.json` use `AbilityDecider` (AttaxShared, `docs/AI_ABILITY_TACTICS.md`): tacticians propose abilities, the bot's own search engine verifies them on a cloned state and a value gate (`gain in chips - price x creditValueChips >= minGainChips`) decides. The config is `schemaVersion: 2`; the v1 chance, reserve, use-cap, safety and target-selection flags no longer exist. Only search specs (`classic`, `value`) cast abilities, and every move honours the turn's frozen-source and forbidden-landing masks through the search root filters. Self-play, arena and log generation are unchanged.
 ## Game result rule
 
 The game ends immediately when either player has no legal moves (including a colour with 0 pieces), when the board is full, or when neither player can move. The winner is always decided strictly by chip count: the side with more pieces wins, and equal counts draw. There are no passes. A game that reaches the ply cap has no terminal result and falls back to piece counts (recorded as `PlyCap`). Search, self-play, the arena and the trainer all use `AtaxxAIEngine.GetTerminalResult`.

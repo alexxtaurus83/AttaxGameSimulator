@@ -48,13 +48,11 @@ Credit cap is `300`, starting credits `0`, capture reward `10`, footprint reward
 - **D11, Spawn levels and turn flow:** Spawn clears/rewards any footprint at the destination and increments `ActionCount` and `AbilityActionsUsedThisTurn`. Level 1 ends the turn (`EndsTurn`), level 2 is free while freezing the spawned chip for the rest of the turn (`FreeFrozenPlaced`, auto-passing if no other move exists), and level 3 is `Free` (leaving `MovesRemainingThisTurn`, `SideToMove`, `TurnNumber`, and the side hash key unchanged unless auto-passed).
 - **D12, Opening verification:** `EngineInfo.OpeningAlgorithmId = "zoned-system-random-v1"`. `EngineInfo.VerifyOpeningCompatibility(out string error)` provides self-check verification against golden vectors. `EngineInfo.RulesRevision` is `2`.
 
-### 1.3 AI Ability Policy
+### 1.3 AI Ability Decision
 
-AI ability usage is driven by `AiAbilityPolicy` in `Attax.Core.Utils`.
-- Driven by `ai-ability-config.json` (`schemaVersion: 1`) with master flag `aiAbilitiesEnabled: false` by default.
-- Pure choice policy with its own seeded `Random` instance; does not alter AI engine RNG or search behavior.
-- Evaluates at most once per turn. Candidate abilities select the highest allowed (`rules.GetMaxLevel(side, kind)`), affordable level meeting `creditReserve`.
-- Selects uniformly at random among available candidate abilities without arbitrary weight tables.
-- Optional safety filter simulates choices with `TryApply` and rejects moves that cause an immediate loss.
-- Successful application must be reported by the host using `RecordAppliedAbility(state, outcome)` (which also checks `outcome.Level`).
-- Until 01c adds search-root restrictions, the online `AgentTurnPlanner` falls back to a legal standard move if the raw search selects a frozen source or forbidden destination. The local referee, training pipeline, and log format are unchanged.
+AI ability usage is driven by `AbilityDecider` in `Attax.Core` (`Abilities/`); details in `AI_ABILITY_TACTICS.md`.
+- Config: `ai-ability-config.json`, explicit `schemaVersion: 2`: `aiAbilitiesEnabled`, `creditValueChips`, `minGainChips`, `maxCandidatesVerified`, `verifyDepthOffset`, `savingEnabled`.
+- Hybrid decision: per-ability tacticians propose, the engine search verifies on a cloned state, and a value gate (`net = gain in chips - price x creditValueChips >= minGainChips`) accepts. No random chance or random ability pick; the same input gives the same decision.
+- Search root filters `ExcludedSources` / `ExcludedDestinations` keep frozen chips and forbidden landings out of the root; `GetBestMove` and training logs are unchanged.
+- `MeasureValues` supplies calibration samples without mutating live state.
+- Bots (`AgentTurnPlanner`) use the bot's own search engine; non-search players never cast abilities.

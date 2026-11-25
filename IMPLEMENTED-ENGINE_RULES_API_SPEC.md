@@ -14,13 +14,13 @@ Related documents: [engineReadme.md](engineReadme.md) (engine overview and rule 
 |---|---|
 | Authoritative server (`merge-conflict-server`) | References `Attax.Core.Utils` only (never `Attax.Core`). Creates games with `EngineStateFactory.NewGame` (`Attax.Server.Application/Games`, composed from `StartPosition.Create` and `GameState.CreateInitial`; called from `Attax.Server.Infrastructure/Games/InitialGameFactory.cs`) and applies player actions with `AttaxGame.TryApply` (`Attax.Server.Infrastructure/Gameplay/GameCommandService.cs`). Persisted games are rebuilt with `GameState.Restore` and checked with the fingerprints in section 8. |
 | Unity client (`AttaxUnity`) | Receives a synchronized copy of `Attax.Core.Utils` and `Attax.Core`. Presentation, animation, and UI stay in Unity. This document does not re-audit the Unity code. |
-| Bots and console tools | `UserSimulator/Attax.Agents/AgentTurnPlanner.cs` asks `AiAbilityPolicy` first and falls back to the engine search. |
+| Bots and console tools | `UserSimulator/Attax.Agents/AgentTurnPlanner.cs` asks `AbilityDecider` first (search players only) and falls back to the engine search with the turn restriction masks. |
 
 Out of scope for this layer: networking, persistence, UI, AI search, evaluation, ONNX, and training. The search never reads credits, footprints, or ability state, and it only proposes clone and jump moves.
 
 ## 2. Layout and constraints
 
-Source: `Attax.Core.Utils/Rules/` (namespace `Attax.Core.Utils`). Public types: `AttaxGame`, `GameState`, `GameAction`, `ActionKind`, `ActionError`, `ActionOutcome`, `AbilityKind`, `AbilityLevelEffect`, `AbilityAllowance`, `BoardScaling`, `WinRule`, `StartPosition`, `EngineInfo`, `GameRulesConfig` and its group classes (`EconomyRules`, `AbilityCosts`, `TurnRules`), `AiAbilityConfig`, `AiAbilityOptions`, `AiAbilityChoice`, `AiAbilityPolicy`. Internal per-ability rule dispatch lives in `Rules/Abilities/IAbilityRule.cs` and `AbilityRuleRegistry.cs` (`WallRule`, `BlockRule`, `UnblockRule`, `SpawnRule`, `ConvertRule`, `BombRule`, `SuperJumpRule`, `DoubleMoveRule`, `SuperCloneRule`). Namespace `Attax.Core.Utils.Validation` holds the dependency-free shared rules `DisplayNameValidator`, `DisplayNameCheck` and `RoomCodeValidator`. `NewGame` and `StartOptions` are server code (`Attax.Server.Application.Games`: `EngineStateFactory`, `StartOptions`).
+Source: `Attax.Core.Utils/Rules/` (namespace `Attax.Core.Utils`). Public types: `AttaxGame`, `GameState`, `GameAction`, `ActionKind`, `ActionError`, `ActionOutcome`, `AbilityKind`, `AbilityLevelEffect`, `AbilityAllowance`, `BoardScaling`, `WinRule`, `StartPosition`, `EngineInfo`, `GameRulesConfig` and its group classes (`EconomyRules`, `AbilityCosts`, `TurnRules`), `AiAbilityConfig`, `AiAbilityOptions`. The AI decision (`AbilityDecider` and the tacticians) lives in `Attax.Core/Abilities/`. Internal per-ability rule dispatch lives in `Rules/Abilities/IAbilityRule.cs` and `AbilityRuleRegistry.cs` (`WallRule`, `BlockRule`, `UnblockRule`, `SpawnRule`, `ConvertRule`, `BombRule`, `SuperJumpRule`, `DoubleMoveRule`, `SuperCloneRule`). Namespace `Attax.Core.Utils.Validation` holds the dependency-free shared rules `DisplayNameValidator`, `DisplayNameCheck` and `RoomCodeValidator`. `NewGame` and `StartOptions` are server code (`Attax.Server.Application.Games`: `EngineStateFactory`, `StartOptions`).
 
 Low-level board primitives live in `AttaxRules` (`Attax.Core.Utils/AttaxRules.cs`): `MakeMoveMasks`, `TryPlaceWall`, `TryUnblock`, `TryRemoveEnemyChip`, `TryPlaceChip`, `TryConvertEnemyChip`, `HasAnyLegalMove`, `AdjudicateResult`, `GetScore`. They maintain the Zobrist hash incrementally and never touch credits or footprints. (`AbilityTexts`, `AbilityToggles`, and `PlayerAbilitiesConfig` were removed in v2.)
 
@@ -231,44 +231,25 @@ The algorithm is zoned: `zoneCount = ceil(sqrt(count))`, `zoneSize = 7 / zoneCou
 
 `EngineInfo.OpeningAlgorithmId` is `"zoned-system-random-v1"`. `EngineInfo.VerifyOpeningCompatibility(out string error)` checks four golden vectors (seed/count pairs `(0,3)`, `(42,6)`, `(123,1)`, `(999,12)`) so a runtime change in `System.Random` would be noticed. `EngineInfo.RulesRevision` (public, like `OpeningAlgorithmId`; engine diagnostics only, not a wire value) is `2`; it is informational (logs and diagnostics), and client compatibility is enforced by the server's client-version policy.
 
-## 11. AI ability policy
+## 11. AI ability decision
 
-Files: `AiAbilityConfig.cs`, `AiAbilityOptions.cs`, `AiAbilityChoice.cs`, `AiAbilityPolicy.cs`, `ai-ability-config.json`. The policy is separate from the search; it runs before the normal search on the AI's turn and owns its own seeded `System.Random`, so it never consumes the engine's random streams.
+Files: `Attax.Core/Abilities/*` (`AbilityDecider`, `IAbilityTactician`, nine tacticians, `TacticalSignals`, `TacticalContext`), `Rules/AiAbilityConfig.cs`, `Rules/AiAbilityOptions.cs`, `Rules/ai-ability-config.json` (schema v2). The full description is `AI_ABILITY_TACTICS.md` in AttaxShared `docs/`. The v1 `AiAbilityPolicy`, `AiAbilityChoice` and `UseEngineEvaluator` were removed; the decision is deterministic and consumes no random stream.
 
 `ai-ability-config.json` (shipped values):
 
 | Field | Meaning | Shipped |
 |---|---|---|
-| `schemaVersion` | Must be 1 | 1 |
-| `aiAbilitiesEnabled` | Master switch from the file | false |
-| `useChancePercent` | 0..100 chance per AI turn to consider an ability | 35 |
-| `creditReserve` | Balance that must remain after paying | 0 |
-| `maxUsesPerGame` | Cap per game; 0 = unlimited | 0 |
-| `safetyFilter` | Reject a candidate that ends the game as an AI loss | true |
-| `targetSelection` | `random`, `scored`, or `engine`; empty or null behaves like `random` | `engine` |
+| `schemaVersion` | Must be 2 (explicit) | 2 |
+| `aiAbilitiesEnabled` | Master switch from the file | true |
+| `creditValueChips` | Chips one credit is worth (>= 0) | 0.1 |
+| `minGainChips` | Minimum net gain in chips to cast (>= 0) | 1.0 |
+| `maxCandidatesVerified` | Affordable candidates verified per decision (1..32) | 8 |
+| `verifyDepthOffset` | Verification depth = `max(1, aiDepth - offset)` (0..4) | 1 |
+| `savingEnabled` | Defer a modest cast for a clearly better one | true |
 
-`AiAbilityOptions.Resolve(file, hostOverride)` returns `hostOverride ?? file.aiAbilitiesEnabled`. `AiAbilityPolicy(config, seed, enabled)` validates the config (throws on errors) and exposes `Enabled`, `UsesThisGame`, `ResetGame()`, `TryChoose(state, side, out choice)`, `RecordAppliedAbility(state, in outcome)`, and a `TargetEvaluator` property.
+`AbilityDecider.Decide(state, engine, config, aiDepth, ct)`: baseline search of the plain move, tactician proposals, verification of the top affordable candidates by clone + `TryApply` + search of the actual next side, then `net = (score - plain) / EvalPerChip - cost * creditValueChips >= minGainChips`. `AbilityDecider.MeasureValues` returns per-level `AbilityValueSample`s for the calibration tool. `SearchOptions.ExcludedSources` / `ExcludedDestinations` are root-only search filters for frozen chips and forbidden landings; `AtaxxAIEngine.EvalPerChip(board)` converts score units to chips.
 
-`TryChoose` behavior:
-
-1. Returns false when disabled, the game is over, `side` is not the side to move, the economy is off, or `maxUsesPerGame` is reached.
-2. Allows one decision per `TurnNumber` and side. Repeated calls in the same turn (including a Double Move continuation) return false without a new roll.
-3. Rolls `useChancePercent`.
-4. Builds candidates that pass `AttaxGame.CanUseAbility(state, side, kind, level)` (selecting the highest allowed level `rules.GetMaxLevel(side, kind)` down to 1) and keep the balance at or above `creditReserve`; picks one uniformly at random, up to 4 attempts, removing rejected abilities.
-5. Target choice depends on `targetSelection`:
-   - `random`: a random valid target (for Super Jump, a random own unrestricted chip at distance >= 3).
-   - `scored` or `engine`: every valid action is simulated on a clone, scored by board evaluation, and the best is taken with a seeded random tie-break. `scored` uses a material difference; `engine` uses `TargetEvaluator` when one is set and otherwise falls back to the material difference. For free actions the best follow-up clone or jump (filtered by `FrozenSourcesThisTurn` and `ForbiddenLandingsThisTurn`) is also scored.
-6. With `safetyFilter`, a candidate that results in an immediate AI loss is rejected.
-7. `EndsTurn` reflects `outcome.TurnAdvanced` (`true` for `EndsTurn`, `ConsumesMove`, or auto-pass).
-
-The ability is chosen uniformly among usable abilities; target selection is where the policy can use evaluation. The policy never returns an action that `Validate` rejects.
-
-`RecordAppliedAbility` must be called by the host right after `TryApply` succeeds for the chosen action; it matches the pending choice (including `outcome.Level == _pendingChoice.Action.Level`) and increments `UsesThisGame` once.
-
-To use the engine's heuristic evaluator, `Attax.Core/AiAbilityPolicyExtensions.cs` provides `UseEngineEvaluator(EngineParams)` and `UseEngineEvaluator(IValueEvaluator)`. This extension lives in `Attax.Core` because `Attax.Core.Utils` must not reference it.
-
-Host flow (see `UserSimulator/Attax.Agents/AgentTurnPlanner.cs`): if the policy is enabled and `TryChoose` succeeds, apply `choice.Action` with `TryApply` and call `RecordAppliedAbility`; for a free ability the host then runs the normal search on `state.Board`, and for an `EndsTurn` ability it skips the search. If no ability is chosen, run the search and apply `GameAction.MoveAction(move)`. Self-play, training, and arena runs construct no policy.
-
+Host flow (`UserSimulator/Attax.Agents/AgentTurnPlanner.cs`): when the config is enabled and the player is a search player, call `Decide`; apply `Action` with `TryApply` if `UseAbility`. Otherwise choose a standard move honouring the restriction masks. Self-play, training and arena runs construct no config.
 ## 12. Source and test map
 
 | Topic | Source | Tests (`Attax.Core.Tests/`) |
@@ -279,7 +260,7 @@ Host flow (see `UserSimulator/Attax.Agents/AgentTurnPlanner.cs`): if the policy 
 | Rules config and fingerprints | `Rules/GameRulesConfig.cs`, `Rules/game-rules.json` | `GameRulesConfigTests.cs` |
 | Opening generator | `Rules/StartPosition.cs`, `Rules/EngineInfo.cs` | `StartPositionTests.cs`, `StartBoardTests.cs` |
 | Compatibility and golden fixtures | n/a | `CompatibilityTests.cs`, `RefactorGoldenTests.cs` |
-| AI ability policy | `Rules/AiAbilityPolicy.cs`, `Attax.Core/AiAbilityPolicyExtensions.cs` | `AiAbilityPolicyTests.cs` |
+| AI ability decision | `Attax.Core/Abilities/`, `Rules/AiAbilityConfig.cs` | `AbilityDeciderTests.cs`, `TacticianTests.cs`, `HintSearchTests.cs` |
 | Bot orchestration | `UserSimulator/Attax.Agents/AgentTurnPlanner.cs`, `UserSimulator/Attax.UserSimulator/BotSnapshot.cs` | `Attax.Core.Tests/AttaxAgentsTests.cs`, `UserSimulator/Attax.UserSimulator.Tests/BotCoreUnitTests.cs` |
 
 This reference was written from source reading. No build or test run was performed for it; run the commands in [docs/TESTING.md](docs/TESTING.md) to verify the engine.

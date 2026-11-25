@@ -8,7 +8,7 @@ Attax UserSimulator is an autonomous headless client designed for live server st
   - `host`: Creates a private room, writes discovery metadata to `sim-rooms/`, and waits for a human or bot guest.
   - `guest`: Lists available rooms with human-friendly CLI selection, joins via room code, and initiates immediate play.
 - **AI Engine Integration**: Uses `Attax.Agents` and `Attax.Play` with customizable `PlayerSpec` (e.g. `classic:depth=3,cores=2`). Note: AI search depth is constrained to `<= 3`.
-- **Abilities Support**: Optional policy-driven ability execution (`--abilities policy --ability-config ai-ability-config.json`).
+- **Abilities Support**: Optional ability-aware play (`--abilities policy --ability-config ai-ability-config.json`): tacticians propose, the bot's own search engine verifies and a value gate decides (schema v2 config; see `AI_ABILITY_TACTICS.md` in AttaxShared). Only search specs (`classic`, `value`) cast abilities.
 - **Resilient Transport**: Single-use SignalR tickets, automatic reconnect, `GameSyncReconciler` state recovery, and correlation logging via Serilog.
 
 ## Usage
