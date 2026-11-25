@@ -21,7 +21,7 @@ Three ways to play, all driven by the same player spec and all comparable in one
 | `Attax.Data` | log writer/reader/validator (format v4, class names keep "V3") |
 | `Attax.Play` | player specs (`classic:depth=3,params=...`), players, engine-parameter file loading (`EngineParamsFile`), pair statistics and the sequential test |
 | `Attax.Eval.OnnxRuntime` | `OnnxPolicyValueModel`: ONNX Runtime adapter that validates the contract at load |
-| `Attax.Console` | CLI: `selfplay`, `relabel`, `arena`, `compare-moves`, `params-default`, `params-check`, `validate-log`, `verify-model`, `contract-fixtures`, `validate-hash` |
+| `Attax.Console` | CLI: `selfplay`, `relabel`, `arena`, `compare-moves`, `params-default`, `params-check`, `validate-log`, `verify-model`, `contract-fixtures`, `validate-hash`, `economy-sim`, `economy-analyze`, `economy` |
 | `train.py`, `ataxx_common.py`, `ataxx_data.py`, `ataxx_model.py` | trainer, shared contract, log reader, network/losses/ONNX export |
 | `Attax.Core.Tests`, `tests_py/` | xUnit and unittest suites |
 
@@ -207,6 +207,11 @@ One shared conv trunk (no BatchNorm), a spatial policy head (17×7×7) and a val
 ## Ability-aware bots
 
 `UserSimulator` bots with `--abilities policy --ability-config ai-ability-config.json` use `AbilityDecider` (AttaxShared, `docs/AI_ABILITY_TACTICS.md`): tacticians propose abilities, the bot's own search engine verifies them on a cloned state and a value gate (`gain in chips - price x creditValueChips >= minGainChips`) decides. The config is `schemaVersion: 2`; the v1 chance, reserve, use-cap, safety and target-selection flags no longer exist. Only search specs (`classic`, `value`) cast abilities, and every move honours the turn's frozen-source and forbidden-landing masks through the search root filters. Self-play, arena and log generation are unchanged.
+
+## Economy calibration
+
+`economy-sim` plays rules-engine games (credits, footprints, abilities) on the 20 void-only boards and writes a separate JSONL log (not the `ATLG` training log); `economy-analyze` fits board scaling, values and prices ability levels, verifies cast frequencies and, with `--apply`, writes `game-rules.json`, `ai-ability-config.json` and `AttaxUnity\docs\ECONOMY.md` only when converged; `economy` does both in one in-memory run. `economy-overnight.cmd` runs six balanced sessions (about 4.5 hours, resumable) plus a draft analysis into `runs\economy-overnight\`. Step by step: [`ECONOMY_CALIBRATION.md`](ECONOMY_CALIBRATION.md).
+
 ## Game result rule
 
 The game ends immediately when either player has no legal moves (including a colour with 0 pieces), when the board is full, or when neither player can move. The winner is always decided strictly by chip count: the side with more pieces wins, and equal counts draw. There are no passes. A game that reaches the ply cap has no terminal result and falls back to piece counts (recorded as `PlyCap`). Search, self-play, the arena and the trainer all use `AtaxxAIEngine.GetTerminalResult`.

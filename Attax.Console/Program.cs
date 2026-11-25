@@ -20,7 +20,8 @@ namespace Attax.Console {
             });
 
             var parseResult = parser.ParseArguments<SelfPlayOptions, RelabelOptions, ArenaOptions, ValidateLogOptions,
-                VerifyModelOptions, FixturesOptions, ValidateHashOptions, ParamsDefaultOptions, ParamsCheckOptions, CompareMovesOptions>(args);
+                VerifyModelOptions, FixturesOptions, ValidateHashOptions, ParamsDefaultOptions, ParamsCheckOptions, CompareMovesOptions,
+                EconomySimOptions, EconomyAnalyzeOptions, EconomyOptions>(args);
 
             int exitCode = 1;
             parseResult
@@ -34,6 +35,9 @@ namespace Attax.Console {
                 .WithParsed<ParamsDefaultOptions>(o => exitCode = Execute(() => RunParamsDefault(o)))
                 .WithParsed<ParamsCheckOptions>(o => exitCode = Execute(() => RunParamsCheck(o)))
                 .WithParsed<CompareMovesOptions>(o => exitCode = Execute(() => RunCompareMoves(o)))
+                .WithParsed<EconomySimOptions>(o => exitCode = Execute(() => RunEconomySim(o)))
+                .WithParsed<EconomyAnalyzeOptions>(o => exitCode = Execute(() => RunEconomyAnalyze(o)))
+                .WithParsed<EconomyOptions>(o => exitCode = Execute(() => RunEconomy(o)))
                 .WithNotParsed(errors => exitCode = HandleParseErrors(parseResult, errors));
             return exitCode;
         }

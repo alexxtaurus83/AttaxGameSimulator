@@ -158,6 +158,108 @@ namespace Attax.Console {
         public int Threads { get; set; } = 1;
     }
 
+    [Verb("economy-sim", HelpText = "Play rules-engine games (credits, footprints, abilities) and write an economy .jsonl log for calibration. Does not touch the training logs.")]
+    internal sealed class EconomySimOptions {
+        [Option("boards", Default = "all", HelpText = "Board shape IDs (comma separated) or 'all' (every catalog shape, equal game count each).")]
+        public string Boards { get; set; } = "all";
+        [Option("games", Default = 40, HelpText = "Games (openings when --swap-colors is set: 2 * games are played).")]
+        public int Games { get; set; } = 40;
+        [Option("red", Default = "classic:depth=3,quiescence=true", HelpText = "Red player spec.")]
+        public string Red { get; set; } = "classic:depth=3,quiescence=true";
+        [Option("blue", HelpText = "Blue player spec (default: same as --red).")]
+        public string? Blue { get; set; }
+        [Option("swap-colors", Default = false, HelpText = "Play every opening twice with the colours swapped.")]
+        public bool SwapColors { get; set; } = false;
+        [Option("abilities", Default = true, HelpText = "Let the AI cast abilities (false = income-only games).")]
+        public bool Abilities { get; set; } = true;
+        [Option("sample-values", Default = 0, HelpText = "Own-turn positions per game measured with the un-gated ability verification (gain in chips per ability level).")]
+        public int SampleValues { get; set; } = 0;
+        [Option("maxPlies", Default = 400, HelpText = "Action cap; a capped game is decided by chip count.")]
+        public int MaxPlies { get; set; } = 400;
+        [Option("seed", Default = 20261124, HelpText = "Base seed.")]
+        public int Seed { get; set; } = 20261124;
+        [Option("parallel", Default = 0, HelpText = "Games in parallel (0 = processor count; 1 for clean per-game timing).")]
+        public int Parallel { get; set; } = 0;
+        [Option("rules", HelpText = "game-rules.json (default: the AttaxShared source file, else next to the exe).")]
+        public string? Rules { get; set; }
+        [Option("ai-config", HelpText = "ai-ability-config.json (default: the AttaxShared source file, else next to the exe).")]
+        public string? AiConfig { get; set; }
+        [Option("tag", HelpText = "Session label stamped into every record (default: the output file name).")]
+        public string? Tag { get; set; }
+        [Option("out", Required = true, HelpText = "Output .jsonl path (written to .tmp then renamed).")]
+        public string Out { get; set; } = "";
+    }
+
+    [Verb("economy-analyze", HelpText = "Analyze economy .jsonl logs: fit board scaling, value ability levels, price them, verify cast frequencies and optionally apply.")]
+    internal sealed class EconomyAnalyzeOptions {
+        [Option("in", Required = true, Min = 1, HelpText = "Economy logs: .jsonl files or directories (top-level *.jsonl only).")]
+        public IEnumerable<string> In { get; set; } = Array.Empty<string>();
+        [Option("out", Required = true, HelpText = "Output directory for economy-report.json and economy-report.md.")]
+        public string Out { get; set; } = "";
+        [Option("verify-games", Default = 20, HelpText = "Self-play games per Pass 2 iteration (0 = analytical report only; cannot --apply).")]
+        public int VerifyGames { get; set; } = 20;
+        [Option("boards", Default = "all", HelpText = "Boards for Pass 2 verification games.")]
+        public string Boards { get; set; } = "all";
+        [Option("depth", Default = 3, HelpText = "Search depth of the Pass 2 players.")]
+        public int Depth { get; set; } = 3;
+        [Option("quiescence", Default = true, HelpText = "Quiescence search for the Pass 2 players.")]
+        public bool Quiescence { get; set; } = true;
+        [Option("iterations", Default = 4, HelpText = "Maximum Pass 2 price iterations.")]
+        public int Iterations { get; set; } = 4;
+        [Option("tolerance", Default = 0.5, HelpText = "Half-width of the accepted band around each frequency target.")]
+        public double Tolerance { get; set; } = 0.5;
+        [Option("seed", Default = 20261124, HelpText = "Seed of the Pass 2 games.")]
+        public int Seed { get; set; } = 20261124;
+        [Option("parallel", Default = 0, HelpText = "Games in parallel (0 = processor count).")]
+        public int Parallel { get; set; } = 0;
+        [Option("rules", HelpText = "game-rules.json (default: the AttaxShared source file).")]
+        public string? Rules { get; set; }
+        [Option("ai-config", HelpText = "ai-ability-config.json (default: the AttaxShared source file).")]
+        public string? AiConfig { get; set; }
+        [Option("economy-doc", HelpText = "AttaxUnity docs/ECONOMY.md (default: found from the repository layout or ATTAX_UNITY_REPO).")]
+        public string? EconomyDoc { get; set; }
+        [Option("anchors", HelpText = "JSON file overriding the calibration anchors.")]
+        public string? Anchors { get; set; }
+        [Option("apply", Default = false, HelpText = "Write game-rules.json, ai-ability-config.json and docs/ECONOMY.md when converged.")]
+        public bool Apply { get; set; } = false;
+    }
+
+    [Verb("economy", HelpText = "One-shot economy calibration in memory (income games, value games, verification), with the same gates as economy-analyze.")]
+    internal sealed class EconomyOptions {
+        [Option("boards", Default = "all", HelpText = "Board shape IDs or 'all'.")]
+        public string Boards { get; set; } = "all";
+        [Option("games", Default = 40, HelpText = "Games for each of Pass 0 (abilities off) and Pass 1 (abilities on).")]
+        public int Games { get; set; } = 40;
+        [Option("sample-values", Default = 10, HelpText = "Own-turn positions per Pass 1 game measured for ability values.")]
+        public int SampleValues { get; set; } = 10;
+        [Option("verify-games", Default = 20, HelpText = "Self-play games per Pass 2 iteration (0 = analytical report only).")]
+        public int VerifyGames { get; set; } = 20;
+        [Option("depth", Default = 3, HelpText = "Search depth of all players.")]
+        public int Depth { get; set; } = 3;
+        [Option("quiescence", Default = true, HelpText = "Quiescence search for all players.")]
+        public bool Quiescence { get; set; } = true;
+        [Option("iterations", Default = 4, HelpText = "Maximum Pass 2 price iterations.")]
+        public int Iterations { get; set; } = 4;
+        [Option("tolerance", Default = 0.5, HelpText = "Half-width of the accepted band around each frequency target.")]
+        public double Tolerance { get; set; } = 0.5;
+        [Option("seed", Default = 20261124, HelpText = "Base seed.")]
+        public int Seed { get; set; } = 20261124;
+        [Option("parallel", Default = 0, HelpText = "Games in parallel (0 = processor count).")]
+        public int Parallel { get; set; } = 0;
+        [Option("out", Required = true, HelpText = "Output directory (reports and the two generated logs).")]
+        public string Out { get; set; } = "";
+        [Option("rules", HelpText = "game-rules.json (default: the AttaxShared source file).")]
+        public string? Rules { get; set; }
+        [Option("ai-config", HelpText = "ai-ability-config.json (default: the AttaxShared source file).")]
+        public string? AiConfig { get; set; }
+        [Option("economy-doc", HelpText = "AttaxUnity docs/ECONOMY.md.")]
+        public string? EconomyDoc { get; set; }
+        [Option("anchors", HelpText = "JSON file overriding the calibration anchors.")]
+        public string? Anchors { get; set; }
+        [Option("apply", Default = false, HelpText = "Write the configs and docs/ECONOMY.md when converged.")]
+        public bool Apply { get; set; } = false;
+    }
+
     [Verb("contract-fixtures", HelpText = "Write JSON fixtures (positions, planes, legal actions, symmetry maps, optional model outputs) for the Python parity test.")]
     internal sealed class FixturesOptions {
         [Option("out", Required = true, HelpText = "Output JSON path.")]
