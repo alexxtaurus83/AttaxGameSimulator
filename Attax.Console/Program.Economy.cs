@@ -228,7 +228,7 @@ namespace Attax.Console {
                 measure = candidate => MeasureFrequency(q, candidate, boards, spec, input.OpeningPlies, q.VerifyGames, q.Seed);
             }
             var result = Calibrator.Solve(input.UncappedIncome ?? input.Income, values, economy, q.Anchors, q.Iterations, measure,
-                input.WallBalances.Length == 0 ? null : input.WallBalances.Average());
+                input.WallBalances.Length == 0 ? null : input.WallBalances.Average(), hasTelemetry ? q.Context.Ai.creditValueChips : null);
             if (result.WallTurnsOnReference > 0 && input.UncappedIncome != null) {
                 double credited = input.Income.First(g => g.Playable == PriceSolver.ReferencePlayable).MeanPerTurn;
                 result.WallTurnsOnReference = credited > 0 ? result.BasePrices[AbilityKind.Wall][0] / credited : 0;
@@ -244,7 +244,7 @@ namespace Attax.Console {
             if (q.Apply) {
                 if (q.VerifyGames <= 0) reason = "--apply needs --verify-games > 0";
                 else if (blocking) reason = "the input logs are inconsistent (see Diagnostics)";
-                else if (!q.Context.FromSource) reason = "rules/AI configs were not resolved to the AttaxShared source files; pass --rules/--ai-config or set ATTAX_SHARED_REPO";
+                else if (!q.Context.FromSource) reason = "rules/AI configs were not resolved to the Shared checkout used for the build; pass --rules/--ai-config explicitly for an intentional override";
                 else if (q.VerifyGames < boards.Count || q.HoldoutGames < boards.Count) reason = "--apply needs at least one tuning and one holdout game per selected board";
                 else if (!result.Converged || Calibrator.HasFailures(result)) reason = "the calibration did not converge on both tuning and holdout games";
                 canApply = reason == null;

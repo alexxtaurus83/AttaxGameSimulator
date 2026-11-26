@@ -31,7 +31,7 @@ rem  RESULTS:  runs\economy-overnight-diverse-v2\SUMMARY.txt and analysis\econom
 rem  THEN:     review opening diversity, actual balances, producing build, hashes and holdout before economy-analyze --apply.
 rem
 rem  Overrides (set before running), e.g. a smoke test:
-rem     set "RUNDIR=runs\economy-smoke-v2" & set "S01_GAMES=2" & set "S02_GAMES=2" & set "S03_GAMES=2" & set "S04_GAMES=2" & set "S05_GAMES=2" & set "S06_GAMES=2" & set "VERIFY_GAMES=0" & set "HOLDOUT_GAMES=0" & set "NO_LOGWINDOW=1"
+rem     set "RUNDIR=runs\economy-smoke-v2" & set "S01_GAMES=2" & set "S02_GAMES=2" & set "S03_GAMES=2" & set "S04_GAMES=2" & set "S05_GAMES=2" & set "S06_GAMES=2" & set "VERIFY_GAMES=0" & set "HOLDOUT_GAMES=0" & set "ALLOW_DIRTY_DRAFT=1" & set "NO_LOGWINDOW=1"
 rem ======================================================================================================
 
 if not defined RUNDIR set "RUNDIR=runs\economy-overnight-diverse-v2"
@@ -46,6 +46,8 @@ if not defined VERIFY_GAMES set "VERIFY_GAMES=100"
 if not defined HOLDOUT_GAMES set "HOLDOUT_GAMES=100"
 if not defined OPENING_PLIES set "OPENING_PLIES=4"
 if not defined SEED set "SEED=20261124"
+if not defined ATTAX_SHARED_REPO set "ATTAX_SHARED_REPO=%~dp0..\AttaxShared"
+for %%D in ("%ATTAX_SHARED_REPO%") do set "ATTAX_SHARED_REPO=%%~fD"
 set /a VERIFY_SEED=SEED+1009
 set "PUBLISH=%RUNDIR%\console"
 set "CON=%PUBLISH%\Attax.Console.exe"
@@ -53,6 +55,42 @@ set "LOG=%RUNDIR%\pipeline.log"
 
 if not exist "%RUNDIR%" mkdir "%RUNDIR%"
 type nul >> "%LOG%"
+if not exist "%ATTAX_SHARED_REPO%\AttaxShared.sln" (
+    call :stamp "ERROR: invalid ATTAX_SHARED_REPO: %ATTAX_SHARED_REPO%"
+    goto :fail
+)
+set "SIM_REV="
+set "SHARED_REV="
+for /f "delims=" %%D in ('git rev-parse --verify HEAD') do set "SIM_REV=%%D"
+for /f "delims=" %%D in ('git -C "%ATTAX_SHARED_REPO%" rev-parse --verify HEAD') do set "SHARED_REV=%%D"
+if not defined SIM_REV goto :fail
+if not defined SHARED_REV goto :fail
+if not defined ALLOW_DIRTY_DRAFT (
+    for /f "delims=" %%D in ('git status --porcelain') do goto :dirty
+    for /f "delims=" %%D in ('git -C "%ATTAX_SHARED_REPO%" status --porcelain') do goto :dirty
+)
+(
+    echo simulator=%SIM_REV% shared=%SHARED_REV%
+    echo sharedRoot="%ATTAX_SHARED_REPO%"
+    echo draftOverride="%ALLOW_DIRTY_DRAFT%"
+    echo games=%S01_GAMES%,%S02_GAMES%,%S03_GAMES%,%S04_GAMES%,%S05_GAMES%,%S06_GAMES%
+    echo openings=%OPENING_PLIES% seed=%SEED% verify=%VERIFY_GAMES% holdout=%HOLDOUT_GAMES%
+) > "%RUNDIR%\run-inputs.new"
+if errorlevel 1 goto :fail
+if exist "%RUNDIR%\run-inputs.txt" (
+    fc /b "%RUNDIR%\run-inputs.txt" "%RUNDIR%\run-inputs.new" >nul
+    if errorlevel 1 goto :different_inputs
+    del "%RUNDIR%\run-inputs.new"
+) else (
+    if exist "%RUNDIR%\*.jsonl" goto :different_inputs
+    move /y "%RUNDIR%\run-inputs.new" "%RUNDIR%\run-inputs.txt" >nul
+    if errorlevel 1 goto :fail
+)
+if exist "%RUNDIR%\*.jsonl" (
+    if defined REBUILD goto :different_inputs
+    if not exist "%CON%" goto :different_inputs
+    if not exist "%RUNDIR%\.built" goto :different_inputs
+)
 if not defined NO_LOGWINDOW start "economy log" powershell -NoProfile -Command "Get-Content -LiteralPath '%LOG%' -Wait -Tail 40"
 echo Live log is in a second window, or run: powershell -c "Get-Content %LOG% -Wait -Tail 20"
 echo To STOP: press Ctrl+C here and answer Y to "Terminate batch job". Re-running resumes.
@@ -62,7 +100,7 @@ rem ----------------------------------------------------------------------------
 if defined REBUILD del "%RUNDIR%\.built" 2>nul
 if exist "%CON%" if exist "%RUNDIR%\.built" goto :built
 call :stamp "STEP 0  build console (publish)"
-dotnet publish Attax.Console\Attax.Console.csproj -c Release --nologo -o "%PUBLISH%" >> "%LOG%" 2>&1
+dotnet publish Attax.Console\Attax.Console.csproj -c Release --nologo -o "%PUBLISH%" "-p:AttaxSharedRepoPath=%ATTAX_SHARED_REPO%" >> "%LOG%" 2>&1
 if errorlevel 1 goto :fail
 echo built > "%RUNDIR%\.built"
 :built
@@ -113,6 +151,14 @@ exit /b %errorlevel%
 echo [%date% %time%] %~1
 echo [%date% %time%] %~1 >> "%LOG%"
 exit /b 0
+
+:dirty
+call :stamp "ERROR: commit or isolate changes in AttaxSimulator and AttaxShared before running a release-candidate batch. ALLOW_DIRTY_DRAFT=1 is for smoke tests only."
+goto :fail
+
+:different_inputs
+del "%RUNDIR%\run-inputs.new" 2>nul
+call :stamp "ERROR: this directory contains a different run, old logs, or a request to rebuild with finished sessions. Use a fresh RUNDIR."
 
 :fail
 echo.

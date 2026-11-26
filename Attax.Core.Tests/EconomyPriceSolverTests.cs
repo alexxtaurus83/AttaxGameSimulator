@@ -152,8 +152,9 @@ namespace Attax.Core.Tests {
                 1 => new FrequencyMeasure(8, 3, 100),
                 2 => new FrequencyMeasure(1, 0, 100),
                 _ => new FrequencyMeasure(3.5, 1, 100)
-            }, wallBudget: 35);
+            }, wallBudget: 35, pinnedCreditValueChips: 0.1f);
             Assert.Equal(35, result.InitialPrices[AbilityKind.Wall][0]);
+            Assert.Equal(0.1f, result.CreditValueChips);
             Assert.True(result.Converged);
             Assert.InRange(result.Iterations[2].Scalar, result.Iterations[0].Scalar, result.Iterations[1].Scalar);
             var prices = result.BasePrices;

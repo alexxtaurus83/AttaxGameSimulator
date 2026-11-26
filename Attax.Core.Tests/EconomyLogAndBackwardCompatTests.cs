@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Reflection;
 using System.IO;
 using System.Linq;
 using Attax.Console.Economy;
@@ -135,6 +136,16 @@ namespace Attax.Core.Tests {
                 Assert.True(blocked);
                 Assert.Contains(warnings, w => w.StartsWith(name, StringComparison.Ordinal));
             }
+        }
+
+        [Fact]
+        public void DefaultEconomyConfig_UsesBuildCheckout_NotCallerCheckout() {
+            var root = typeof(EconomyContext).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
+                .Single(a => a.Key == "EconomySharedRoot").Value;
+            string expected = Path.GetFullPath(Path.Combine(root, "src", "Attax.Core.Utils", "Rules", EconomyContext.RulesFile));
+            var ctx = EconomyContext.Load(null, null);
+            Assert.Equal(expected, ctx.RulesPath, ignoreCase: true);
+            Assert.True(ctx.FromSource);
         }
 
         [Fact]

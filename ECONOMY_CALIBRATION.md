@@ -16,7 +16,7 @@ How to measure and set the ByteCode ability prices, board scaling and AI gate va
 
 Use explicit `true` or `false` (case-insensitive) for `economy-sim --abilities`, `economy-sim --swap-colors`, and `--quiescence` on `economy-analyze` or `economy`. If omitted, abilities and quiescence default to `true`, and color swapping defaults to `false`. `--apply` is a switch with no value.
 
-Without `--rules` / `--ai-config` the tool uses the `AttaxShared` source files (found as a sibling checkout or via `ATTAX_SHARED_REPO`), so log hashes match the source configs. `--apply` refuses to write anything that is not an explicitly named file or the source file, so it never edits `bin\...\publish` copies. `docs\ECONOMY.md` is found via `ATTAX_UNITY_REPO` or the workspace layout, or pass `--economy-doc`.
+The batch pins `ATTAX_SHARED_REPO` (sibling by default) for both publish and config loading. The console records the build checkout and prefers it over directory discovery. `--apply` only writes to that checkout's configs or to explicitly named `--rules` / `--ai-config` paths. `docs\ECONOMY.md` is found via `ATTAX_UNITY_REPO` or the workspace layout, or pass `--economy-doc`.
 
 ## 1. Timing pilot (after changing the tool or the engine)
 
@@ -30,13 +30,17 @@ Repeat for `d2 q1`, `d3 q0`, `d3 q1`. Probe multi-core speed-up with a 12-game `
 
 ## 2. Overnight log suite
 
-Disable sleep and run `economy-overnight.cmd` with clean, committed AttaxShared and AttaxSimulator checkouts. It publishes a console inside `runs\economy-overnight-diverse-v2\console`, plays six sessions over all 20 boards with four seeded opening moves, then runs draft analysis with 100 tuning games per iteration and a 100-game holdout. It never applies prices. The six session counts use the previous batch's timing; re-pilot with the new openings if runtime matters. Re-run in the same directory only with the same build, configs and options. Results: `SUMMARY.txt` and `analysis\economy-report.md` in that directory.
+Disable sleep and run `economy-overnight.cmd` with clean, committed AttaxShared and AttaxSimulator checkouts. It publishes a console inside `runs\economy-overnight-diverse-v2\console`, plays six sessions over all 20 boards with four seeded opening moves, then runs draft analysis with 100 tuning games per iteration and a 100-game holdout. It never applies prices. The six session counts use the previous batch's timing; re-pilot with the new openings if runtime matters. The batch rejects mismatched revisions or options on resume; use a fresh `RUNDIR` to change them. Results: `SUMMARY.txt` and `analysis\economy-report.md` in that directory.
+
+For a shorter 1–2 hour test batch (~1.5 hours on the reference machine, 5,000 games plus 80 tuning and 80 holdout games), run `economy-short.cmd`. It wraps `economy-overnight.cmd` into `runs\economy-short-diverse-v2`, keeping the same 4-ply openings and provenance gates (set `ALLOW_DIRTY_DRAFT=1` for a throwaway trial before committing, or commit first so the run stays eligible for `--apply`).
 
 Keep `runs\economy-overnight\` and `runs\economy-overnight-own-turn-v1\` separate. Both are diagnostic only in the new analyzer: they lack the new telemetry. Two `.jsonl` runs must not be mixed just because their file names match.
 
-Smoke test in `cmd.exe`: `set "RUNDIR=runs\economy-smoke-v2" & set "S01_GAMES=2" & set "S02_GAMES=2" & set "S03_GAMES=2" & set "S04_GAMES=2" & set "S05_GAMES=2" & set "S06_GAMES=2" & set "VERIFY_GAMES=0" & set "HOLDOUT_GAMES=0" & set "NO_LOGWINDOW=1" & economy-overnight.cmd` (diagnostic only).
+Smoke test in `cmd.exe`: `set "RUNDIR=runs\economy-smoke-v2" & set "S01_GAMES=2" & set "S02_GAMES=2" & set "S03_GAMES=2" & set "S04_GAMES=2" & set "S05_GAMES=2" & set "S06_GAMES=2" & set "VERIFY_GAMES=0" & set "HOLDOUT_GAMES=0" & set "ALLOW_DIRTY_DRAFT=1" & set "NO_LOGWINDOW=1" & economy-overnight.cmd` (diagnostic only).
 
 The report shows distinct opening board positions, capped and uncapped income, Wall I affordability from actual no-spend turn-start balances, and positive ability values by depth and board coverage. Board scaling uses uncapped rewards; spending rules still use the real cap. The mean balance at the start of the target own turn seeds the prices; the final price's observed affordability is reported separately. Value sampling still uses each side's own turns 4 through its last turn minus 4. Seeded legal openings reduce repetition, but are not human-play data; a second seed checks robustness to openings, not generalization to humans.
+
+For the new telemetry, the simulation pins `creditValueChips` to the input AI config in every candidate and the holdout. A small turn-three balance should not automatically make the AI more conservative about spending. If the cast bands are unreachable with that gate, report the miss rather than fitting a new AI gate from the Wall budget.
 
 ## 3. Apply
 

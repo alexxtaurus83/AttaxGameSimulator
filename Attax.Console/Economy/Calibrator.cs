@@ -51,7 +51,8 @@ namespace Attax.Console.Economy {
         public static double Round(double value, int digits) => Math.Round(value, digits, MidpointRounding.AwayFromZero);
 
         public static CalibrationResult Solve(IReadOnlyList<IncomeGroup> income, IReadOnlyList<ValueStat> values, EconomyRules economy, EconomyAnchors anchors,
-                                              int iterations, Func<CandidateEconomy, FrequencyMeasure>? measure, double? wallBudget = null) {
+                                              int iterations, Func<CandidateEconomy, FrequencyMeasure>? measure, double? wallBudget = null,
+                                              float? pinnedCreditValueChips = null) {
             var result = new CalibrationResult { Values = values.ToList() };
             result.Fit = PriceSolver.FitAlpha(income);
             if (!result.Fit.Ok) result.Failures.Add("Pass 0 income fit failed: " + result.Fit.Reason);
@@ -71,8 +72,9 @@ namespace Attax.Console.Economy {
             result.InitialScalar = wallBudget.HasValue
                 ? Math.Max(step, wallBudget.Value) / wallValue
                 : PriceSolver.InitialScalar(result.Fit.ReferenceIncomePerTurn, anchors.WallAffordableByOwnTurn, wallValue);
-            result.CreditValueChips = (float)Round(PriceSolver.CreditValueChips(result.InitialScalar), 5);
-            if (!(result.CreditValueChips > 0f)) result.Failures.Add("creditValueChips rounds to zero; the measured values are too small for the pinned AI gate");
+            result.CreditValueChips = pinnedCreditValueChips ?? (float)Round(PriceSolver.CreditValueChips(result.InitialScalar), 5);
+            if (result.CreditValueChips < 0f || (!pinnedCreditValueChips.HasValue && !(result.CreditValueChips > 0f)))
+                result.Failures.Add("Could not set a valid creditValueChips for verification.");
             result.InitialPrices = PriceSolver.BuildPrices(valueMap, result.InitialScalar, step, anchors.MinLevelStep, anchors.UnblockL1EqualsWall);
             result.BasePrices = result.InitialPrices;
             result.FinalScalar = result.InitialScalar;

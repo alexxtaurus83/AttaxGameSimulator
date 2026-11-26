@@ -49,6 +49,7 @@
     </PropertyGroup>
     <ItemGroup>
       <AssemblyMetadata Include="EconomySharedRevision" Value="@(EconomySharedRevision)" />
+      <AssemblyMetadata Include="EconomySharedRoot" Value="$([System.IO.Path]::GetFullPath('$(AttaxSharedRepoPath)'))" />
       <AssemblyMetadata Include="EconomySimulatorRevision" Value="@(EconomySimulatorRevision)" />
       <AssemblyMetadata Include="EconomySourceState" Value="$(EconomySourceState)" />
     </ItemGroup>

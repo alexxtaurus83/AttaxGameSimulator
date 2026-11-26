@@ -48,7 +48,9 @@ namespace Attax.Console.Economy {
             if (aiErrors.Count > 0) throw new InvalidDataException($"Invalid AI config {ap}: {string.Join("; ", aiErrors)}");
 
             // --apply may write a file that was named explicitly, or the AttaxShared source file; never a bin/publish copy.
-            bool fromSource = (rulesExplicit || (sourceDir != null && IsUnder(rp, sourceDir))) && (aiExplicit || (sourceDir != null && IsUnder(ap, sourceDir)));
+            string? buildSourceDir = FindRulesAt(BuildMetadata("EconomySharedRoot"));
+            bool fromSource = (rulesExplicit || (buildSourceDir != null && IsUnder(rp, buildSourceDir))) &&
+                              (aiExplicit || (buildSourceDir != null && IsUnder(ap, buildSourceDir)));
             string engineHash = EngineParamsFile.Fingerprint(EngineParamsFile.LoadBase());
             return new EconomyContext(rules, ai, rp, ap, fromSource, Sha(aiText), engineHash, ResolveRevision());
         }
@@ -68,13 +70,18 @@ namespace Attax.Console.Economy {
             return Convert.ToHexString(sha.ComputeHash(Encoding.UTF8.GetBytes(text.Replace("\r\n", "\n")))).Substring(0, 16);
         }
 
-        /// <summary>The AttaxShared <c>src/Attax.Core.Utils/Rules</c> directory (env ATTAX_SHARED_REPO, or a sibling found above the exe/cwd), or null.</summary>
+        private static string? FindRulesAt(string? root) {
+            if (string.IsNullOrWhiteSpace(root)) return null;
+            string path = Path.GetFullPath(Path.Combine(root, "src", "Attax.Core.Utils", "Rules"));
+            return File.Exists(Path.Combine(path, RulesFile)) && File.Exists(Path.Combine(path, AiFile)) ? path : null;
+        }
+
+        /// <summary>The explicit override, the checkout used for the build, or a discovery fallback for diagnostics.</summary>
         internal static string? FindSharedRulesDirectory() {
             string? env = Environment.GetEnvironmentVariable("ATTAX_SHARED_REPO");
-            if (!string.IsNullOrWhiteSpace(env)) {
-                string d = Path.Combine(env, "src", "Attax.Core.Utils", "Rules");
-                if (File.Exists(Path.Combine(d, RulesFile))) return Path.GetFullPath(d);
-            }
+            if (!string.IsNullOrWhiteSpace(env)) return FindRulesAt(env) ?? throw new DirectoryNotFoundException($"ATTAX_SHARED_REPO does not contain both economy configs: {env}");
+            string? builtWith = FindRulesAt(BuildMetadata("EconomySharedRoot"));
+            if (builtWith != null) return builtWith;
             foreach (string start in new[] { AppContext.BaseDirectory, Directory.GetCurrentDirectory() }) {
                 var dir = new DirectoryInfo(start);
                 while (dir != null) {
@@ -104,10 +111,9 @@ namespace Attax.Console.Economy {
             return candidates.Select(Path.GetFullPath).FirstOrDefault(File.Exists);
         }
 
-        private static string ResolveRevision() {
-            var attributes = typeof(EconomyContext).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>().ToArray();
-            string Value(string key) => attributes.FirstOrDefault(a => a.Key == key)?.Value ?? "unknown";
-            return $"shared={Value("EconomySharedRevision")};simulator={Value("EconomySimulatorRevision")};state={Value("EconomySourceState")}";
-        }
+        private static string? BuildMetadata(string key) => typeof(EconomyContext).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
+            .FirstOrDefault(a => a.Key == key)?.Value;
+
+        private static string ResolveRevision() => $"shared={BuildMetadata("EconomySharedRevision") ?? "unknown"};simulator={BuildMetadata("EconomySimulatorRevision") ?? "unknown"};state={BuildMetadata("EconomySourceState") ?? "unknown"}";
     }
 }

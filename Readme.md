@@ -211,7 +211,7 @@ Headless `UserSimulator` bots (now hosted in `..\merge-conflict-server\tools\Use
 
 ## Economy calibration
 
-`economy-sim` plays rules-engine games on the 20 void-only boards and writes separate JSONL (not the `ATLG` training log). `economy-analyze` fits board scaling, values and prices abilities, then checks cast rates; `economy` does both in one run. `economy-overnight.cmd` runs six resumable sessions with seeded legal openings, turn-start credit telemetry, and a separate-seed verification holdout into `runs\economy-overnight-diverse-v2\`. The batch never applies prices.
+`economy-sim` plays rules-engine games on the 20 void-only boards and writes separate JSONL (not the `ATLG` training log). `economy-analyze` fits board scaling, values and prices abilities, then checks cast rates; `economy` does both in one run. `economy-overnight.cmd` runs six resumable sessions (~3.5–4.5 h) with seeded legal openings, turn-start credit telemetry, and a separate-seed verification holdout into `runs\economy-overnight-diverse-v2\`; `economy-short.cmd` runs a smaller ~1.5 h batch into `runs\economy-short-diverse-v2\`. Neither script applies prices.
 
 Pass `true` or `false` explicitly to `--abilities`, `--swap-colors`, and the economy analysis `--quiescence` option. Prior economy runs are diagnostic only. Commands, telemetry and apply gates: [`ECONOMY_CALIBRATION.md`](ECONOMY_CALIBRATION.md).
 
