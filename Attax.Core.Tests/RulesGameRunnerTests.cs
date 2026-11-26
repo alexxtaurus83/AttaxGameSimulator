@@ -58,10 +58,29 @@ namespace Attax.Core.Tests {
         public void ValueSampling_ProducesMeasurementsForAllowedLevels() {
             var r = Play("default", 3, abilities: false, samples: 2);
             Assert.NotEmpty(r.Values);
+            Assert.InRange(r.Values.Count, 1, 2);
+            Assert.Equal(r.Values.Count, r.Values.Select(v => (v.Side, v.OwnTurn)).Distinct().Count());
+            Assert.All(r.Values, v => Assert.True(RulesGameRunner.IsEligibleSampleTurn(v.OwnTurn,
+                v.Side == PlayerColor.Red ? r.RedTurnStarts : r.BlueTurnStarts)));
+            var repeat = Play("default", 3, abilities: false, samples: 2);
+            Assert.Equal(r.Values.Select(v => (v.Ply, v.Side, v.OwnTurn)), repeat.Values.Select(v => (v.Ply, v.Side, v.OwnTurn)));
+            var noSamples = Play("default", 3, abilities: false);
+            Assert.Empty(noSamples.Values);
+            Assert.Equal(noSamples.Plies, r.Plies);
+            Assert.Equal(noSamples.Winner, r.Winner);
             var first = r.Values[0];
             Assert.Equal(17, first.Values.Count);
             Assert.All(r.Values.SelectMany(v => v.Values), s => Assert.True(!s.GainChips.HasValue || (s.GainChips > 0 && !float.IsInfinity(s.GainChips.Value))));
         }
+
+        [Theory]
+        [InlineData(4, 7, false)]
+        [InlineData(4, 8, true)]
+        [InlineData(22, 26, true)]
+        [InlineData(22, 25, false)]
+        [InlineData(3, 40, false)]
+        public void SamplingWindow_UsesInclusiveSideLocalBounds(int turn, int end, bool expected) =>
+            Assert.Equal(expected, RulesGameRunner.IsEligibleSampleTurn(turn, end));
 
         [Fact]
         public void SearchPlayer_HonoursRestrictionMasks() {

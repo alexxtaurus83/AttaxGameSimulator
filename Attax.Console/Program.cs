@@ -13,6 +13,7 @@ using static Attax.Core.AtaxxAIEngine;
 namespace Attax.Console {
     partial class Program {
         static int Main(string[] args) {
+            if (Execute(() => RequireEconomyBooleanValues(args)) != 0) return 1;
             var parser = new Parser(config => {
                 config.HelpWriter = null;
                 config.CaseSensitive = false;

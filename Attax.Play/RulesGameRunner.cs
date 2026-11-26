@@ -27,6 +27,7 @@ namespace Attax.Agents {
     /// <summary>Position value measurement (<see cref="AbilityDecider.MeasureValues"/>) taken at the start of an own turn.</summary>
     public sealed class RulesValueSample {
         public int Ply;
+        public int OwnTurn;
         public PlayerColor Side;
         public int Depth;
         public IReadOnlyList<AbilityValueSample> Values = Array.Empty<AbilityValueSample>();
@@ -50,6 +51,7 @@ namespace Attax.Agents {
 
     public sealed class RulesGameResult {
         public int Plies;
+        public int RedTurnStarts, BlueTurnStarts;
         public bool Terminal;
         /// <summary>+1 red, -1 blue, 0 draw.</summary>
         public int Winner;
@@ -82,8 +84,7 @@ namespace Attax.Agents {
     /// <see cref="AttaxGame.TryApply"/>. Used by the economy calibration tool; the training loop (<c>LocalGameRunner</c>) is untouched.
     /// </summary>
     public static class RulesGameRunner {
-        private const int FirstSampledTurn = 6;
-        private const int MinEmptyCellsToSample = 6;
+        public const string SamplingMethod = "own-turn-4-to-end-minus-4-v1";
 
         public static RulesGameResult Run(BitboardState board, IPlayer red, IPlayer blue, RulesGameOptions options) {
             if (board == null) throw new ArgumentNullException(nameof(board));
@@ -105,7 +106,7 @@ namespace Attax.Agents {
 
             var state = GameState.CreateInitial(board, PlayerColor.Red, options.Rules);
             var result = new RulesGameResult { Playable = state.PlayableCells };
-            var sampleTurns = ChooseSampleTurns(options.SampleValues, options.Seed);
+            var positions = options.SampleValues > 0 ? new List<(GameState State, int OwnTurn, ISearchEnginePlayer Player)>() : null;
             var wall = Stopwatch.StartNew();
             bool turnStart = true;
 
@@ -115,12 +116,9 @@ namespace Attax.Agents {
                 var stats = side == PlayerColor.Red ? result.Red : result.Blue;
                 var search = player as ISearchEnginePlayer;
 
-                if (turnStart && search != null && sampleTurns.Contains(state.TurnNumber) &&
-                    BitboardOps.PopCount(state.Board.EmptySquares()) >= MinEmptyCellsToSample) {
-                    long s0 = Stopwatch.GetTimestamp();
-                    var values = AbilityDecider.MeasureValues(state, search.Engine, ai ?? DefaultMeasureConfig(), search.SearchDepth, CancellationToken.None);
-                    result.ValueSampleMs += Elapsed(s0);
-                    if (values.Count > 0) result.Values.Add(new RulesValueSample { Ply = state.ActionCount, Side = side, Depth = search.SearchDepth, Values = values });
+                if (turnStart) {
+                    int ownTurn = side == PlayerColor.Red ? ++result.RedTurnStarts : ++result.BlueTurnStarts;
+                    if (positions != null && search != null && ownTurn >= 4) positions.Add((state.Clone(), ownTurn, search));
                 }
                 turnStart = false;
 
@@ -151,6 +149,24 @@ namespace Attax.Agents {
                 turnStart = Account(result, side, outcome);
             }
 
+            if (positions != null) {
+                positions.RemoveAll(p => !IsEligibleSampleTurn(p.OwnTurn,
+                    p.State.SideToMove == PlayerColor.Red ? result.RedTurnStarts : result.BlueTurnStarts));
+                var measureConfig = ai ?? DefaultMeasureConfig();
+                var rng = new Random(options.Seed); // NOSONAR: sampling schedule, not security
+                int count = Math.Min(options.SampleValues, positions.Count);
+                for (int i = 0; i < count; i++) {
+                    int j = rng.Next(i, positions.Count);
+                    (positions[i], positions[j]) = (positions[j], positions[i]);
+                    var (snapshot, ownTurn, search) = positions[i];
+                    long s0 = Stopwatch.GetTimestamp();
+                    var values = AbilityDecider.MeasureValues(snapshot, search.Engine, measureConfig, search.SearchDepth, CancellationToken.None);
+                    result.ValueSampleMs += Elapsed(s0);
+                    if (values.Count > 0) result.Values.Add(new RulesValueSample {
+                        Ply = snapshot.ActionCount, OwnTurn = ownTurn, Side = snapshot.SideToMove, Depth = search.SearchDepth, Values = values
+                    });
+                }
+            }
             wall.Stop();
             result.WallMs = wall.Elapsed.TotalMilliseconds;
             result.Plies = state.ActionCount;
@@ -202,15 +218,6 @@ namespace Attax.Agents {
             throw new InvalidOperationException($"No legal move remains for {side} although the game is not over.");
         }
 
-        // Distinct turn numbers (both sides' turns are counted) at which values are measured.
-        private static HashSet<int> ChooseSampleTurns(int count, int seed) {
-            var set = new HashSet<int>();
-            if (count <= 0) return set;
-            int span = Math.Max(30, count * 3);
-            int target = Math.Min(count, span);
-            var rng = new Random(seed); // NOSONAR: sampling schedule, not security
-            while (set.Count < target) set.Add(FirstSampledTurn + rng.Next(span));
-            return set;
-        }
+        public static bool IsEligibleSampleTurn(int ownTurn, int end) => ownTurn >= 4 && ownTurn <= end - 4;
     }
 }

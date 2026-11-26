@@ -1,4 +1,4 @@
-using System.Diagnostics;
+using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using Attax.Core.Utils;
@@ -18,6 +18,10 @@ namespace Attax.Console.Economy {
         public string AiHash { get; }
         public string EngineParamsHash { get; }
         public string Revision { get; }
+        public string BuildId { get; } = Sha(string.Join("|", new[] {
+            typeof(EconomyContext), typeof(Attax.Agents.RulesGameRunner), typeof(Attax.Core.AtaxxAIEngine),
+            typeof(GameState), typeof(PlayerFactory), typeof(Attax.Data.LogV3Reader)
+        }.Select(type => type.Module.ModuleVersionId.ToString("N"))));
 
         private EconomyContext(GameRulesConfig rules, AiAbilityConfig ai, string rulesPath, string aiPath, bool fromSource, string aiHash, string engineHash, string revision) {
             Rules = rules; Ai = ai; RulesPath = rulesPath; AiPath = aiPath; FromSource = fromSource; AiHash = aiHash; EngineParamsHash = engineHash; Revision = revision;
@@ -46,7 +50,7 @@ namespace Attax.Console.Economy {
             // --apply may write a file that was named explicitly, or the AttaxShared source file; never a bin/publish copy.
             bool fromSource = (rulesExplicit || (sourceDir != null && IsUnder(rp, sourceDir))) && (aiExplicit || (sourceDir != null && IsUnder(ap, sourceDir)));
             string engineHash = EngineParamsFile.Fingerprint(EngineParamsFile.LoadBase());
-            return new EconomyContext(rules, ai, rp, ap, fromSource, Sha(aiText), engineHash, ResolveRevision(sourceDir));
+            return new EconomyContext(rules, ai, rp, ap, fromSource, Sha(aiText), engineHash, ResolveRevision());
         }
 
         /// <summary>The same loaded files with other rules/AI values (calibration candidates); hashes follow the new values.</summary>
@@ -100,25 +104,10 @@ namespace Attax.Console.Economy {
             return candidates.Select(Path.GetFullPath).FirstOrDefault(File.Exists);
         }
 
-        private static string ResolveRevision(string? sourceDir) {
-            string shared = sourceDir != null ? Git(Path.GetFullPath(Path.Combine(sourceDir, "..", "..", "..", ".."))) : "unknown";
-            string sim = Git(Directory.GetCurrentDirectory());
-            return $"shared={shared};simulator={sim}";
-        }
-
-        private static string Git(string dir) {
-            try {
-                var psi = new ProcessStartInfo("git", "rev-parse --short HEAD") {
-                    WorkingDirectory = dir, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true
-                };
-                using var p = Process.Start(psi);
-                if (p == null) return "unknown";
-                string text = p.StandardOutput.ReadToEnd().Trim();
-                if (!p.WaitForExit(5000)) return "unknown";
-                return p.ExitCode == 0 && text.Length > 0 ? text : "unknown";
-            } catch (Exception) {
-                return "unknown";
-            }
+        private static string ResolveRevision() {
+            var attributes = typeof(EconomyContext).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>().ToArray();
+            string Value(string key) => attributes.FirstOrDefault(a => a.Key == key)?.Value ?? "unknown";
+            return $"shared={Value("EconomySharedRevision")};simulator={Value("EconomySimulatorRevision")};state={Value("EconomySourceState")}";
         }
     }
 }

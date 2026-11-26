@@ -4,11 +4,42 @@ using System.IO;
 using System.Linq;
 using Attax.Console.Economy;
 using Attax.Data;
+using CommandLine;
 using Xunit;
 
 namespace Attax.Core.Tests {
     /// <summary>The economy tooling is additive: the training verbs and the v4 (ATLG) log keep working unchanged.</summary>
     public class EconomyLogAndBackwardCompatTests {
+        [Theory]
+        [InlineData("economy-sim", "abilities", true)]
+        [InlineData("economy-sim", "swap-colors", false)]
+        [InlineData("economy-analyze", "quiescence", true)]
+        [InlineData("economy", "quiescence", true)]
+        public void EconomyBooleanOptions_RequireExplicitValuesAndKeepDefaults(string verb, string option, bool defaultValue) {
+            using var parser = new CommandLine.Parser(settings => settings.HelpWriter = null);
+            var args = verb == "economy-analyze" ? new[] { verb, "--out", "unused", "--in", "unused.jsonl" } : new[] { verb, "--out", "unused" };
+            ParserResult<object> Parse(params string[] extra) =>
+                parser.ParseArguments<Attax.Console.EconomySimOptions, Attax.Console.EconomyAnalyzeOptions, Attax.Console.EconomyOptions>(args.Concat(extra));
+            bool Read(CommandLine.ParserResult<object> result) => Attax.Console.Program.ReadEconomyBoolean(option, Assert.IsType<CommandLine.Parsed<object>>(result).Value switch {
+                Attax.Console.EconomySimOptions sim => option == "abilities" ? sim.Abilities : sim.SwapColors,
+                Attax.Console.EconomyAnalyzeOptions analyze => analyze.Quiescence,
+                Attax.Console.EconomyOptions economy => economy.Quiescence,
+                _ => throw new InvalidOperationException("Unexpected economy verb")
+            }, defaultValue);
+
+            Assert.Equal(defaultValue, Read(Parse()));
+            Assert.False(Read(Parse("--" + option, "FaLsE")));
+            Assert.True(Read(Parse("--" + option, "TrUe")));
+            var invalid = RunConsole(args.Concat(new[] { "--" + option, "maybe" }).ToArray());
+            Assert.NotEqual(0, invalid.exit);
+            Assert.Contains("--" + option + " expects true or false", invalid.output);
+            var missing = RunConsole(args.Concat(new[] { "--" + option }).ToArray());
+            Assert.NotEqual(0, missing.exit);
+            Assert.Contains("--" + option + " expects true or false", missing.output);
+            if (verb == "economy-analyze") Assert.True(Assert.IsType<Attax.Console.EconomyAnalyzeOptions>(Assert.IsType<CommandLine.Parsed<object>>(Parse("--apply")).Value).Apply);
+            if (verb == "economy") Assert.True(Assert.IsType<Attax.Console.EconomyOptions>(Assert.IsType<CommandLine.Parsed<object>>(Parse("--apply")).Value).Apply);
+        }
+
         private static (int exit, string output) RunConsole(params string[] args) {
             string dll = Path.Combine(AppContext.BaseDirectory, "Attax.Console.dll");
             Assert.True(File.Exists(dll), "Attax.Console.dll must be next to the test assembly");
@@ -58,6 +89,30 @@ namespace Attax.Core.Tests {
                 Assert.NotEqual(0, RunConsole("validate-log", "--path", log).exit);
             } finally {
                 Directory.Delete(dir, true);
+            }
+        }
+
+        [Fact]
+        public void LogIntegrity_RejectsEvenUniformMismatchesAgainstTheAnalysisInputs() {
+            var ctx = EconomyContext.Load(null, null);
+            EconomyGameRecord Record() => new EconomyGameRecord {
+                RulesHash = ctx.RulesHash, AiConfigHash = ctx.AiHash, EngineParamsHash = ctx.EngineParamsHash,
+                Revision = ctx.Revision, BuildId = ctx.BuildId, SamplingMethod = Attax.Agents.RulesGameRunner.SamplingMethod, Terminal = true
+            };
+            foreach (var (name, alter) in new (string, Action<EconomyGameRecord>)[] {
+                ("rules hash", r => r.RulesHash = "wrong"), ("AI config hash", r => r.AiConfigHash = "wrong"),
+                ("engine params hash", r => r.EngineParamsHash = "wrong"), ("source revision", r => r.Revision = "wrong"),
+                ("build ID", r => r.BuildId = "wrong"), ("sampling method", r => r.SamplingMethod = "")
+            }) {
+                var a = Record(); var b = Record();
+                alter(a);
+                var warnings = Attax.Console.Program.CheckLogIntegrity(new[] { a, b }, ctx, out bool blocked);
+                Assert.True(blocked);
+                Assert.Contains(warnings, w => w.StartsWith(name, StringComparison.Ordinal));
+                alter(b);
+                warnings = Attax.Console.Program.CheckLogIntegrity(new[] { a, b }, ctx, out blocked);
+                Assert.True(blocked);
+                Assert.Contains(warnings, w => w.StartsWith(name, StringComparison.Ordinal));
             }
         }
 

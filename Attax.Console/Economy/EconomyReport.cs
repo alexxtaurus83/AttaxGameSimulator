@@ -17,6 +17,7 @@ namespace Attax.Console.Economy {
         public string VerifyPlayer = "";
         public string Mode = "";
         public bool Applied;
+        public bool DraftOnly;
         public List<string> Warnings = new List<string>();
     }
 
@@ -50,11 +51,11 @@ namespace Attax.Console.Economy {
             var prices = r.BasePrices.Count > 0 ? r.BasePrices : CurrentPrices(input.Context.Rules);
             double alpha = r.Fit.Ok ? r.Fit.Alpha : economy.boardScaling.alpha;
             double minFactor = r.Fit.Ok ? r.Fit.MinFactor : economy.boardScaling.minFactor;
-            bool calibrated = r.Converged;
+            bool calibrated = r.Converged && !input.DraftOnly;
 
-            sb.AppendLine(calibrated ? "### Calibrated prices" : "### Draft prices (NOT converged; not applied)");
+            sb.AppendLine(calibrated ? "### Calibrated prices" : "### Draft prices (not eligible for release)");
             sb.AppendLine();
-            sb.AppendLine($"Input logs rules hash `{input.Context.RulesHash}`, revision `{input.Context.Revision}`, seed {input.Seed}, engine params `{input.Context.EngineParamsHash}`.");
+            sb.AppendLine($"Analysis inputs: rules `{input.Context.RulesHash}`, AI config `{input.Context.AiHash}`, engine params `{input.Context.EngineParamsHash}`, revision `{input.Context.Revision}`, build `{input.Context.BuildId}`, seed {input.Seed}.");
             sb.AppendLine();
             sb.AppendLine("#### Board scaling and AI gate");
             sb.AppendLine();
@@ -228,6 +229,7 @@ namespace Attax.Console.Economy {
                 mode = input.Mode,
                 converged = r.Converged,
                 applied = input.Applied,
+                draftOnly = input.DraftOnly,
                 failures = r.Failures,
                 warnings = input.Warnings,
                 games = input.Records.Count,
@@ -238,7 +240,7 @@ namespace Attax.Console.Economy {
                 verifyPlayer = input.VerifyPlayer,
                 hashes = new {
                     rules = input.Context.RulesHash, aiConfig = input.Context.AiHash, engineParams = input.Context.EngineParamsHash,
-                    revision = input.Context.Revision, rulesPath = input.Context.RulesPath, aiConfigPath = input.Context.AiPath
+                    revision = input.Context.Revision, buildId = input.Context.BuildId, rulesPath = input.Context.RulesPath, aiConfigPath = input.Context.AiPath
                 },
                 anchors = input.Anchors,
                 boardScaling = new { economy.boardScaling.referencePlayable, alpha = r.Fit.Ok ? r.Fit.Alpha : economy.boardScaling.alpha, minFactor = r.Fit.Ok ? r.Fit.MinFactor : economy.boardScaling.minFactor, economy.boardScaling.roundStep },

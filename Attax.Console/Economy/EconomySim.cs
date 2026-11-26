@@ -79,8 +79,10 @@ namespace Attax.Console.Economy {
         internal static EconomyGameRecord ToRecord(EconomySimSettings s, RulesGameResult r, string boardId, int seed, int index, bool swapped, PlayerSpec red, PlayerSpec blue) {
             var rec = new EconomyGameRecord {
                 SchemaVersion = EconomyLog.CurrentSchemaVersion, Tag = s.Tag, Game = index, BoardId = boardId, Playable = r.Playable, Seed = seed,
+                SessionGameCount = s.Games * (s.SwapColors ? 2 : 1),
                 Red = red.ToString(), Blue = blue.ToString(), Swapped = swapped, Abilities = s.Abilities,
                 RulesHash = s.Context.RulesHash, AiConfigHash = s.Context.AiHash, EngineParamsHash = s.Context.EngineParamsHash, Revision = s.Context.Revision,
+                BuildId = s.Context.BuildId, SamplingMethod = RulesGameRunner.SamplingMethod, RedTurnStarts = r.RedTurnStarts, BlueTurnStarts = r.BlueTurnStarts,
                 Plies = r.Plies, Terminal = r.Terminal, Winner = r.Winner, RedChips = r.RedChips, BlueChips = r.BlueChips,
                 WallMs = r.WallMs, SearchMsRed = r.Red.SearchMs, SearchMsBlue = r.Blue.SearchMs,
                 AbilityDecideMsRed = r.Red.AbilityDecideMs, AbilityDecideMsBlue = r.Blue.AbilityDecideMs, ValueSampleMs = r.ValueSampleMs,
@@ -96,7 +98,7 @@ namespace Attax.Console.Economy {
             foreach (var v in r.Values) {
                 foreach (var m in v.Values) {
                     rec.Values.Add(new EconomyValueSample {
-                        Ply = v.Ply, Side = v.Side.ToString(), Depth = v.Depth, Kind = m.Kind.ToString(), Level = m.Level, HasCandidate = m.HasCandidate,
+                        Ply = v.Ply, OwnTurn = v.OwnTurn, Side = v.Side.ToString(), Depth = v.Depth, Kind = m.Kind.ToString(), Level = m.Level, HasCandidate = m.HasCandidate,
                         HasVerification = m.HasVerification, Terminal = m.TerminalResult != TerminalResult.NotOver, ExceedsCreditCap = m.ExceedsCreditCap,
                         GainChips = m.GainChips
                     });
@@ -119,7 +121,7 @@ namespace Attax.Console.Economy {
                   .Append(r.RedIncome.CaptureCredits).Append('|').Append(r.RedIncome.FootprintCredits).Append('|')
                   .Append(r.BlueIncome.CaptureCredits).Append('|').Append(r.BlueIncome.FootprintCredits).Append('|');
                 foreach (var c in r.Casts) sb.Append(c.Ply).Append(c.Side).Append(c.Kind).Append(c.Level).Append(',');
-                foreach (var v in r.Values) sb.Append(v.Ply).Append(v.Kind).Append(v.Level).Append(v.GainChips?.ToString("R") ?? "-").Append(',');
+                foreach (var v in r.Values) sb.Append(v.Ply).Append(v.Side).Append(v.OwnTurn).Append(v.Kind).Append(v.Level).Append(v.GainChips?.ToString("R") ?? "-").Append(',');
                 sb.Append('\n');
             }
             return EconomyContext.Sha(sb.ToString());

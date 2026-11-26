@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
+using Attax.Agents;
 using Attax.Console.Economy;
 using Attax.Core.Utils;
 
@@ -9,17 +10,44 @@ namespace Attax.Console {
     partial class Program {
         static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
+        private static void RequireEconomyBooleanValues(string[] args) {
+            if (args.Length == 0) return;
+            var verb = args[0];
+            bool sim = verb.Equals("economy-sim", StringComparison.OrdinalIgnoreCase);
+            bool analyze = verb.Equals("economy-analyze", StringComparison.OrdinalIgnoreCase) || verb.Equals("economy", StringComparison.OrdinalIgnoreCase);
+            if (!sim && !analyze) return;
+            // CommandLineParser silently drops a value option when its argument is missing.
+            for (int i = 1; i < args.Length; i++) {
+                var option = args[i];
+                if (option == "--") break;
+                bool needsValue = sim
+                    ? option.Equals("--abilities", StringComparison.OrdinalIgnoreCase) || option.Equals("--swap-colors", StringComparison.OrdinalIgnoreCase)
+                    : option.Equals("--quiescence", StringComparison.OrdinalIgnoreCase);
+                if (needsValue && (i + 1 == args.Length || args[i + 1].StartsWith("-", StringComparison.Ordinal)))
+                    throw new ArgumentException($"{option} expects true or false.");
+            }
+        }
+
+        internal static bool ReadEconomyBoolean(string option, string? value, bool defaultValue) {
+            if (value == null) return defaultValue;
+            if (value.Equals("true", StringComparison.OrdinalIgnoreCase)) return true;
+            if (value.Equals("false", StringComparison.OrdinalIgnoreCase)) return false;
+            throw new ArgumentException($"--{option} expects true or false, got '{value}'.");
+        }
+
         // ------------------------------------------------------------------------------------------------ economy-sim
 
         static void RunEconomySim(EconomySimOptions o) {
+            bool swapColors = ReadEconomyBoolean("swap-colors", o.SwapColors, false);
+            bool abilities = ReadEconomyBoolean("abilities", o.Abilities, true);
             var ctx = EconomyContext.Load(o.Rules, o.AiConfig);
             var settings = new EconomySimSettings {
-                Boards = EconomySim.ResolveBoards(o.Boards), Games = o.Games, Red = o.Red, Blue = o.Blue ?? o.Red, SwapColors = o.SwapColors,
-                Abilities = o.Abilities, SampleValues = Math.Max(0, o.SampleValues), MaxPlies = o.MaxPlies, Seed = o.Seed, Parallel = o.Parallel,
+                Boards = EconomySim.ResolveBoards(o.Boards), Games = o.Games, Red = o.Red, Blue = o.Blue ?? o.Red, SwapColors = swapColors,
+                Abilities = abilities, SampleValues = Math.Max(0, o.SampleValues), MaxPlies = o.MaxPlies, Seed = o.Seed, Parallel = o.Parallel,
                 Tag = string.IsNullOrWhiteSpace(o.Tag) ? Path.GetFileNameWithoutExtension(o.Out) : o.Tag!, Context = ctx
             };
             PlayerSpec_Check(settings.Red); PlayerSpec_Check(settings.Blue);
-            System.Console.WriteLine($"economy-sim: {settings.Boards.Count} board(s), {o.Games} {(o.SwapColors ? "opening pair(s) = " + 2 * o.Games + " games" : "game(s)")}, red={settings.Red}, blue={settings.Blue}, abilities={o.Abilities}, sample-values={settings.SampleValues}, rules={ctx.RulesHash}");
+            System.Console.WriteLine($"economy-sim: {settings.Boards.Count} board(s), {o.Games} {(settings.SwapColors ? "opening pair(s) = " + 2 * o.Games + " games" : "game(s)")}, red={settings.Red}, blue={settings.Blue}, abilities={settings.Abilities}, sample-values={settings.SampleValues}, rules={ctx.RulesHash}");
             var records = RunSession(settings);
             EconomyLog.Write(o.Out, records);
             System.Console.WriteLine($"wrote {records.Count} game record(s) to {o.Out}");
@@ -48,26 +76,33 @@ namespace Attax.Console {
         // ------------------------------------------------------------------------------------------------ economy-analyze
 
         static void RunEconomyAnalyze(EconomyAnalyzeOptions o) {
+            bool quiescence = ReadEconomyBoolean("quiescence", o.Quiescence, true);
             var files = EconomyLog.ResolveInputs(o.In);
             var records = new List<EconomyGameRecord>();
-            foreach (string f in files) records.AddRange(EconomyLog.Read(f));
+            bool sessionFilesMatch = true;
+            foreach (string f in files) {
+                var session = EconomyLog.Read(f);
+                sessionFilesMatch &= session.Count > 0 && session.All(r => r.Tag == Path.GetFileNameWithoutExtension(f));
+                records.AddRange(session);
+            }
             if (records.Count == 0) throw new InvalidOperationException("The economy logs contain no games.");
             var ctx = EconomyContext.Load(o.Rules, o.AiConfig);
             var anchors = EconomyAnchors.Load(o.Anchors, o.Tolerance);
             RunAnalysis(new AnalysisRequest {
                 Mode = "economy-analyze", Records = records, Files = files, Context = ctx, Anchors = anchors, OutDir = o.Out, VerifyGames = o.VerifyGames,
-                Boards = o.Boards, Depth = o.Depth, Quiescence = o.Quiescence, Iterations = o.Iterations, Seed = o.Seed, Parallel = o.Parallel,
-                Apply = o.Apply, EconomyDoc = o.EconomyDoc
+                Boards = o.Boards, Depth = o.Depth, Quiescence = quiescence, Iterations = o.Iterations, Seed = o.Seed, Parallel = o.Parallel,
+                Apply = o.Apply, EconomyDoc = o.EconomyDoc, SessionFilesMatch = sessionFilesMatch
             });
         }
 
         // ------------------------------------------------------------------------------------------------ economy
 
         static void RunEconomy(EconomyOptions o) {
+            bool quiescence = ReadEconomyBoolean("quiescence", o.Quiescence, true);
             var ctx = EconomyContext.Load(o.Rules, o.AiConfig);
             var anchors = EconomyAnchors.Load(o.Anchors, o.Tolerance);
             Directory.CreateDirectory(o.Out);
-            string spec = $"classic:depth={o.Depth},quiescence={(o.Quiescence ? "true" : "false")}";
+            string spec = $"classic:depth={o.Depth},quiescence={(quiescence ? "true" : "false")}";
             var boards = EconomySim.ResolveBoards(o.Boards);
             System.Console.WriteLine($"economy: Pass 0 (abilities off, {o.Games} games) and Pass 1 (abilities on, {o.Games} games, {o.SampleValues} value samples) on {boards.Count} board(s), players {spec}");
 
@@ -83,7 +118,7 @@ namespace Attax.Console {
 
             RunAnalysis(new AnalysisRequest {
                 Mode = "economy", Records = pass0.Concat(pass1).ToList(), Files = new List<string> { p0, p1 }, Context = ctx, Anchors = anchors, OutDir = o.Out,
-                VerifyGames = o.VerifyGames, Boards = o.Boards, Depth = o.Depth, Quiescence = o.Quiescence, Iterations = o.Iterations, Seed = o.Seed,
+                VerifyGames = o.VerifyGames, Boards = o.Boards, Depth = o.Depth, Quiescence = quiescence, Iterations = o.Iterations, Seed = o.Seed,
                 Parallel = o.Parallel, Apply = o.Apply, EconomyDoc = o.EconomyDoc
             });
         }
@@ -99,6 +134,7 @@ namespace Attax.Console {
             public string OutDir = "";
             public int VerifyGames, Depth, Iterations, Seed, Parallel;
             public bool Quiescence, Apply;
+            public bool SessionFilesMatch;
             public string Boards = "all";
             public string? EconomyDoc;
         }
@@ -109,19 +145,33 @@ namespace Attax.Console {
                 .ToList();
         }
 
-        /// <summary>Logs must agree on rules, engine parameters and revision, otherwise the analysis mixes incomparable data.</summary>
+        /// <summary>Reject release calibration when inputs cannot be traced to the same build, configs and sampling method.</summary>
         internal static List<string> CheckLogIntegrity(IReadOnlyList<EconomyGameRecord> records, EconomyContext ctx, out bool blocking) {
             var warnings = new List<string>();
             bool block = false;
-            void Distinct(string name, Func<EconomyGameRecord, string> selector) {
+            void Check(string name, Func<EconomyGameRecord, string> selector, string expected) {
                 var values = records.Select(selector).Distinct().ToList();
-                if (values.Count > 1) { warnings.Add($"logs disagree on {name}: {string.Join(", ", values)}"); block = true; }
+                if (values.Count != 1 || string.IsNullOrWhiteSpace(values[0]) || values[0] != expected) {
+                    warnings.Add($"{name} is missing, mixed, or differs from the analysis input (expected {expected}; logged {string.Join(", ", values)}).");
+                    block = true;
+                }
             }
-            Distinct("rules hash", r => r.RulesHash);
-            Distinct("engine params hash", r => r.EngineParamsHash);
-            Distinct("source revision", r => r.Revision);
-            if (records.Any(r => r.RulesHash != ctx.RulesHash)) warnings.Add($"logs were generated with rules hash {records[0].RulesHash}, current rules hash is {ctx.RulesHash} (values and income are measured in chips and credits per turn, so they remain usable)");
-            if (records.Any(r => r.EngineParamsHash != ctx.EngineParamsHash)) { warnings.Add("logs were generated with other engine parameters than the current engine-params.json"); block = true; }
+            Check("rules hash", r => r.RulesHash, ctx.RulesHash);
+            Check("AI config hash", r => r.AiConfigHash, ctx.AiHash);
+            Check("engine params hash", r => r.EngineParamsHash, ctx.EngineParamsHash);
+            Check("source revision", r => r.Revision, ctx.Revision);
+            Check("build ID", r => r.BuildId, ctx.BuildId);
+            Check("sampling method", r => r.SamplingMethod, RulesGameRunner.SamplingMethod);
+            if (!System.Text.RegularExpressions.Regex.IsMatch(ctx.Revision, @"\Ashared=[0-9a-f]{40};simulator=[0-9a-f]{40};state=clean\z")) {
+                warnings.Add("The analysis build does not identify clean, full Shared and Simulator source revisions.");
+                block = true;
+            }
+            if (records.Any(r => r.Values.Any(v =>
+                !RulesGameRunner.IsEligibleSampleTurn(v.OwnTurn, v.Side switch { "Red" => r.RedTurnStarts, "Blue" => r.BlueTurnStarts, _ => 0 }) ||
+                v.Ply < 0 || v.Ply >= r.Plies))) {
+                warnings.Add("A value sample lies outside its side's own-turn window or recorded game.");
+                block = true;
+            }
             if (records.Any(r => !r.Terminal)) warnings.Add($"{records.Count(r => !r.Terminal)} game(s) ended at the ply cap");
             blocking = block;
             return warnings;
@@ -133,12 +183,17 @@ namespace Attax.Console {
                 Mode = q.Mode, VerifyPlayer = $"classic:depth={q.Depth},quiescence={(q.Quiescence ? "true" : "false")}"
             };
             input.Warnings.AddRange(CheckLogIntegrity(q.Records, q.Context, out bool blocking));
+            if (q.Mode == "economy-analyze" && (!q.SessionFilesMatch || !HasCompleteOvernightSessions(q.Files, q.Records))) {
+                input.Warnings.Add("Release analysis requires all six expected, complete overnight sessions without duplicate inputs.");
+                blocking = true;
+            }
+            input.DraftOnly = blocking;
             input.Income = BuildIncomeGroups(q.Records);
             var values = Calibrator.SummarizeValues(q.Records.Where(r => r.Abilities).SelectMany(r => r.Values));
             var economy = q.Context.Rules.economy;
 
             Func<CandidateEconomy, FrequencyMeasure>? measure = null;
-            if (q.VerifyGames > 0) {
+            if (q.VerifyGames > 0 && !(q.Apply && blocking)) {
                 var boards = EconomySim.ResolveBoards(q.Boards);
                 string spec = input.VerifyPlayer;
                 measure = candidate => MeasureFrequency(q, candidate, boards, spec);
@@ -167,13 +222,26 @@ namespace Attax.Console {
             File.WriteAllText(Path.Combine(q.OutDir, "economy-report.json"), EconomyReport.Json(result, input));
             System.Console.WriteLine($"report: {Path.Combine(q.OutDir, "economy-report.md")}");
 
-            if (result.Converged && !Calibrator.HasFailures(result)) {
+            if (result.Converged && !Calibrator.HasFailures(result) && !input.DraftOnly) {
                 var f = result.Final!;
                 System.Console.WriteLine($"CONVERGED casts/side/game={f.CastsPerSide:0.00} expensive/side/game={f.ExpensivePerSide:0.00} alpha={result.Fit.Alpha:0.00} minFactor={result.Fit.MinFactor:0.00} creditValueChips={result.CreditValueChips.ToString("0.#####", Inv)} applied={input.Applied}{(appliedDoc.Length > 0 ? " doc=" + appliedDoc : "")}");
             } else {
-                System.Console.WriteLine("NOT CONVERGED: " + string.Join("; ", result.Failures.Where(x => !x.StartsWith("note:", StringComparison.Ordinal))));
+                System.Console.WriteLine(input.DraftOnly ? "DRAFT ONLY: input integrity checks failed; see Diagnostics."
+                    : "NOT CONVERGED: " + string.Join("; ", result.Failures.Where(x => !x.StartsWith("note:", StringComparison.Ordinal))));
             }
             if (q.Apply && !input.Applied) throw new InvalidOperationException("--apply rejected: " + reason);
+        }
+
+        internal static bool HasCompleteOvernightSessions(IReadOnlyList<string> files, IReadOnlyList<EconomyGameRecord> records) {
+            var expected = new[] { "s01_income_d2q0", "s02_small_d1q1_vs_d2q0", "s03_d2q0_vs_d3q1", "s04_mirror_d2q0", "s05_mirror_d2q1", "s06_shipped_d3q1" };
+            if (files.Count != expected.Length || !expected.ToHashSet().SetEquals(files.Select(f => Path.GetFileNameWithoutExtension(f)))) return false;
+            var sessions = records.ToLookup(r => r.Tag);
+            if (sessions.Count != expected.Length) return false;
+            return expected.All(tag => {
+                var rows = sessions[tag].OrderBy(r => r.Game).ToArray();
+                return rows.Length > 0 && rows.Length == rows[0].SessionGameCount &&
+                    rows.Select((r, i) => r.Game == i && r.SessionGameCount == rows.Length).All(ok => ok);
+            });
         }
 
         static FrequencyMeasure MeasureFrequency(AnalysisRequest q, CandidateEconomy candidate, IReadOnlyList<string> boards, string spec) {

@@ -19,23 +19,23 @@ rem
 rem  TIME: game counts below come from the 4-game pilot + 12-game probe measured on a 12-core machine (see IMPLEMENTATION_CHECKLIST.md):
 rem        d2q0 4.4 s, d2q1 4.2 s, d3q0 11.4 s, d3q1 17.9 s per single-threaded game (default board, 10 value samples); 12 games of d3q1
 rem        on all boards at --parallel 0 took 33.9 s (2.83 s/game, speed-up K = 6.3). Per-session probes on all boards then set the counts below.
-rem        Target about 4.5 hours in total.
+rem        Target at most 4.5 hours for the six sessions, plus draft analysis.
 rem        On a slower or faster machine the run is proportionally longer or shorter; Ctrl+C is safe (see below).
 rem
 rem  RESUMABLE: re-running skips every session whose .jsonl already exists. Logs are written to .tmp and renamed when complete,
 rem  so an interrupted session is redone from its start, never half-used.
 rem
 rem  USAGE:   run economy-overnight.cmd (any folder). Close heavy programs and disable PC sleep.
-rem  LIVE LOG: a second window opens (NO_LOGWINDOW=1 disables), or: powershell -c "Get-Content runs\economy-overnight\pipeline.log -Wait -Tail 20"
-rem  RESULTS:  runs\economy-overnight\SUMMARY.txt and runs\economy-overnight\analysis\economy-report.md
-rem  THEN:     see ECONOMY_CALIBRATION.md (Phase B: economy-analyze --apply on these logs; no re-run needed).
+rem  LIVE LOG: a second window opens (NO_LOGWINDOW=1 disables), or: powershell -c "Get-Content runs\economy-overnight-own-turn-v1\pipeline.log -Wait -Tail 20"
+rem  RESULTS:  runs\economy-overnight-own-turn-v1\SUMMARY.txt and analysis\economy-report.md under that directory.
+rem  THEN:     review sampling, producing build, hashes and convergence before economy-analyze --apply.
 rem
 rem  Overrides (set before running), e.g. a smoke test:
 rem     set RUNDIR=runs\economy-smoke & set S01_GAMES=2 & set S02_GAMES=2 & set S03_GAMES=2 & set S04_GAMES=2 & set S05_GAMES=2 & set S06_GAMES=2 & set VERIFY_GAMES=1 & set NO_LOGWINDOW=1
 rem ======================================================================================================
 
-if not defined RUNDIR set "RUNDIR=runs\economy-overnight"
-rem Per-session estimates on 12 cores, all 20 boards: s01 26 min, s02 26 min (2400 pairs), s03 54 min (1000 pairs), s04 41 min, s05 40 min, s06 80 min = about 4.5 h + analysis.
+if not defined RUNDIR set "RUNDIR=runs\economy-overnight-own-turn-v1"
+rem Corrected estimates on 12 cores: s01 28 min, s02 26 min (2400 pairs), s03 46 min (1000 pairs), s04 38 min, s05 37 min, s06 80 min = about 4.3 h + analysis.
 if not defined S01_GAMES set "S01_GAMES=2500"
 if not defined S02_GAMES set "S02_GAMES=2400"
 if not defined S03_GAMES set "S03_GAMES=1000"

@@ -162,16 +162,16 @@ namespace Attax.Console {
     internal sealed class EconomySimOptions {
         [Option("boards", Default = "all", HelpText = "Board shape IDs (comma separated) or 'all' (every catalog shape, equal game count each).")]
         public string Boards { get; set; } = "all";
-        [Option("games", Default = 40, HelpText = "Games (openings when --swap-colors is set: 2 * games are played).")]
+        [Option("games", Default = 40, HelpText = "Games (openings when --swap-colors true: 2 * games are played).")]
         public int Games { get; set; } = 40;
         [Option("red", Default = "classic:depth=3,quiescence=true", HelpText = "Red player spec.")]
         public string Red { get; set; } = "classic:depth=3,quiescence=true";
         [Option("blue", HelpText = "Blue player spec (default: same as --red).")]
         public string? Blue { get; set; }
-        [Option("swap-colors", Default = false, HelpText = "Play every opening twice with the colours swapped.")]
-        public bool SwapColors { get; set; } = false;
-        [Option("abilities", Default = true, HelpText = "Let the AI cast abilities (false = income-only games).")]
-        public bool Abilities { get; set; } = true;
+        [Option("swap-colors", HelpText = "Play every opening twice with the colours swapped (true or false, default false).")]
+        public string? SwapColors { get; set; }
+        [Option("abilities", HelpText = "Let the AI cast abilities (true or false, default true; false = income-only games).")]
+        public string? Abilities { get; set; }
         [Option("sample-values", Default = 0, HelpText = "Own-turn positions per game measured with the un-gated ability verification (gain in chips per ability level).")]
         public int SampleValues { get; set; } = 0;
         [Option("maxPlies", Default = 400, HelpText = "Action cap; a capped game is decided by chip count.")]
@@ -202,8 +202,8 @@ namespace Attax.Console {
         public string Boards { get; set; } = "all";
         [Option("depth", Default = 3, HelpText = "Search depth of the Pass 2 players.")]
         public int Depth { get; set; } = 3;
-        [Option("quiescence", Default = true, HelpText = "Quiescence search for the Pass 2 players.")]
-        public bool Quiescence { get; set; } = true;
+        [Option("quiescence", HelpText = "Quiescence search for the Pass 2 players (true or false, default true).")]
+        public string? Quiescence { get; set; }
         [Option("iterations", Default = 4, HelpText = "Maximum Pass 2 price iterations.")]
         public int Iterations { get; set; } = 4;
         [Option("tolerance", Default = 0.5, HelpText = "Half-width of the accepted band around each frequency target.")]
@@ -236,8 +236,8 @@ namespace Attax.Console {
         public int VerifyGames { get; set; } = 20;
         [Option("depth", Default = 3, HelpText = "Search depth of all players.")]
         public int Depth { get; set; } = 3;
-        [Option("quiescence", Default = true, HelpText = "Quiescence search for all players.")]
-        public bool Quiescence { get; set; } = true;
+        [Option("quiescence", HelpText = "Quiescence search for all players (true or false, default true).")]
+        public string? Quiescence { get; set; }
         [Option("iterations", Default = 4, HelpText = "Maximum Pass 2 price iterations.")]
         public int Iterations { get; set; } = 4;
         [Option("tolerance", Default = 0.5, HelpText = "Half-width of the accepted band around each frequency target.")]

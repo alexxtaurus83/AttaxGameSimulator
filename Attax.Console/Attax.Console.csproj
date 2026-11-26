@@ -25,6 +25,35 @@
     <InternalsVisibleTo Include="Attax.Core.Tests" />
   </ItemGroup>
 
+  <Target Name="StampEconomySourceProvenance" BeforeTargets="GetAssemblyAttributes">
+    <Exec Command="git rev-parse HEAD" WorkingDirectory="$(MSBuildProjectDirectory)" ConsoleToMSBuild="true" IgnoreExitCode="true" IgnoreStandardErrorWarningFormat="true">
+      <Output TaskParameter="ConsoleOutput" ItemName="EconomySimulatorRevision" />
+      <Output TaskParameter="ExitCode" PropertyName="EconomySimulatorGitExit" />
+    </Exec>
+    <Exec Command="git rev-parse HEAD" WorkingDirectory="$(AttaxSharedRepoPath)" ConsoleToMSBuild="true" IgnoreExitCode="true" IgnoreStandardErrorWarningFormat="true">
+      <Output TaskParameter="ConsoleOutput" ItemName="EconomySharedRevision" />
+      <Output TaskParameter="ExitCode" PropertyName="EconomySharedGitExit" />
+    </Exec>
+    <Exec Command="git status --porcelain --untracked-files=normal" WorkingDirectory="$(MSBuildProjectDirectory)" ConsoleToMSBuild="true" IgnoreExitCode="true" IgnoreStandardErrorWarningFormat="true">
+      <Output TaskParameter="ConsoleOutput" ItemName="EconomySimulatorChanges" />
+      <Output TaskParameter="ExitCode" PropertyName="EconomySimulatorStatusExit" />
+    </Exec>
+    <Exec Command="git status --porcelain --untracked-files=normal" WorkingDirectory="$(AttaxSharedRepoPath)" ConsoleToMSBuild="true" IgnoreExitCode="true" IgnoreStandardErrorWarningFormat="true">
+      <Output TaskParameter="ConsoleOutput" ItemName="EconomySharedChanges" />
+      <Output TaskParameter="ExitCode" PropertyName="EconomySharedStatusExit" />
+    </Exec>
+    <PropertyGroup>
+      <EconomySourceState>unknown</EconomySourceState>
+      <EconomySourceState Condition="'$(EconomySimulatorGitExit)' == '0' and '$(EconomySharedGitExit)' == '0' and '$(EconomySimulatorStatusExit)' == '0' and '$(EconomySharedStatusExit)' == '0'">dirty</EconomySourceState>
+      <EconomySourceState Condition="'$(EconomySourceState)' == 'dirty' and '@(EconomySimulatorChanges)' == '' and '@(EconomySharedChanges)' == ''">clean</EconomySourceState>
+    </PropertyGroup>
+    <ItemGroup>
+      <AssemblyMetadata Include="EconomySharedRevision" Value="@(EconomySharedRevision)" />
+      <AssemblyMetadata Include="EconomySimulatorRevision" Value="@(EconomySimulatorRevision)" />
+      <AssemblyMetadata Include="EconomySourceState" Value="$(EconomySourceState)" />
+    </ItemGroup>
+  </Target>
+
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net9.0</TargetFramework>

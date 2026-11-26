@@ -57,7 +57,7 @@ namespace Attax.Console.Economy {
                     var found = Directory.GetFiles(input, "*.jsonl", SearchOption.TopDirectoryOnly);
                     Array.Sort(found, StringComparer.OrdinalIgnoreCase);
                     files.AddRange(found);
-                } else if (File.Exists(input)) {
+                } else if (File.Exists(input) && Path.GetExtension(input).Equals(".jsonl", StringComparison.OrdinalIgnoreCase)) {
                     files.Add(input);
                 } else {
                     throw new FileNotFoundException($"Economy log input not found: {input}");
@@ -96,6 +96,7 @@ namespace Attax.Console.Economy {
 
     internal sealed class EconomyValueSample {
         public int Ply { get; set; }
+        public int OwnTurn { get; set; }
         public string Side { get; set; } = "";
         public int Depth { get; set; }
         public string Kind { get; set; } = "";
@@ -112,6 +113,7 @@ namespace Attax.Console.Economy {
         public int SchemaVersion { get; set; }
         public string Tag { get; set; } = "";
         public int Game { get; set; }
+        public int SessionGameCount { get; set; }
         public string BoardId { get; set; } = "";
         public int Playable { get; set; }
         public int Seed { get; set; }
@@ -122,8 +124,12 @@ namespace Attax.Console.Economy {
         public string RulesHash { get; set; } = "";
         public string AiConfigHash { get; set; } = "";
         public string EngineParamsHash { get; set; } = "";
-        /// <summary>Source revision of AttaxShared and AttaxSimulator at generation time (best effort, "unknown" without git).</summary>
+        /// <summary>Source provenance embedded at build time, not the current checkout HEAD.</summary>
         public string Revision { get; set; } = "";
+        public string BuildId { get; set; } = "";
+        public string SamplingMethod { get; set; } = "";
+        public int RedTurnStarts { get; set; }
+        public int BlueTurnStarts { get; set; }
         public int Plies { get; set; }
         public bool Terminal { get; set; }
         public int Winner { get; set; }
