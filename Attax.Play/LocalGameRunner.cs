@@ -1,3 +1,4 @@
+#nullable enable
 using System;
 using Attax.Core;
 using Attax.Core.Utils;

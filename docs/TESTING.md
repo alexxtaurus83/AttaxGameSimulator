@@ -9,14 +9,13 @@ Each row is one separate `COMMAND` for the `small-model` executor. Run the small
 | Scope | Working directory | Command |
 |---|---|---|
 | Build everything | repository root | `dotnet build -c Release Attax.sln` |
-| Engine rules and search tests | repository root | `dotnet test Attax.Core.Tests/Attax.Core.Tests.csproj -c Release` |
+| Engine rules, runner, and model-play tests | repository root | `dotnet test Attax.Core.Tests/Attax.Core.Tests.csproj -c Release` |
 | Targeted engine tests | repository root | `dotnet test Attax.Core.Tests/Attax.Core.Tests.csproj -c Release --filter "FullyQualifiedName~<TestClass>"` |
-| Bot and simulator tests | repository root | `dotnet test UserSimulator/Attax.UserSimulator.Tests/Attax.UserSimulator.Tests.csproj -c Release` |
 | Python training, data and parity tests | repository root | `python -m unittest discover -s tests_py -t .` |
 
 ## Rules
 
-- `Attax.sln` references the five shared projects from the sibling `..\AttaxShared` checkout (override with `-p:AttaxSharedRepoPath=<path>`). Run `dotnet test ..\AttaxShared\AttaxShared.sln -c Release` when shared code changes.
+- `Attax.sln` references the shared projects (`Attax.Core.Utils`, `Attax.Core`, `Attax.Engine.Host`) from the sibling `..\AttaxShared` checkout (override with `-p:AttaxSharedRepoPath=<path>`). Run `dotnet test ..\AttaxShared\AttaxShared.sln -c Release` when shared code changes. Bot tests (`Attax.UserSimulator.Tests`) live in `..\merge-conflict-server\tools\UserSimulator\UserSimulator.sln`.
 - Test projects use xUnit v3 in VSTest mode (`xunit.v3.mtp-off` with `Microsoft.NET.Test.Sdk`), so `dotnet test --filter` works. Do not switch to the Microsoft Testing Platform runner without updating these commands.
 - **Parity:** shared-rule, action-codec, board-encoding, symmetry, log-format or model-contract changes need both C# tests and Python tests, including parity fixtures where applicable.
 - Search, heuristic or parameter changes must preserve classic regression behavior unless an intentional, documented parameter or golden update is part of the request.

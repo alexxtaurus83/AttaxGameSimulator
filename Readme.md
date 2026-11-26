@@ -17,9 +17,10 @@ Three ways to play, all driven by the same player spec and all comparable in one
 | --- | --- |
 | `..\AttaxShared\src\Attax.Core.Utils` | **Lightweight domain rules and state utilities (in `AttaxShared`)**: bitboards (`BitboardState`), board lookups, bit operations, Zobrist hashing (`ZobristHasher`), move encoding (`ActionCodec`), and pure authoritative rules validation/execution (`AttaxGame`). |
 | `..\AttaxShared\src\Attax.Core` | **The AI game engine (in `AttaxShared`)**: search, `HeuristicEvaluator`, `EngineParams` and its values in `engine-params.json`, transposition tables, and search thread helpers. References `Attax.Core.Utils`. |
+| `..\AttaxShared\src\Attax.Engine.Host` | **Non-ML engine hosting (in `AttaxShared`)**: `EngineParamsFile`, `PlayerSpec`, `PlayerFactory`, `SearchPlayer`, `RandomPlayer`, `AgentTurnPlanner`, `BoardRenderer`. Consumed by `AttaxSimulator` and `merge-conflict-server/tools/UserSimulator` (never exported to Unity). |
 | `Attax.Model` | Training/evaluation only, never exported to Unity: policy action space (`ActionCodec`), model input encoding (`BoardEncoder`), model contract (`IPolicyValueModel`), value/policy consumers |
 | `Attax.Data` | log writer/reader/validator (format v4, class names keep "V3") |
-| `Attax.Play` | player specs (`classic:depth=3,params=...`), players, engine-parameter file loading (`EngineParamsFile`), pair statistics and the sequential test |
+| `Attax.Play` | ML player adapters (`IModelSource`, `ModelPlayerFactory`, `PolicyPlayer`), offline runners (`LocalGameRunner`, `RulesGameRunner`), pair statistics and the sequential test (`PairStats`) |
 | `Attax.Eval.OnnxRuntime` | `OnnxPolicyValueModel`: ONNX Runtime adapter that validates the contract at load |
 | `Attax.Console` | CLI: `selfplay`, `relabel`, `arena`, `compare-moves`, `params-default`, `params-check`, `validate-log`, `verify-model`, `contract-fixtures`, `validate-hash`, `economy-sim`, `economy-analyze`, `economy` |
 | `train.py`, `ataxx_common.py`, `ataxx_data.py`, `ataxx_model.py` | trainer, shared contract, log reader, network/losses/ONNX export |
@@ -206,7 +207,7 @@ One shared conv trunk (no BatchNorm), a spatial policy head (17×7×7) and a val
 
 ## Ability-aware bots
 
-`UserSimulator` bots with `--abilities policy --ability-config ai-ability-config.json` use `AbilityDecider` (AttaxShared, `docs/AI_ABILITY_TACTICS.md`): tacticians propose abilities, the bot's own search engine verifies them on a cloned state and a value gate (`gain in chips - price x creditValueChips >= minGainChips`) decides. The config is `schemaVersion: 2`; the v1 chance, reserve, use-cap, safety and target-selection flags no longer exist. Only search specs (`classic`, `value`) cast abilities, and every move honours the turn's frozen-source and forbidden-landing masks through the search root filters. Self-play, arena and log generation are unchanged.
+Headless `UserSimulator` bots (now hosted in `..\merge-conflict-server\tools\UserSimulator`) with `--abilities policy --ability-config ai-ability-config.json` use `AbilityDecider` (`AttaxShared`, `docs/AI_ABILITY_TACTICS.md`) via `Attax.Engine.Host`: tacticians propose abilities, the bot's own search engine verifies them on a cloned state and a value gate (`gain in chips - price x creditValueChips >= minGainChips`) decides. The config is `schemaVersion: 2`; the v1 chance, reserve, use-cap, safety and target-selection flags no longer exist. Only search specs (`classic`, `value`) cast abilities, and every move honours the turn's frozen-source and forbidden-landing masks through the search root filters. Self-play, arena and log generation are unchanged.
 
 ## Economy calibration
 

@@ -32,7 +32,7 @@
     <ProjectReference Include="..\Attax.Data\Attax.Data.csproj" />
     <ProjectReference Include="..\Attax.Play\Attax.Play.csproj" />
     <ProjectReference Include="..\Attax.Console\Attax.Console.csproj" />
-    <ProjectReference Include="..\UserSimulator\Attax.Agents\Attax.Agents.csproj" />
+    <ProjectReference Include="$(AttaxEngineHostProjectPath)" />
   </ItemGroup>
 
 </Project>

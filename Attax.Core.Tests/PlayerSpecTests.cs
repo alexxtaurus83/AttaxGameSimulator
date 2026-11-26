@@ -88,6 +88,8 @@ namespace Attax.Core.Tests {
         private sealed class FakeSource : IModelSource {
             public readonly FakeModel Model = new FakeModel();
             public IPolicyValueModel Get(string path) => Model;
+            public IPlayer CreateModelPlayer(PlayerSpec spec, int seed, bool defaultTrain, bool collectScore) =>
+                ModelPlayerFactory.CreateModelPlayer(this, spec, seed, defaultTrain, collectScore);
         }
 
         private static readonly BitboardState Start = TestBoards.Parse("R.....B", ".......", ".......", ".......", ".......", ".......", "B.....R");
@@ -135,6 +137,8 @@ namespace Attax.Core.Tests {
                 public PolicyValueOutput Evaluate(IReadOnlyList<BitboardState> boards, PlayerColor side) => throw new InvalidOperationException("broken model");
             }
             public IPolicyValueModel Get(string path) => new Broken();
+            public IPlayer CreateModelPlayer(PlayerSpec spec, int seed, bool defaultTrain, bool collectScore) =>
+                ModelPlayerFactory.CreateModelPlayer(this, spec, seed, defaultTrain, collectScore);
         }
 
         [Fact]

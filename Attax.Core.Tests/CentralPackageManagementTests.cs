@@ -63,5 +63,33 @@ namespace Attax.Core.Tests {
                 }
             }
         }
+
+        [Fact]
+        public void DirectoryPackagesProps_HasNoUnusedCentralPackages() {
+            string repoRoot = FindRepoRoot();
+            string propsPath = Path.Combine(repoRoot, "Directory.Packages.props");
+            var propsDoc = XDocument.Load(propsPath);
+            var centralPackages = propsDoc.Descendants("PackageVersion")
+                .Select(pv => pv.Attribute("Include")?.Value)
+                .Where(v => !string.IsNullOrWhiteSpace(v))
+                .ToList();
+
+            var csprojFiles = Directory.GetFiles(repoRoot, "*.csproj", SearchOption.AllDirectories)
+                .Where(p => !p.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar) &&
+                            !p.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar))
+                .ToList();
+
+            var referenced = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var csproj in csprojFiles) {
+                var doc = XDocument.Load(csproj);
+                foreach (var pr in doc.Descendants("PackageReference")) {
+                    var pkg = pr.Attribute("Include")?.Value;
+                    if (!string.IsNullOrWhiteSpace(pkg)) referenced.Add(pkg);
+                }
+            }
+
+            var unused = centralPackages.Where(cp => !referenced.Contains(cp!)).ToList();
+            Assert.Empty(unused);
+        }
     }
 }

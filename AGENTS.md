@@ -17,7 +17,7 @@ Rules that bind every session. Read a linked file when its topic comes up, not u
 
 ## Invariants
 
-1. Shared rules and AI code (`Attax.Core.Utils`, `Attax.Core`, `Attax.Server.Contracts`, `Attax.Client.Protocol`, `Attax.Client.Sync`) live in `..\AttaxShared`, not here. Keep `Attax.Core.Utils` free of dependencies beyond `ZLinq`, file I/O, ONNX, PyTorch, search and AI allocations.
+1. Shared rules, AI engine, and non-ML engine hosting (`Attax.Core.Utils`, `Attax.Core`, `Attax.Engine.Host`) live in `..\AttaxShared`, not here. Keep `Attax.Core.Utils` free of dependencies beyond `ZLinq`, file I/O, ONNX, PyTorch, search and AI allocations. (`Attax.UserSimulator` bots live in `..\merge-conflict-server\tools\UserSimulator`, consuming `AttaxShared` directly.)
 2. `Attax.Core` stays free of model, ONNX, log-format and filesystem code so it remains portable to Unity.
 3. Training-only code stays in `Attax.Model`, `Attax.Eval.OnnxRuntime` and the Python files. `Attax.Model` is never exported to Unity. No Unity APIs, packages, UI or Editor concerns here.
 4. `..\AttaxShared\src\Attax.Core\engine-params.json` is the single source of engine parameters; no hidden code defaults or duplicate files.

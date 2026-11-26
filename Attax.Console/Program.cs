@@ -84,6 +84,9 @@ namespace Attax.Console {
                 cache.GetOrAdd(Path.GetFullPath(path), p => new Lazy<MeteredPolicyValueModel>(() =>
                     new MeteredPolicyValueModel(new OnnxPolicyValueModel(p, threads)))).Value;
 
+            public IPlayer CreateModelPlayer(PlayerSpec spec, int seed, bool defaultTrain, bool collectScore) =>
+                ModelPlayerFactory.CreateModelPlayer(this, spec, seed, defaultTrain, collectScore);
+
             public IEnumerable<(string Path, MeteredPolicyValueModel Model)> All =>
                 cache.Select(kv => (kv.Key, kv.Value.Value));
 

@@ -1,6 +1,7 @@
 <Project>
   <PropertyGroup>
     <AttaxSharedRepoPath Condition="'$(AttaxSharedRepoPath)' == ''">$(MSBuildThisFileDirectory)..\AttaxShared</AttaxSharedRepoPath>
+    <AttaxEngineHostProjectPath Condition="'$(AttaxEngineHostProjectPath)' == ''">$(AttaxSharedRepoPath)\src\Attax.Engine.Host\Attax.Engine.Host.csproj</AttaxEngineHostProjectPath>
   </PropertyGroup>
   <Target Name="ValidateAttaxSharedRepoPath" BeforeTargets="BeforeBuild;BeforeResolveReferences;CollectPackageReferences;PrepareForBuild;_GenerateRestoreProjectSpec;_IsProjectRestoreSupported">
     <Error Condition="!Exists('$(AttaxSharedRepoPath)\AttaxShared.sln')"
