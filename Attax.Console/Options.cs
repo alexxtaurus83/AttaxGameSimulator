@@ -174,6 +174,8 @@ namespace Attax.Console {
         public string? Abilities { get; set; }
         [Option("sample-values", Default = 0, HelpText = "Own-turn positions per game measured with the un-gated ability verification (gain in chips per ability level).")]
         public int SampleValues { get; set; } = 0;
+        [Option("opening-plies", Default = 0, HelpText = "Seeded legal moves before the AI takes over (0..4).")]
+        public int OpeningPlies { get; set; }
         [Option("maxPlies", Default = 400, HelpText = "Action cap; a capped game is decided by chip count.")]
         public int MaxPlies { get; set; } = 400;
         [Option("seed", Default = 20261124, HelpText = "Base seed.")]
@@ -198,6 +200,8 @@ namespace Attax.Console {
         public string Out { get; set; } = "";
         [Option("verify-games", Default = 20, HelpText = "Self-play games per Pass 2 iteration (0 = analytical report only; cannot --apply).")]
         public int VerifyGames { get; set; } = 20;
+        [Option("holdout-games", Default = 0, HelpText = "Final verification games on a separate seed; required for --apply (at least one per board).")]
+        public int HoldoutGames { get; set; }
         [Option("boards", Default = "all", HelpText = "Boards for Pass 2 verification games.")]
         public string Boards { get; set; } = "all";
         [Option("depth", Default = 3, HelpText = "Search depth of the Pass 2 players.")]
@@ -232,8 +236,12 @@ namespace Attax.Console {
         public int Games { get; set; } = 40;
         [Option("sample-values", Default = 10, HelpText = "Own-turn positions per Pass 1 game measured for ability values.")]
         public int SampleValues { get; set; } = 10;
+        [Option("opening-plies", Default = 0, HelpText = "Seeded legal moves before the AI takes over (0..4).")]
+        public int OpeningPlies { get; set; }
         [Option("verify-games", Default = 20, HelpText = "Self-play games per Pass 2 iteration (0 = analytical report only).")]
         public int VerifyGames { get; set; } = 20;
+        [Option("holdout-games", Default = 0, HelpText = "Final verification games on a separate seed; required for --apply (at least one per board).")]
+        public int HoldoutGames { get; set; }
         [Option("depth", Default = 3, HelpText = "Search depth of all players.")]
         public int Depth { get; set; } = 3;
         [Option("quiescence", HelpText = "Quiescence search for all players (true or false, default true).")]

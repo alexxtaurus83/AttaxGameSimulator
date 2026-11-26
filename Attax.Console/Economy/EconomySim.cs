@@ -13,6 +13,7 @@ namespace Attax.Console.Economy {
         public bool SwapColors;
         public bool Abilities = true;
         public int SampleValues;
+        public int OpeningPlies;
         public int MaxPlies = 400;
         public int Seed = 20261124;
         public int Parallel;
@@ -37,6 +38,7 @@ namespace Attax.Console.Economy {
 
         public static List<EconomyGameRecord> Run(EconomySimSettings s) {
             if (s.Games < 1) throw new ArgumentException("--games must be >= 1.");
+            if (s.OpeningPlies < 0 || s.OpeningPlies > 4) throw new ArgumentException("--opening-plies must be in 0..4.");
             if (s.Boards.Count == 0) throw new ArgumentException("No boards selected.");
             var redSpec = PlayerSpec.Parse(s.Red);
             var blueSpec = PlayerSpec.Parse(s.Blue);
@@ -71,7 +73,8 @@ namespace Attax.Console.Economy {
             using var blue = PlayerFactory.Create(specBlue, null!, Program.CombineSeed(s.Seed, index * 2 + 2), defaultTrain: false);
             var result = RulesGameRunner.Run(board, red, blue, new RulesGameOptions {
                 Rules = s.Context.Rules, Ai = s.Context.Ai, Abilities = s.Abilities, MaxActions = s.MaxPlies,
-                SampleValues = s.SampleValues, Seed = Program.CombineSeed(s.Seed, opening * 17 + 3)
+                SampleValues = s.SampleValues, Seed = Program.CombineSeed(s.Seed, opening * 17 + 3),
+                OpeningPlies = s.OpeningPlies, OpeningSeed = Program.CombineSeed(openingSeed, 131)
             });
             return ToRecord(s, result, boardId, openingSeed, index, swapped, specRed, specBlue);
         }
@@ -83,6 +86,8 @@ namespace Attax.Console.Economy {
                 Red = red.ToString(), Blue = blue.ToString(), Swapped = swapped, Abilities = s.Abilities,
                 RulesHash = s.Context.RulesHash, AiConfigHash = s.Context.AiHash, EngineParamsHash = s.Context.EngineParamsHash, Revision = s.Context.Revision,
                 BuildId = s.Context.BuildId, SamplingMethod = RulesGameRunner.SamplingMethod, RedTurnStarts = r.RedTurnStarts, BlueTurnStarts = r.BlueTurnStarts,
+                TelemetryMethod = RulesGameRunner.TelemetryMethod, OpeningPlies = s.OpeningPlies, OpeningPliesPlayed = r.OpeningPliesPlayed,
+                OpeningPosition = r.OpeningPosition.ToString("X16"),
                 Plies = r.Plies, Terminal = r.Terminal, Winner = r.Winner, RedChips = r.RedChips, BlueChips = r.BlueChips,
                 WallMs = r.WallMs, SearchMsRed = r.Red.SearchMs, SearchMsBlue = r.Blue.SearchMs,
                 AbilityDecideMsRed = r.Red.AbilityDecideMs, AbilityDecideMsBlue = r.Blue.AbilityDecideMs, ValueSampleMs = r.ValueSampleMs,
@@ -109,6 +114,7 @@ namespace Attax.Console.Economy {
 
         private static EconomySideIncome Income(RulesSideStats s) => new EconomySideIncome {
             OwnTurns = s.OwnTurns, CaptureCredits = s.CaptureCredits, FootprintCredits = s.FootprintCredits, Flips = s.Flips,
+            CreditsLostToCap = s.CreditsLostToCap, TurnStartCredits = s.TurnStartCredits,
             CreditsSpent = s.CreditsSpent, Casts = s.Casts, SearchMs = s.SearchMs, AbilityDecideMs = s.AbilityDecideMs
         };
 
@@ -118,6 +124,10 @@ namespace Attax.Console.Economy {
             foreach (var r in records.OrderBy(x => x.Game)) {
                 sb.Append(r.Game).Append('|').Append(r.BoardId).Append('|').Append(r.Plies).Append('|').Append(r.Winner).Append('|')
                   .Append(r.RedChips).Append('|').Append(r.BlueChips).Append('|')
+                  .Append(r.OpeningPosition).Append('|').Append(r.OpeningPliesPlayed).Append('|')
+                  .Append(r.RedIncome.CreditsLostToCap).Append('|').Append(r.BlueIncome.CreditsLostToCap).Append('|')
+                  .Append(string.Join(",", r.RedIncome.TurnStartCredits ?? new List<int>())).Append('|')
+                  .Append(string.Join(",", r.BlueIncome.TurnStartCredits ?? new List<int>())).Append('|')
                   .Append(r.RedIncome.CaptureCredits).Append('|').Append(r.RedIncome.FootprintCredits).Append('|')
                   .Append(r.BlueIncome.CaptureCredits).Append('|').Append(r.BlueIncome.FootprintCredits).Append('|');
                 foreach (var c in r.Casts) sb.Append(c.Ply).Append(c.Side).Append(c.Kind).Append(c.Level).Append(',');

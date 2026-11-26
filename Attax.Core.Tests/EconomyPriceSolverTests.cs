@@ -145,6 +145,25 @@ namespace Attax.Core.Tests {
         }
 
         [Fact]
+        public void Solve_UsesMeasuredWallBudget_AndBracketsOscillatingPrices() {
+            var (economy, values) = Fixture();
+            int call = 0;
+            var result = Calibrator.Solve(Synthetic(1.0, 6.0), values, economy, new EconomyAnchors(), 3, _ => ++call switch {
+                1 => new FrequencyMeasure(8, 3, 100),
+                2 => new FrequencyMeasure(1, 0, 100),
+                _ => new FrequencyMeasure(3.5, 1, 100)
+            }, wallBudget: 35);
+            Assert.Equal(35, result.InitialPrices[AbilityKind.Wall][0]);
+            Assert.True(result.Converged);
+            Assert.InRange(result.Iterations[2].Scalar, result.Iterations[0].Scalar, result.Iterations[1].Scalar);
+            var prices = result.BasePrices;
+            Calibrator.CheckHoldout(result, new FrequencyMeasure(4.51, 1, 100), new EconomyAnchors());
+            Assert.False(result.Converged);
+            Assert.Same(prices, result.BasePrices);
+            Assert.Contains(result.Failures, s => s.StartsWith("Holdout missed", StringComparison.Ordinal));
+        }
+
+        [Fact]
         public void Solve_RejectsMissingValuesNonConvergenceAndNoVerification() {
             var (economy, values) = Fixture();
             var missing = values.Select(v => v.Kind == AbilityKind.Wall && v.Level == 1 ? v with { P75 = null, Positive = 0 } : v).ToList();

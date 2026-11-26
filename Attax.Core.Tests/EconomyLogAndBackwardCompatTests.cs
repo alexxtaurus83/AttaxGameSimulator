@@ -78,18 +78,39 @@ namespace Attax.Core.Tests {
             Directory.CreateDirectory(dir);
             try {
                 string log = Path.Combine(dir, "e.jsonl");
-                var r = RunConsole("economy-sim", "--boards", "default", "--games", "1", "--red", "classic:depth=1,quiescence=false", "--abilities", "true", "--parallel", "1", "--out", log);
+                var r = RunConsole("economy-sim", "--boards", "default", "--games", "1", "--red", "classic:depth=1,quiescence=false", "--abilities", "true", "--opening-plies", "4", "--parallel", "1", "--out", log);
                 Assert.True(r.exit == 0, r.output);
                 Assert.Contains("SUMMARY games=1", r.output);
                 Assert.False(File.Exists(log + ".tmp"));
                 string first = File.ReadLines(log).First();
                 Assert.StartsWith("{", first);
-                Assert.Single(EconomyLog.Read(log));
+                var record = Assert.Single(EconomyLog.Read(log));
+                Assert.Equal(4, record.OpeningPliesPlayed);
+                Assert.Equal(record.RedTurnStarts, record.RedIncome.TurnStartCredits.Count);
+                Assert.DoesNotContain(record.Casts, c => c.Ply < 4);
                 // the training validator must reject it, proving the formats stay separate
                 Assert.NotEqual(0, RunConsole("validate-log", "--path", log).exit);
             } finally {
                 Directory.Delete(dir, true);
             }
+        }
+
+        [Fact]
+        public void Telemetry_RejectsLegacyAndMixedOpenings_ButReportsUncappedIncomeSeparately() {
+            EconomyGameRecord Row(int openingPlies) => new EconomyGameRecord {
+                Playable = 48, Plies = 6, OpeningPlies = openingPlies, OpeningPliesPlayed = openingPlies, OpeningPosition = "ABCDEF0000000000",
+                TelemetryMethod = Attax.Agents.RulesGameRunner.TelemetryMethod, RedTurnStarts = 1, BlueTurnStarts = 1,
+                RedIncome = new EconomySideIncome { OwnTurns = 1, CaptureCredits = 4, CreditsLostToCap = 10, TurnStartCredits = new() { 0 } },
+                BlueIncome = new EconomySideIncome { OwnTurns = 1, CaptureCredits = 6, CreditsLostToCap = 0, TurnStartCredits = new() { 3 } }
+            };
+            var valid = Row(4);
+            Assert.True(Attax.Console.Program.HasEconomyTelemetry(new[] { valid }, 300));
+            Assert.Equal(5, Assert.Single(Attax.Console.Program.BuildIncomeGroups(new[] { valid })).MeanPerTurn);
+            Assert.Equal(10, Assert.Single(Attax.Console.Program.BuildIncomeGroups(new[] { valid }, uncapped: true)).MeanPerTurn);
+            Assert.False(Attax.Console.Program.HasEconomyTelemetry(new[] { valid, new EconomyGameRecord() }, 300));
+            Assert.False(Attax.Console.Program.HasEconomyTelemetry(new[] { valid, Row(2) }, 300));
+            valid.RedIncome.TurnStartCredits.Clear();
+            Assert.False(Attax.Console.Program.HasEconomyTelemetry(new[] { valid }, 300));
         }
 
         [Fact]

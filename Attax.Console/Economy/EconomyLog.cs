@@ -72,6 +72,8 @@ namespace Attax.Console.Economy {
         public int OwnTurns { get; set; }
         public int CaptureCredits { get; set; }
         public int FootprintCredits { get; set; }
+        public long? CreditsLostToCap { get; set; }
+        public List<int>? TurnStartCredits { get; set; }
         public int Flips { get; set; }
         public int CreditsSpent { get; set; }
         public int Casts { get; set; }
@@ -128,6 +130,10 @@ namespace Attax.Console.Economy {
         public string Revision { get; set; } = "";
         public string BuildId { get; set; } = "";
         public string SamplingMethod { get; set; } = "";
+        public string? TelemetryMethod { get; set; }
+        public int? OpeningPlies { get; set; }
+        public int? OpeningPliesPlayed { get; set; }
+        public string? OpeningPosition { get; set; }
         public int RedTurnStarts { get; set; }
         public int BlueTurnStarts { get; set; }
         public int Plies { get; set; }

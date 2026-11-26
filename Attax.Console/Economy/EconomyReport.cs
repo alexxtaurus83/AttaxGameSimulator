@@ -8,6 +8,10 @@ namespace Attax.Console.Economy {
     internal sealed class ReportInputs {
         public List<EconomyGameRecord> Records = new List<EconomyGameRecord>();
         public List<IncomeGroup> Income = new List<IncomeGroup>();
+        public List<IncomeGroup>? UncappedIncome;
+        public int[] WallBalances = Array.Empty<int>();
+        public int OpeningPlies;
+        public int? HoldoutSeed;
         public List<string> InputFiles = new List<string>();
         public EconomyContext Context = null!;
         public EconomyAnchors Anchors = new EconomyAnchors();
@@ -51,9 +55,9 @@ namespace Attax.Console.Economy {
             var prices = r.BasePrices.Count > 0 ? r.BasePrices : CurrentPrices(input.Context.Rules);
             double alpha = r.Fit.Ok ? r.Fit.Alpha : economy.boardScaling.alpha;
             double minFactor = r.Fit.Ok ? r.Fit.MinFactor : economy.boardScaling.minFactor;
-            bool calibrated = r.Converged && !input.DraftOnly;
+            bool calibrated = input.Applied;
 
-            sb.AppendLine(calibrated ? "### Calibrated prices" : "### Draft prices (not eligible for release)");
+            sb.AppendLine(calibrated ? "### Calibrated prices" : "### Candidate prices (not applied)");
             sb.AppendLine();
             sb.AppendLine($"Analysis inputs: rules `{input.Context.RulesHash}`, AI config `{input.Context.AiHash}`, engine params `{input.Context.EngineParamsHash}`, revision `{input.Context.Revision}`, build `{input.Context.BuildId}`, seed {input.Seed}.");
             sb.AppendLine();
@@ -94,14 +98,17 @@ namespace Attax.Console.Economy {
 
             sb.AppendLine("#### Income by playable cells (abilities off)");
             sb.AppendLine();
-            sb.AppendLine("| Playable cells | Own turns | Credits/turn | Ratio to 48 | Fitted ratio |");
+            sb.AppendLine("| Playable cells | Own turns | Credited/turn | Uncapped/turn | Fitted cost ratio |");
             sb.AppendLine("|---|---|---|---|---|");
             double referenceIncome = r.Fit.ReferenceIncomePerTurn;
+            var uncapped = input.UncappedIncome?.ToDictionary(g => g.Playable);
             foreach (var g in input.Income.OrderByDescending(g => g.Playable)) {
-                string ratio = referenceIncome > 0 ? (g.MeanPerTurn / referenceIncome).ToString("0.00", Inv) : "n/a";
+                string raw = uncapped != null && uncapped.TryGetValue(g.Playable, out var u) ? u.MeanPerTurn.ToString("0.00", Inv) : "n/a";
                 string fitted = r.Fit.Ok ? Math.Max(r.Fit.MinFactor, Math.Min(1.0, Math.Pow((double)g.Playable / PriceSolver.ReferencePlayable, r.Fit.Alpha))).ToString("0.00", Inv) : "n/a";
-                sb.AppendLine($"| {g.Playable} | {g.OwnTurns.ToString("0", Inv)} | {g.MeanPerTurn.ToString("0.00", Inv)} | {ratio} | {fitted} |");
+                sb.AppendLine($"| {g.Playable} | {g.OwnTurns.ToString("0", Inv)} | {g.MeanPerTurn.ToString("0.00", Inv)} | {raw} | {fitted} |");
             }
+            if (uncapped != null) sb.AppendLine().AppendLine("Board scaling uses uncapped rewards. The credited column shows what actually reached players under the cap.");
+            else if (referenceIncome > 0) sb.AppendLine().AppendLine("Legacy diagnostic: the fit uses capped credits because uncapped telemetry is unavailable.");
             sb.AppendLine();
 
             sb.AppendLine("#### Value samples (Pass 1)");
@@ -115,7 +122,7 @@ namespace Attax.Console.Economy {
             sb.AppendLine("#### Anchors and convergence (Pass 2)");
             sb.AppendLine();
             var a = input.Anchors;
-            sb.AppendLine($"Targets: Wall I affordable after {a.WallAffordableByOwnTurn} own turns; casts per side per game {a.CastsPerSidePerGame[0]}-{a.CastsPerSidePerGame[1]} (tolerance {a.Tolerance}); expensive casts per side per game {a.ExpensiveCastsPerSidePerGame}; level step >= {a.MinLevelStep}; Unblock I = Wall I: {a.UnblockL1EqualsWall}.");
+            sb.AppendLine($"Targets: Wall I affordable at the start of own turn {a.WallAffordableByOwnTurn}; casts per side per game {a.CastsPerSidePerGame[0]}-{a.CastsPerSidePerGame[1]} (tolerance {a.Tolerance}); expensive casts per side per game {a.ExpensiveCastsPerSidePerGame}; level step >= {a.MinLevelStep}; Unblock I = Wall I: {a.UnblockL1EqualsWall}.");
             sb.AppendLine();
             if (r.Iterations.Count == 0) sb.AppendLine("Pass 2 was not run.");
             else {
@@ -123,9 +130,25 @@ namespace Attax.Console.Economy {
                 sb.AppendLine("|---|---|---|---|---|---|");
                 foreach (var it in r.Iterations)
                     sb.AppendLine($"| {it.Iteration} | {it.Scalar.ToString("0.000", Inv)} | {it.MaxPrice} | {it.CastsPerSide.ToString("0.00", Inv)} | {it.ExpensivePerSide.ToString("0.00", Inv)} | {it.Verdict} |");
-                if (r.WallTurnsOnReference > 0) sb.AppendLine().AppendLine($"Wall I costs {r.WallTurnsOnReference.ToString("0.00", Inv)} own turns of mean income on the 48-cell reference board.");
             }
+            if (r.Holdout is { } holdout)
+                sb.AppendLine().AppendLine($"Holdout (seed {input.HoldoutSeed}, {holdout.Games} games): {holdout.CastsPerSide.ToString("0.00", Inv)} casts and {holdout.ExpensivePerSide.ToString("0.00", Inv)} expensive casts per side per game. Prices were not retuned on holdout games.");
+            else sb.AppendLine().AppendLine("No holdout result.");
+            var wall = WallAffordability(r, input);
+            if (wall != null)
+                sb.AppendLine().AppendLine($"At the start of own turn {a.WallAffordableByOwnTurn} on the 48-cell reference board, {wall.Able}/{wall.Observations} sides could pay the candidate Wall I price ({wall.Price} credits), versus {wall.CurrentAble}/{wall.Observations} at the current price ({wall.CurrentPrice} credits). These are no-spend balances (mean {wall.Mean.ToString("0.00", Inv)}); sides that did not reach the turn are excluded.");
+            else sb.AppendLine().AppendLine("Wall affordability at the target turn was not measured.");
             return sb.ToString().TrimEnd() + Environment.NewLine;
+        }
+
+        private sealed record WallObservation(int Price, int Able, int CurrentPrice, int CurrentAble, int Observations, double Mean);
+
+        private static WallObservation? WallAffordability(CalibrationResult r, ReportInputs input) {
+            if (input.WallBalances.Length == 0) return null;
+            int current = input.Context.Rules.GetAbilityCost(AbilityKind.Wall, 1);
+            int price = r.BasePrices.TryGetValue(AbilityKind.Wall, out var ladder) ? ladder[0] : current;
+            return new WallObservation(price, input.WallBalances.Count(c => c >= price), current, input.WallBalances.Count(c => c >= current),
+                input.WallBalances.Length, input.WallBalances.Average());
         }
 
         private static Dictionary<AbilityKind, int[]> CurrentPrices(GameRulesConfig rules) {
@@ -148,8 +171,9 @@ namespace Attax.Console.Economy {
             var sb = new StringBuilder();
             sb.AppendLine("# Economy calibration report");
             sb.AppendLine();
-            sb.AppendLine($"- Mode: {input.Mode}; status: **{(r.Converged ? "CONVERGED" : "NOT CONVERGED")}**{(input.Applied ? "; configs APPLIED" : "; configs not modified")}");
+            sb.AppendLine($"- Mode: {input.Mode}; status: **{(input.DraftOnly ? "DRAFT ONLY" : r.Converged ? "CONVERGED" : "NOT CONVERGED")}**{(input.Applied ? "; configs APPLIED" : "; configs not modified")}");
             sb.AppendLine($"- Games analysed: {input.Records.Count} from {input.InputFiles.Count} log(s); verify games {input.VerifyGames}; iterations {input.Iterations}; verify player `{input.VerifyPlayer}`");
+            if (input.UncappedIncome != null) sb.AppendLine($"- Seeded opening plies requested: {input.OpeningPlies}");
             sb.AppendLine($"- Rules `{input.Context.RulesPath}` (hash `{input.Context.RulesHash}`), AI config `{input.Context.AiPath}` (hash `{input.Context.AiHash}`)");
             sb.AppendLine($"- Engine params `{input.Context.EngineParamsHash}`, revision `{input.Context.Revision}`, seed {input.Seed}");
             foreach (string f in input.InputFiles) sb.AppendLine($"- Input: `{f}`");
@@ -163,11 +187,11 @@ namespace Attax.Console.Economy {
             }
             sb.AppendLine("## Timing and sessions");
             sb.AppendLine();
-            sb.AppendLine("| Session (tag) | Games | Wall ms/game | Plies/game | Search ms/game | Ability ms/game | Value sample ms/game | Casts/side/game | Expensive/side/game | Value samples |");
-            sb.AppendLine("|---|---|---|---|---|---|---|---|---|---|");
+            sb.AppendLine("| Session (tag) | Games | Distinct opening positions | Wall ms/game | Plies/game | Search ms/game | Ability ms/game | Value sample ms/game | Casts/side/game | Expensive/side/game | Value samples |");
+            sb.AppendLine("|---|---|---|---|---|---|---|---|---|---|---|");
             foreach (var g in input.Records.GroupBy(x => x.Tag).OrderBy(g => g.Key, StringComparer.Ordinal)) {
                 int n = g.Count();
-                sb.AppendLine($"| {(g.Key.Length == 0 ? "(none)" : g.Key)} | {n} | {g.Average(x => x.WallMs).ToString("0", Inv)} | {g.Average(x => x.Plies).ToString("0.0", Inv)} | " +
+                sb.AppendLine($"| {(g.Key.Length == 0 ? "(none)" : g.Key)} | {n} | {DistinctOpenings(g)?.ToString(Inv) ?? "n/a"} | {g.Average(x => x.WallMs).ToString("0", Inv)} | {g.Average(x => x.Plies).ToString("0.0", Inv)} | " +
                               $"{g.Average(x => x.SearchMsRed + x.SearchMsBlue).ToString("0", Inv)} | {g.Average(x => x.AbilityDecideMsRed + x.AbilityDecideMsBlue).ToString("0", Inv)} | {g.Average(x => x.ValueSampleMs).ToString("0", Inv)} | " +
                               $"{CastsPerSide(g).ToString("0.00", Inv)} | {ExpensivePerSide(g).ToString("0.00", Inv)} | {g.Sum(x => x.Values.Count)} |");
             }
@@ -186,6 +210,13 @@ namespace Attax.Console.Economy {
             foreach (var g in input.Records.Where(x => x.Abilities).GroupBy(x => x.BoardId).OrderBy(g => g.Key, StringComparer.Ordinal))
                 sb.AppendLine($"| {g.Key} | {g.First().Playable} | {g.Count()} | {CastsPerSide(g).ToString("0.00", Inv)} | {g.Average(x => x.Plies).ToString("0.0", Inv)} |");
             sb.AppendLine();
+            sb.AppendLine("## Positive ability value by search depth");
+            sb.AppendLine();
+            sb.AppendLine("| Ability | Level | Search depth | Positive positions | Boards | P75 gain (chips) |");
+            sb.AppendLine("|---|---|---|---|---|---|");
+            foreach (var v in DepthValues(input.Records))
+                sb.AppendLine($"| {v.Kind} | {Roman(v.Level)} | {v.Depth} | {v.Positive} | {v.Boards} | {v.P75?.ToString("0.00", Inv) ?? "n/a"} |");
+            sb.AppendLine();
             sb.AppendLine("## Calibration tables");
             sb.AppendLine();
             sb.Append(Tables(r, input));
@@ -196,6 +227,16 @@ namespace Attax.Console.Economy {
             var list = g as IList<EconomyGameRecord> ?? g.ToList();
             return list.Count == 0 ? 0 : list.Sum(x => x.RedIncome.Casts + x.BlueIncome.Casts) / (2.0 * list.Count);
         }
+
+        private static int? DistinctOpenings(IEnumerable<EconomyGameRecord> records) => records.Any(r => r.OpeningPosition == null)
+            ? null : records.Select(r => (r.BoardId, r.OpeningPosition)).Distinct().Count();
+
+        private sealed record DepthValue(string Kind, int Level, int Depth, int Positive, int Boards, double? P75);
+
+        private static IEnumerable<DepthValue> DepthValues(IEnumerable<EconomyGameRecord> records) => records.Where(r => r.Abilities)
+            .SelectMany(r => r.Values.Where(v => v.GainChips is > 0 && float.IsFinite(v.GainChips.Value)).Select(v => (v, r.BoardId)))
+            .GroupBy(x => (x.v.Kind, x.v.Level, x.v.Depth)).OrderBy(g => g.Key.Kind, StringComparer.Ordinal).ThenBy(g => g.Key.Level).ThenBy(g => g.Key.Depth)
+            .Select(g => new DepthValue(g.Key.Kind, g.Key.Level, g.Key.Depth, g.Count(), g.Select(x => x.BoardId).Distinct().Count(), PriceSolver.P75(g.Select(x => (double)x.v.GainChips!.Value))));
 
         internal static double ExpensivePerSide(IEnumerable<EconomyGameRecord> g) {
             var list = g as IList<EconomyGameRecord> ?? g.ToList();
@@ -235,6 +276,8 @@ namespace Attax.Console.Economy {
                 games = input.Records.Count,
                 inputFiles = input.InputFiles,
                 verifyGames = input.VerifyGames,
+                openingPlies = input.UncappedIncome == null ? (int?)null : input.OpeningPlies,
+                holdoutSeed = input.HoldoutSeed,
                 iterations = input.Iterations,
                 seed = input.Seed,
                 verifyPlayer = input.VerifyPlayer,
@@ -250,14 +293,18 @@ namespace Attax.Console.Economy {
                 initialScalar = r.InitialScalar,
                 finalScalar = r.FinalScalar,
                 wallTurnsOnReference = r.WallTurnsOnReference,
+                wallAffordability = WallAffordability(r, input),
                 basePrices = Ladder(r.BasePrices),
                 initialPrices = Ladder(r.InitialPrices),
                 income = input.Income.OrderByDescending(g => g.Playable).Select(g => new { playable = g.Playable, ownTurns = g.OwnTurns, income = g.Income, perTurn = g.MeanPerTurn }),
+                uncappedIncome = input.UncappedIncome?.Select(g => new { g.Playable, g.OwnTurns, g.Income, perTurn = g.MeanPerTurn }),
                 values = r.Values.Select(v => new { kind = v.Kind.ToString(), v.Level, v.Samples, v.Positive, v.Terminal, v.NoCandidate, v.Unverified, v.OverCap, p75 = v.P75 }),
+                valuesByDepth = DepthValues(input.Records),
                 iterationLog = r.Iterations,
                 final = r.Final,
+                holdout = r.Holdout,
                 sessions = input.Records.GroupBy(x => x.Tag).Select(g => new {
-                    tag = g.Key, games = g.Count(), wallMsPerGame = g.Average(x => x.WallMs), pliesPerGame = g.Average(x => x.Plies),
+                    tag = g.Key, games = g.Count(), distinctOpeningPositions = DistinctOpenings(g), wallMsPerGame = g.Average(x => x.WallMs), pliesPerGame = g.Average(x => x.Plies),
                     searchMsPerGame = g.Average(x => x.SearchMsRed + x.SearchMsBlue), abilityMsPerGame = g.Average(x => x.AbilityDecideMsRed + x.AbilityDecideMsBlue),
                     valueSampleMsPerGame = g.Average(x => x.ValueSampleMs), castsPerSideGame = CastsPerSide(g), expensivePerSideGame = ExpensivePerSide(g)
                 }),

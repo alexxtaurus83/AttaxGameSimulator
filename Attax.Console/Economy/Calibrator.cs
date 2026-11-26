@@ -20,6 +20,7 @@ namespace Attax.Console.Economy {
         public Dictionary<AbilityKind, int[]> InitialPrices = new Dictionary<AbilityKind, int[]>();
         public List<IterationLog> Iterations = new List<IterationLog>();
         public FrequencyMeasure? Final;
+        public FrequencyMeasure? Holdout;
         public double WallTurnsOnReference;
         public bool Converged;
         public List<string> Failures = new List<string>();
@@ -50,7 +51,7 @@ namespace Attax.Console.Economy {
         public static double Round(double value, int digits) => Math.Round(value, digits, MidpointRounding.AwayFromZero);
 
         public static CalibrationResult Solve(IReadOnlyList<IncomeGroup> income, IReadOnlyList<ValueStat> values, EconomyRules economy, EconomyAnchors anchors,
-                                              int iterations, Func<CandidateEconomy, FrequencyMeasure>? measure) {
+                                              int iterations, Func<CandidateEconomy, FrequencyMeasure>? measure, double? wallBudget = null) {
             var result = new CalibrationResult { Values = values.ToList() };
             result.Fit = PriceSolver.FitAlpha(income);
             if (!result.Fit.Ok) result.Failures.Add("Pass 0 income fit failed: " + result.Fit.Reason);
@@ -67,7 +68,9 @@ namespace Attax.Console.Economy {
             var valueMap = values.ToDictionary(v => (v.Kind, v.Level), v => v.P75!.Value);
             double wallValue = valueMap[(AbilityKind.Wall, 1)];
             int step = economy.boardScaling.roundStep;
-            result.InitialScalar = PriceSolver.InitialScalar(result.Fit.ReferenceIncomePerTurn, anchors.WallAffordableByOwnTurn, wallValue);
+            result.InitialScalar = wallBudget.HasValue
+                ? Math.Max(step, wallBudget.Value) / wallValue
+                : PriceSolver.InitialScalar(result.Fit.ReferenceIncomePerTurn, anchors.WallAffordableByOwnTurn, wallValue);
             result.CreditValueChips = (float)Round(PriceSolver.CreditValueChips(result.InitialScalar), 5);
             if (!(result.CreditValueChips > 0f)) result.Failures.Add("creditValueChips rounds to zero; the measured values are too small for the pinned AI gate");
             result.InitialPrices = PriceSolver.BuildPrices(valueMap, result.InitialScalar, step, anchors.MinLevelStep, anchors.UnblockL1EqualsWall);
@@ -81,19 +84,27 @@ namespace Attax.Console.Economy {
             }
 
             double scalar = result.InitialScalar;
+            double? tooCheap = null, tooDear = null;
             for (int it = 1; it <= Math.Max(1, iterations); it++) {
                 var prices = PriceSolver.BuildPrices(valueMap, scalar, step, anchors.MinLevelStep, anchors.UnblockL1EqualsWall);
                 var candidate = new CandidateEconomy(prices, result.Fit.Alpha, result.Fit.MinFactor, result.CreditValueChips);
                 var m = measure(candidate);
                 var verdict = PriceSolver.JudgeFrequency(m.CastsPerSide, m.ExpensivePerSide, anchors);
+                double next = scalar * verdict.Ratio;
+                if (!verdict.Converged && !verdict.Failed) {
+                    if (verdict.Ratio > 1) tooCheap = scalar;
+                    else tooDear = scalar;
+                    // The same seed schedule is reused while tuning. Once it brackets a crossing, stop jumping over it.
+                    if (tooCheap is double low && tooDear is double high && low < high) next = Math.Sqrt(low * high);
+                }
                 result.Iterations.Add(new IterationLog(it, scalar, PriceSolver.MaxPrice(prices), m.CastsPerSide, m.ExpensivePerSide,
-                    verdict.Converged ? "converged" : verdict.Failed ? "failed: " + verdict.Reason : $"rescale x{verdict.Ratio:0.000} ({verdict.Reason})"));
+                    verdict.Converged ? "converged" : verdict.Failed ? "failed: " + verdict.Reason : $"rescale x{next / scalar:0.000} ({verdict.Reason})"));
                 result.BasePrices = prices;
                 result.FinalScalar = scalar;
                 result.Final = m;
                 if (verdict.Failed) { result.Failures.Add(verdict.Reason); return Hard(result); }
                 if (verdict.Converged) { result.Converged = true; break; }
-                scalar *= verdict.Ratio;
+                scalar = next;
             }
             if (!result.Converged) result.Failures.Add($"Pass 2 did not converge within {Math.Max(1, iterations)} iteration(s)");
 
@@ -104,6 +115,13 @@ namespace Attax.Console.Economy {
 
             result.WallTurnsOnReference = result.BasePrices[AbilityKind.Wall][0] / result.Fit.ReferenceIncomePerTurn;
             return Hard(result);
+        }
+
+        public static void CheckHoldout(CalibrationResult result, FrequencyMeasure holdout, EconomyAnchors anchors) {
+            result.Holdout = holdout;
+            if (PriceSolver.JudgeFrequency(holdout.CastsPerSide, holdout.ExpensivePerSide, anchors).Converged) return;
+            result.Converged = false;
+            result.Failures.Add($"Holdout missed the frequency bands: casts/side/game {holdout.CastsPerSide:0.00}, expensive/side/game {holdout.ExpensivePerSide:0.00}; prices were not retuned on the holdout.");
         }
 
         // Only "note:" entries are not failures.

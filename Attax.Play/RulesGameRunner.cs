@@ -40,6 +40,8 @@ namespace Attax.Agents {
         public int CaptureCredits;
         /// <summary>Credits this side received for landing on an enemy footprint.</summary>
         public int FootprintCredits;
+        public long CreditsLostToCap;
+        public List<int> TurnStartCredits = new List<int>();
         /// <summary>Opponent chips this side flipped.</summary>
         public int Flips;
         public int CreditsSpent;
@@ -51,6 +53,8 @@ namespace Attax.Agents {
 
     public sealed class RulesGameResult {
         public int Plies;
+        public int OpeningPliesPlayed;
+        public ulong OpeningPosition;
         public int RedTurnStarts, BlueTurnStarts;
         public bool Terminal;
         /// <summary>+1 red, -1 blue, 0 draw.</summary>
@@ -77,6 +81,8 @@ namespace Attax.Agents {
         public int SampleValues;
         /// <summary>Seed for choosing which turns are sampled.</summary>
         public int Seed;
+        public int OpeningPlies;
+        public int OpeningSeed;
     }
 
     /// <summary>
@@ -85,6 +91,7 @@ namespace Attax.Agents {
     /// </summary>
     public static class RulesGameRunner {
         public const string SamplingMethod = "own-turn-4-to-end-minus-4-v1";
+        public const string TelemetryMethod = "seeded-legal-opening-turn-balances-cap-loss-v1";
 
         public static RulesGameResult Run(BitboardState board, IPlayer red, IPlayer blue, RulesGameOptions options) {
             if (board == null) throw new ArgumentNullException(nameof(board));
@@ -106,6 +113,8 @@ namespace Attax.Agents {
 
             var state = GameState.CreateInitial(board, PlayerColor.Red, options.Rules);
             var result = new RulesGameResult { Playable = state.PlayableCells };
+            result.OpeningPosition = state.Board.ZobristHash;
+            var openingRandom = options.OpeningPlies > 0 ? new Random(options.OpeningSeed) : null;
             var positions = options.SampleValues > 0 ? new List<(GameState State, int OwnTurn, ISearchEnginePlayer Player)>() : null;
             var wall = Stopwatch.StartNew();
             bool turnStart = true;
@@ -118,12 +127,15 @@ namespace Attax.Agents {
 
                 if (turnStart) {
                     int ownTurn = side == PlayerColor.Red ? ++result.RedTurnStarts : ++result.BlueTurnStarts;
+                    stats.TurnStartCredits.Add(state.GetCredits(side));
                     if (positions != null && search != null && ownTurn >= 4) positions.Add((state.Clone(), ownTurn, search));
                 }
                 turnStart = false;
 
                 ActionOutcome outcome;
-                if (ai != null && search != null && state.AbilityActionsUsedThisTurn == 0) {
+                ulong enemyFootprints = side == PlayerColor.Red ? state.BlueFootprints : state.RedFootprints;
+                bool opening = result.OpeningPliesPlayed < options.OpeningPlies;
+                if (!opening && ai != null && search != null && state.AbilityActionsUsedThisTurn == 0) {
                     long a0 = Stopwatch.GetTimestamp();
                     var verdict = AbilityDecider.Decide(state, search.Engine, ai, search.SearchDepth, CancellationToken.None);
                     stats.AbilityDecideMs += Elapsed(a0);
@@ -138,15 +150,19 @@ namespace Attax.Agents {
                             EstimatedGainChips = verdict.NetGainChips + outcome.CreditsSpent * ai.creditValueChips,
                             CandidatesVerified = verdict.CandidatesVerified, AutoPassed = outcome.AutoPassed
                         });
-                        turnStart = Account(result, side, outcome);
+                        turnStart = Account(result, options.Rules.economy, side, verdict.Action.Kind, enemyFootprints, outcome);
                         continue;
                     }
                 }
 
-                var action = ChooseStandardMove(state, side, player, search, stats);
+                var action = opening ? ChooseOpeningMove(state, side, openingRandom!) : ChooseStandardMove(state, side, player, search, stats);
                 var applyError = AttaxGame.TryApply(state, side, action, out outcome);
                 if (applyError != ActionError.None) throw new InvalidOperationException($"Illegal move chosen for {side}: {applyError}.");
-                turnStart = Account(result, side, outcome);
+                turnStart = Account(result, options.Rules.economy, side, action.Kind, enemyFootprints, outcome);
+                if (opening) {
+                    result.OpeningPliesPlayed++;
+                    result.OpeningPosition = state.Board.ZobristHash;
+                }
             }
 
             if (positions != null) {
@@ -186,15 +202,40 @@ namespace Attax.Agents {
         private static double Elapsed(long startTimestamp) => (Stopwatch.GetTimestamp() - startTimestamp) * 1000.0 / Stopwatch.Frequency;
 
         // Credits and flips are booked per side; returns true when the action ended the turn.
-        private static bool Account(RulesGameResult result, PlayerColor actor, in ActionOutcome outcome) {
+        private static bool Account(RulesGameResult result, EconomyRules economy, PlayerColor actor, ActionKind kind, ulong enemyFootprints, in ActionOutcome outcome) {
             var mine = actor == PlayerColor.Red ? result.Red : result.Blue;
             var theirs = actor == PlayerColor.Red ? result.Blue : result.Red;
             mine.FootprintCredits += outcome.ActorCreditsGained;
             theirs.CaptureCredits += outcome.VictimCreditsGained;
-            mine.Flips += BitboardOps.PopCount(outcome.FlippedMask);
+            int flips = BitboardOps.PopCount(outcome.FlippedMask);
+            mine.Flips += flips;
+            if (economy.enabled) {
+                theirs.CreditsLostToCap += (long)flips * economy.captureReward - outcome.VictimCreditsGained;
+                if ((kind == ActionKind.Move || kind == ActionKind.Spawn || kind == ActionKind.SuperClone) && (outcome.PlacedMask & enemyFootprints) != 0)
+                    mine.CreditsLostToCap += economy.footprintReward - outcome.ActorCreditsGained;
+            }
             mine.CreditsSpent += outcome.CreditsSpent;
             if (outcome.TurnAdvanced) mine.OwnTurns++;
             return outcome.TurnAdvanced;
+        }
+
+        private static GameAction ChooseOpeningMove(GameState state, PlayerColor side, Random random) {
+            // Reservoir sampling gives each legal source/target pair the same chance without allocating a move list.
+            Move selected = default;
+            int count = 0;
+            ulong sources = side == PlayerColor.Red ? state.Board.RedPieces : state.Board.BluePieces;
+            while (sources != 0UL) {
+                int from = BitboardOps.TrailingZeroCount(sources);
+                sources &= sources - 1;
+                ulong targets = AttaxGame.GetStandardMoveTargets(state, side, from % 7, from / 7);
+                while (targets != 0UL) {
+                    int to = BitboardOps.TrailingZeroCount(targets);
+                    targets &= targets - 1;
+                    if (random.Next(++count) == 0) selected = new Move(from % 7, from / 7, to % 7, to / 7);
+                }
+            }
+            if (count == 0) throw new InvalidOperationException($"No legal opening move remains for {side}.");
+            return GameAction.MoveAction(selected);
         }
 
         private static GameAction ChooseStandardMove(GameState state, PlayerColor side, IPlayer player, ISearchEnginePlayer? search, RulesSideStats stats) {

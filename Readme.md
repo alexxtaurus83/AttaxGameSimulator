@@ -211,9 +211,9 @@ Headless `UserSimulator` bots (now hosted in `..\merge-conflict-server\tools\Use
 
 ## Economy calibration
 
-`economy-sim` plays rules-engine games (credits, footprints, abilities) on the 20 void-only boards and writes a separate JSONL log (not the `ATLG` training log); `economy-analyze` fits board scaling, values and prices ability levels, verifies cast frequencies and, with `--apply`, writes `game-rules.json`, `ai-ability-config.json` and `AttaxUnity\docs\ECONOMY.md` only when converged; `economy` does both in one in-memory run. `economy-overnight.cmd` runs six resumable sessions (about 4.3 hours) plus draft analysis into `runs\economy-overnight-own-turn-v1\`.
+`economy-sim` plays rules-engine games on the 20 void-only boards and writes separate JSONL (not the `ATLG` training log). `economy-analyze` fits board scaling, values and prices abilities, then checks cast rates; `economy` does both in one run. `economy-overnight.cmd` runs six resumable sessions with seeded legal openings, turn-start credit telemetry, and a separate-seed verification holdout into `runs\economy-overnight-diverse-v2\`. The batch never applies prices.
 
-Pass `true` or `false` explicitly to `--abilities`, `--swap-colors`, and the economy analysis `--quiescence` option. Do not reuse legacy `runs\economy-overnight\` logs: the old flags contaminated the income baseline and doubled the no-swap sessions. Step by step: [`ECONOMY_CALIBRATION.md`](ECONOMY_CALIBRATION.md).
+Pass `true` or `false` explicitly to `--abilities`, `--swap-colors`, and the economy analysis `--quiescence` option. Prior economy runs are diagnostic only. Commands, telemetry and apply gates: [`ECONOMY_CALIBRATION.md`](ECONOMY_CALIBRATION.md).
 
 ## Game result rule
 

@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace Attax.Console.Economy {
     /// <summary>Design targets the calibration converges to. Defaults are the plan's anchors; <c>--anchors &lt;json&gt;</c> overrides any subset.</summary>
     internal sealed class EconomyAnchors {
-        /// <summary>Wall level I is affordable after this many own turns of mean income on the reference board.</summary>
+        /// <summary>Own turn whose opening credit balance seeds the Wall I price on the reference board.</summary>
         public int WallAffordableByOwnTurn { get; set; } = 3;
         /// <summary>Target band of casts per side per game: [min, max].</summary>
         public double[] CastsPerSidePerGame { get; set; } = { 3, 4 };

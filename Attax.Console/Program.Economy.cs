@@ -43,7 +43,7 @@ namespace Attax.Console {
             var ctx = EconomyContext.Load(o.Rules, o.AiConfig);
             var settings = new EconomySimSettings {
                 Boards = EconomySim.ResolveBoards(o.Boards), Games = o.Games, Red = o.Red, Blue = o.Blue ?? o.Red, SwapColors = swapColors,
-                Abilities = abilities, SampleValues = Math.Max(0, o.SampleValues), MaxPlies = o.MaxPlies, Seed = o.Seed, Parallel = o.Parallel,
+                Abilities = abilities, SampleValues = Math.Max(0, o.SampleValues), OpeningPlies = o.OpeningPlies, MaxPlies = o.MaxPlies, Seed = o.Seed, Parallel = o.Parallel,
                 Tag = string.IsNullOrWhiteSpace(o.Tag) ? Path.GetFileNameWithoutExtension(o.Out) : o.Tag!, Context = ctx
             };
             PlayerSpec_Check(settings.Red); PlayerSpec_Check(settings.Blue);
@@ -90,7 +90,7 @@ namespace Attax.Console {
             var anchors = EconomyAnchors.Load(o.Anchors, o.Tolerance);
             RunAnalysis(new AnalysisRequest {
                 Mode = "economy-analyze", Records = records, Files = files, Context = ctx, Anchors = anchors, OutDir = o.Out, VerifyGames = o.VerifyGames,
-                Boards = o.Boards, Depth = o.Depth, Quiescence = quiescence, Iterations = o.Iterations, Seed = o.Seed, Parallel = o.Parallel,
+                Boards = o.Boards, Depth = o.Depth, Quiescence = quiescence, Iterations = o.Iterations, Seed = o.Seed, Parallel = o.Parallel, HoldoutGames = o.HoldoutGames,
                 Apply = o.Apply, EconomyDoc = o.EconomyDoc, SessionFilesMatch = sessionFilesMatch
             });
         }
@@ -108,18 +108,18 @@ namespace Attax.Console {
 
             string p0 = Path.Combine(o.Out, "economy_pass0.jsonl"), p1 = Path.Combine(o.Out, "economy_pass1.jsonl");
             var pass0 = RunSession(new EconomySimSettings {
-                Boards = boards, Games = o.Games, Red = spec, Blue = spec, Abilities = false, SampleValues = 0, Seed = o.Seed, Parallel = o.Parallel, Tag = "pass0", Context = ctx
+                Boards = boards, Games = o.Games, Red = spec, Blue = spec, Abilities = false, SampleValues = 0, OpeningPlies = o.OpeningPlies, Seed = o.Seed, Parallel = o.Parallel, Tag = "pass0", Context = ctx
             });
             EconomyLog.Write(p0, pass0);
             var pass1 = RunSession(new EconomySimSettings {
-                Boards = boards, Games = o.Games, Red = spec, Blue = spec, Abilities = true, SampleValues = Math.Max(0, o.SampleValues), Seed = o.Seed, Parallel = o.Parallel, Tag = "pass1", Context = ctx
+                Boards = boards, Games = o.Games, Red = spec, Blue = spec, Abilities = true, SampleValues = Math.Max(0, o.SampleValues), OpeningPlies = o.OpeningPlies, Seed = o.Seed, Parallel = o.Parallel, Tag = "pass1", Context = ctx
             });
             EconomyLog.Write(p1, pass1);
 
             RunAnalysis(new AnalysisRequest {
                 Mode = "economy", Records = pass0.Concat(pass1).ToList(), Files = new List<string> { p0, p1 }, Context = ctx, Anchors = anchors, OutDir = o.Out,
                 VerifyGames = o.VerifyGames, Boards = o.Boards, Depth = o.Depth, Quiescence = quiescence, Iterations = o.Iterations, Seed = o.Seed,
-                Parallel = o.Parallel, Apply = o.Apply, EconomyDoc = o.EconomyDoc
+                Parallel = o.Parallel, Apply = o.Apply, EconomyDoc = o.EconomyDoc, HoldoutGames = o.HoldoutGames
             });
         }
 
@@ -132,16 +132,17 @@ namespace Attax.Console {
             public EconomyContext Context = null!;
             public EconomyAnchors Anchors = null!;
             public string OutDir = "";
-            public int VerifyGames, Depth, Iterations, Seed, Parallel;
+            public int VerifyGames, HoldoutGames, Depth, Iterations, Seed, Parallel;
             public bool Quiescence, Apply;
             public bool SessionFilesMatch;
             public string Boards = "all";
             public string? EconomyDoc;
         }
 
-        internal static List<IncomeGroup> BuildIncomeGroups(IEnumerable<EconomyGameRecord> records) {
+        internal static List<IncomeGroup> BuildIncomeGroups(IEnumerable<EconomyGameRecord> records, bool uncapped = false) {
             return records.Where(r => !r.Abilities).GroupBy(r => r.Playable).OrderByDescending(g => g.Key)
-                .Select(g => new IncomeGroup(g.Key, g.Sum(r => r.RedIncome.OwnTurns + r.BlueIncome.OwnTurns), g.Sum(r => (double)(r.RedIncome.Income + r.BlueIncome.Income))))
+                .Select(g => new IncomeGroup(g.Key, g.Sum(r => r.RedIncome.OwnTurns + r.BlueIncome.OwnTurns), g.Sum(r =>
+                    (double)r.RedIncome.Income + r.BlueIncome.Income + (uncapped ? (r.RedIncome.CreditsLostToCap ?? 0) + (r.BlueIncome.CreditsLostToCap ?? 0) : 0))))
                 .ToList();
         }
 
@@ -162,6 +163,10 @@ namespace Attax.Console {
             Check("source revision", r => r.Revision, ctx.Revision);
             Check("build ID", r => r.BuildId, ctx.BuildId);
             Check("sampling method", r => r.SamplingMethod, RulesGameRunner.SamplingMethod);
+            if (!HasEconomyTelemetry(records, ctx.Rules.economy.maxCredits)) {
+                warnings.Add("Economy telemetry is missing, invalid, or mixed across opening settings; legacy logs are diagnostic only.");
+                block = true;
+            }
             if (!System.Text.RegularExpressions.Regex.IsMatch(ctx.Revision, @"\Ashared=[0-9a-f]{40};simulator=[0-9a-f]{40};state=clean\z")) {
                 warnings.Add("The analysis build does not identify clean, full Shared and Simulator source revisions.");
                 block = true;
@@ -177,7 +182,19 @@ namespace Attax.Console {
             return warnings;
         }
 
+        internal static bool HasEconomyTelemetry(IReadOnlyList<EconomyGameRecord> records, int cap) {
+            if (records.Count == 0 || records[0].OpeningPlies is not (>= 0 and <= 4)) return false;
+            int requested = records[0].OpeningPlies!.Value;
+            bool SideValid(EconomySideIncome side, int turns) => side.CreditsLostToCap is >= 0 &&
+                side.TurnStartCredits is { } credits && credits.Count == turns && credits.All(c => c >= 0 && c <= cap);
+            return records.All(r => r.TelemetryMethod == RulesGameRunner.TelemetryMethod && r.OpeningPlies == requested &&
+                r.OpeningPliesPlayed == Math.Min(requested, r.Plies) && r.OpeningPosition?.Length == 16 &&
+                SideValid(r.RedIncome, r.RedTurnStarts) && SideValid(r.BlueIncome, r.BlueTurnStarts));
+        }
+
         static void RunAnalysis(AnalysisRequest q) {
+            if (q.HoldoutGames < 0) throw new ArgumentException("--holdout-games must be >= 0.");
+            var boards = EconomySim.ResolveBoards(q.Boards);
             var input = new ReportInputs {
                 Records = q.Records, InputFiles = q.Files, Context = q.Context, Anchors = q.Anchors, VerifyGames = q.VerifyGames, Iterations = q.Iterations, Seed = q.Seed,
                 Mode = q.Mode, VerifyPlayer = $"classic:depth={q.Depth},quiescence={(q.Quiescence ? "true" : "false")}"
@@ -189,16 +206,38 @@ namespace Attax.Console {
             }
             input.DraftOnly = blocking;
             input.Income = BuildIncomeGroups(q.Records);
+            bool hasTelemetry = HasEconomyTelemetry(q.Records, q.Context.Rules.economy.maxCredits);
+            if (hasTelemetry) {
+                input.UncappedIncome = BuildIncomeGroups(q.Records, uncapped: true);
+                input.OpeningPlies = q.Records[0].OpeningPlies!.Value;
+                int turnIndex = q.Anchors.WallAffordableByOwnTurn - 1;
+                input.WallBalances = q.Records.Where(r => !r.Abilities && r.Playable == PriceSolver.ReferencePlayable)
+                    .SelectMany(r => new[] { r.RedIncome.TurnStartCredits!, r.BlueIncome.TurnStartCredits! })
+                    .Where(credits => turnIndex < credits.Count).Select(credits => credits[turnIndex]).ToArray();
+                if (input.WallBalances.Length == 0) {
+                    input.Warnings.Add("No measured reference-board balances at the Wall target turn; cannot apply.");
+                    input.DraftOnly = blocking = true;
+                }
+            }
             var values = Calibrator.SummarizeValues(q.Records.Where(r => r.Abilities).SelectMany(r => r.Values));
             var economy = q.Context.Rules.economy;
 
             Func<CandidateEconomy, FrequencyMeasure>? measure = null;
             if (q.VerifyGames > 0 && !(q.Apply && blocking)) {
-                var boards = EconomySim.ResolveBoards(q.Boards);
                 string spec = input.VerifyPlayer;
-                measure = candidate => MeasureFrequency(q, candidate, boards, spec);
+                measure = candidate => MeasureFrequency(q, candidate, boards, spec, input.OpeningPlies, q.VerifyGames, q.Seed);
             }
-            var result = Calibrator.Solve(input.Income, values, economy, q.Anchors, q.Iterations, measure);
+            var result = Calibrator.Solve(input.UncappedIncome ?? input.Income, values, economy, q.Anchors, q.Iterations, measure,
+                input.WallBalances.Length == 0 ? null : input.WallBalances.Average());
+            if (result.WallTurnsOnReference > 0 && input.UncappedIncome != null) {
+                double credited = input.Income.First(g => g.Playable == PriceSolver.ReferencePlayable).MeanPerTurn;
+                result.WallTurnsOnReference = credited > 0 ? result.BasePrices[AbilityKind.Wall][0] / credited : 0;
+            }
+            if (result.Converged && q.HoldoutGames > 0 && hasTelemetry) {
+                input.HoldoutSeed = CombineSeed(q.Seed, 77871);
+                var candidate = new CandidateEconomy(result.BasePrices, result.Fit.Alpha, result.Fit.MinFactor, result.CreditValueChips);
+                Calibrator.CheckHoldout(result, MeasureFrequency(q, candidate, boards, input.VerifyPlayer, input.OpeningPlies, q.HoldoutGames, input.HoldoutSeed.Value), q.Anchors);
+            }
 
             string reason = null!;
             bool canApply = q.Apply;
@@ -206,7 +245,8 @@ namespace Attax.Console {
                 if (q.VerifyGames <= 0) reason = "--apply needs --verify-games > 0";
                 else if (blocking) reason = "the input logs are inconsistent (see Diagnostics)";
                 else if (!q.Context.FromSource) reason = "rules/AI configs were not resolved to the AttaxShared source files; pass --rules/--ai-config or set ATTAX_SHARED_REPO";
-                else if (!result.Converged || Calibrator.HasFailures(result)) reason = "the calibration did not converge";
+                else if (q.VerifyGames < boards.Count || q.HoldoutGames < boards.Count) reason = "--apply needs at least one tuning and one holdout game per selected board";
+                else if (!result.Converged || Calibrator.HasFailures(result)) reason = "the calibration did not converge on both tuning and holdout games";
                 canApply = reason == null;
                 if (!canApply) result.Failures.Add("apply rejected: " + reason);
             }
@@ -240,11 +280,11 @@ namespace Attax.Console {
             return expected.All(tag => {
                 var rows = sessions[tag].OrderBy(r => r.Game).ToArray();
                 return rows.Length > 0 && rows.Length == rows[0].SessionGameCount &&
-                    rows.Select((r, i) => r.Game == i && r.SessionGameCount == rows.Length).All(ok => ok);
+                    rows.Select((r, i) => r.Game == i && r.SessionGameCount == rows.Length && r.Abilities == (tag != expected[0])).All(ok => ok);
             });
         }
 
-        static FrequencyMeasure MeasureFrequency(AnalysisRequest q, CandidateEconomy candidate, IReadOnlyList<string> boards, string spec) {
+        static FrequencyMeasure MeasureFrequency(AnalysisRequest q, CandidateEconomy candidate, IReadOnlyList<string> boards, string spec, int openingPlies, int games, int seed) {
             var rules = Calibrator.ApplyTo(q.Context.Rules, candidate.Prices, candidate.Alpha, candidate.MinFactor);
             var errors = rules.Validate();
             if (errors.Count > 0) throw new InvalidOperationException("Candidate prices are invalid: " + string.Join("; ", errors));
@@ -253,7 +293,8 @@ namespace Attax.Console {
             ai.aiAbilitiesEnabled = true;
             var ctx = q.Context.With(rules, ai);
             var records = EconomySim.Run(new EconomySimSettings {
-                Boards = boards, Games = q.VerifyGames, Red = spec, Blue = spec, Abilities = true, SampleValues = 0, Seed = q.Seed, Parallel = q.Parallel, Tag = "verify", Context = ctx
+                Boards = boards, Games = games, Red = spec, Blue = spec, Abilities = true, SampleValues = 0, OpeningPlies = openingPlies,
+                Seed = seed, Parallel = q.Parallel, Tag = "verify", Context = ctx
             });
             return new FrequencyMeasure(EconomyReport.CastsPerSide(records), EconomyReport.ExpensivePerSide(records), records.Count);
         }

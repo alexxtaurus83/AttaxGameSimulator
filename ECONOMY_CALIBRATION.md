@@ -10,8 +10,8 @@ How to measure and set the ByteCode ability prices, board scaling and AI gate va
 
 | Verb | Purpose |
 |---|---|
-| `economy-sim` | Play rules-engine games (credits, footprints, abilities) and write one economy `.jsonl` log. `--boards all|id,...`, `--games`, `--red`, `--blue`, `--swap-colors`, `--abilities`, `--sample-values`, `--seed`, `--parallel`, `--tag`, `--out`. Prints a `SUMMARY` line. |
-| `economy-analyze` | Fit board scaling, value and price the ability levels from logs, verify cast frequencies (Pass 2), write `economy-report.{md,json}`; `--apply` writes the configs and `docs/ECONOMY.md` only when converged. |
+| `economy-sim` | Play rules-engine games and write economy JSONL. `--opening-plies 0..4` adds seeded legal standard moves before the AI takes over (default `0`). Both games in a color-swapped pair get the same opening. |
+| `economy-analyze` | Fit board scaling, value and price the ability levels from logs, and verify cast frequencies. `--verify-games` sets games per tuning iteration; `--holdout-games` checks the selected table once with a separate seed. The report shows both results. |
 | `economy` | The same calibration in memory in one run (abilities-off and abilities-on games, then analysis). For quick runs. |
 
 Use explicit `true` or `false` (case-insensitive) for `economy-sim --abilities`, `economy-sim --swap-colors`, and `--quiescence` on `economy-analyze` or `economy`. If omitted, abilities and quiescence default to `true`, and color swapping defaults to `false`. `--apply` is a switch with no value.
@@ -30,21 +30,23 @@ Repeat for `d2 q1`, `d3 q0`, `d3 q1`. Probe multi-core speed-up with a 12-game `
 
 ## 2. Overnight log suite
 
-Disable sleep and run `economy-overnight.cmd` from this folder with clean, committed AttaxShared and AttaxSimulator checkouts. It publishes the console, plays six sessions over all 20 boards (about 4.3 hours on the reference machine), then runs draft analysis without `--apply`. Value samples come from each side's own turns 4 through its last turn minus 4, inclusive. Re-running with the same inputs skips completed `.jsonl` sessions and restarts an interrupted session. Results: `runs\economy-overnight-own-turn-v1\SUMMARY.txt` and `analysis\economy-report.md` in that directory.
+Disable sleep and run `economy-overnight.cmd` with clean, committed AttaxShared and AttaxSimulator checkouts. It publishes a console inside `runs\economy-overnight-diverse-v2\console`, plays six sessions over all 20 boards with four seeded opening moves, then runs draft analysis with 100 tuning games per iteration and a 100-game holdout. It never applies prices. The six session counts use the previous batch's timing; re-pilot with the new openings if runtime matters. Re-run in the same directory only with the same build, configs and options. Results: `SUMMARY.txt` and `analysis\economy-report.md` in that directory.
 
-If `runs\economy-overnight\` exists elsewhere, treat it as legacy evidence only: the old parser enabled abilities in the income baseline and doubled game counts in sessions that requested no swap. Do not reuse it or mix those logs with the new run.
+Keep `runs\economy-overnight\` and `runs\economy-overnight-own-turn-v1\` separate. Both are diagnostic only in the new analyzer: they lack the new telemetry. Two `.jsonl` runs must not be mixed just because their file names match.
 
-Smoke test: `set RUNDIR=runs\economy-smoke & set S01_GAMES=2 & set S02_GAMES=2 & set S03_GAMES=2 & set S04_GAMES=2 & set S05_GAMES=2 & set S06_GAMES=2 & set VERIFY_GAMES=1 & set NO_LOGWINDOW=1 & economy-overnight.cmd` (diagnostic only: too few samples to calibrate).
+Smoke test in `cmd.exe`: `set "RUNDIR=runs\economy-smoke-v2" & set "S01_GAMES=2" & set "S02_GAMES=2" & set "S03_GAMES=2" & set "S04_GAMES=2" & set "S05_GAMES=2" & set "S06_GAMES=2" & set "VERIFY_GAMES=0" & set "HOLDOUT_GAMES=0" & set "NO_LOGWINDOW=1" & economy-overnight.cmd` (diagnostic only).
+
+The report shows distinct opening board positions, capped and uncapped income, Wall I affordability from actual no-spend turn-start balances, and positive ability values by depth and board coverage. Board scaling uses uncapped rewards; spending rules still use the real cap. The mean balance at the start of the target own turn seeds the prices; the final price's observed affordability is reported separately. Value sampling still uses each side's own turns 4 through its last turn minus 4. Seeded legal openings reduce repetition, but are not human-play data; a second seed checks robustness to openings, not generalization to humans.
 
 ## 3. Apply
 
 ```
-Attax.Console\bin\Release\net9.0\publish\Attax.Console.exe economy-analyze --in runs\economy-overnight-own-turn-v1 --out runs\economy-overnight-own-turn-v1\applied --apply
+runs\economy-overnight-diverse-v2\console\Attax.Console.exe economy-analyze --in runs\economy-overnight-diverse-v2 --out runs\economy-overnight-diverse-v2\applied --verify-games 100 --holdout-games 100 --seed 20262133 --apply
 ```
 
-Before applying, check that all six logs completed, no `.tmp` file remains, and the rules, AI config and engine parameter hashes, source revisions, build ID and sampling method match the analysis build and inputs. The tool rejects (exit non-zero, nothing modified) when inputs disagree, when a level has no positive value samples, when Wall I or the fit lacks data, when Pass 2 does not converge, when the frequency targets miss in opposite directions or when a price exceeds the cap. On success it prints a `CONVERGED` line and rewrites `game-rules.json`, `ai-ability-config.json` and the marked block of `docs\ECONOMY.md` transactionally (all previous contents are restored if any write fails).
+Use the same tuning arguments and seed as the accepted draft (`20262133` with the default batch seed). Before applying, check all six logs, provenance and sampling, actual Wall affordability, and whether the per-depth values support the proposed price changes. Missing telemetry or reference balances, bad provenance, insufficient samples, out-of-cap prices, or failed tuning or holdout block writes. `--apply` requires both verification batches to cover the selected boards. On success it updates `game-rules.json`, `ai-ability-config.json` and the marked block of `docs\ECONOMY.md` transactionally.
 
-If Pass 2 does not converge, iterate on the existing logs without re-running the overnight suite: adjust `--verify-games`, `--iterations`, `--tolerance` or `--anchors anchors.json` (camelCase keys of the anchors in `ECONOMY.md` section 5).
+If Pass 2 does not converge, inspect the missed targets before changing the anchors or tolerance. If the holdout fails, do not tune against that holdout. If evidence is too sparse for a specific level or cohort, collect targeted samples rather than accepting a price solely because the aggregate cast rate fits.
 
 ## 4. Propagate after applying
 

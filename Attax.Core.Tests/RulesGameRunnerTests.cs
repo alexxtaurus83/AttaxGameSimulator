@@ -27,8 +27,27 @@ namespace Attax.Core.Tests {
             Assert.Equal(0, r.Red.CreditsSpent + r.Blue.CreditsSpent);
             Assert.True(r.Red.OwnTurns > 0 && r.Blue.OwnTurns > 0);
             Assert.True(r.Red.CaptureCredits + r.Blue.CaptureCredits + r.Red.FootprintCredits + r.Blue.FootprintCredits > 0);
-            // every flip pays the victim captureReward unless the cap clipped it
+            // Every flip pays the victim captureReward unless the cap clipped it.
             Assert.True(r.Red.CaptureCredits <= r.Blue.Flips * 10 && r.Blue.CaptureCredits <= r.Red.Flips * 10);
+        }
+
+        [Fact]
+        public void IncomeGame_LogsBalanceAtTurnStartAndRewardsLostToCap() {
+            var ctx = Context();
+            ctx.Rules.economy.maxCredits = 1;
+            ctx.Rules.economy.startingCredits = 1;
+            using var red = PlayerFactory.Create(PlayerSpec.Parse("classic:depth=1"), null!, 11, defaultTrain: false);
+            using var blue = PlayerFactory.Create(PlayerSpec.Parse("classic:depth=1"), null!, 12, defaultTrain: false);
+            var r = RulesGameRunner.Run(StartBoard.Standard(), red, blue, new RulesGameOptions { Rules = ctx.Rules, Abilities = false });
+            Assert.True(r.Plies > 0);
+            Assert.Empty(r.Casts);
+            Assert.Equal(0, r.Red.CreditsSpent + r.Blue.CreditsSpent);
+            Assert.Equal(0, r.Red.CaptureCredits + r.Blue.CaptureCredits + r.Red.FootprintCredits + r.Blue.FootprintCredits);
+            Assert.True(r.Red.Flips + r.Blue.Flips > 0);
+            Assert.True(r.Red.CreditsLostToCap + r.Blue.CreditsLostToCap >= (r.Red.Flips + r.Blue.Flips) * ctx.Rules.economy.captureReward);
+            Assert.Equal(r.RedTurnStarts, r.Red.TurnStartCredits.Count);
+            Assert.Equal(r.BlueTurnStarts, r.Blue.TurnStartCredits.Count);
+            Assert.All(r.Red.TurnStartCredits.Concat(r.Blue.TurnStartCredits), credits => Assert.Equal(1, credits));
         }
 
         [Fact]
@@ -147,13 +166,17 @@ namespace Attax.Core.Tests {
             var ctx = Context();
             var records = EconomySim.Run(new EconomySimSettings {
                 Boards = new[] { "default" }, Games = 2, Red = "classic:depth=1,quiescence=false", Blue = "classic:depth=2,quiescence=false",
-                SwapColors = true, Abilities = false, Parallel = 1, Context = ctx, Seed = 4
+                SwapColors = true, Abilities = false, OpeningPlies = 2, Parallel = 1, Context = ctx, Seed = 4
             });
             Assert.Equal(4, records.Count);
             Assert.Equal(records[0].Seed, records[1].Seed);
             Assert.False(records[0].Swapped);
             Assert.True(records[1].Swapped);
             Assert.Equal(records[0].Red, records[1].Blue);
+            Assert.All(records, r => Assert.Equal(2, r.OpeningPliesPlayed));
+            Assert.Equal(records[0].OpeningPosition, records[1].OpeningPosition);
+            Assert.Equal(records[2].OpeningPosition, records[3].OpeningPosition);
+            Assert.NotEqual(records[0].OpeningPosition, records[2].OpeningPosition);
         }
 
         [Fact]
