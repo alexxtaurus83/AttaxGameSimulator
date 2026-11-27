@@ -22,7 +22,7 @@ Three ways to play, all driven by the same player spec and all comparable in one
 | `Attax.Data` | log writer/reader/validator (format v4, class names keep "V3") |
 | `Attax.Play` | ML player adapters (`IModelSource`, `ModelPlayerFactory`, `PolicyPlayer`), offline runners (`LocalGameRunner`, `RulesGameRunner`), pair statistics and the sequential test (`PairStats`) |
 | `Attax.Eval.OnnxRuntime` | `OnnxPolicyValueModel`: ONNX Runtime adapter that validates the contract at load |
-| `Attax.Console` | CLI: `selfplay`, `relabel`, `arena`, `compare-moves`, `params-default`, `params-check`, `validate-log`, `verify-model`, `contract-fixtures`, `validate-hash`, `economy-sim`, `economy-analyze`, `economy` |
+| `Attax.Console` | CLI: `selfplay`, `relabel`, `arena`, `compare-moves`, `params-default`, `params-check`, `validate-log`, `verify-model`, `contract-fixtures`, `validate-hash`, `economy-sim` |
 | `train.py`, `ataxx_common.py`, `ataxx_data.py`, `ataxx_model.py` | trainer, shared contract, log reader, network/losses/ONNX export |
 | `Attax.Core.Tests`, `tests_py/` | xUnit and unittest suites |
 
@@ -209,11 +209,15 @@ One shared conv trunk (no BatchNorm), a spatial policy head (17×7×7) and a val
 
 Headless `UserSimulator` bots (now hosted in `..\merge-conflict-server\tools\UserSimulator`) with `--abilities policy --ability-config ai-ability-config.json` use `AbilityDecider` (`AttaxShared`, `docs/AI_ABILITY_TACTICS.md`) via `Attax.Engine.Host`: tacticians propose abilities, the bot's own search engine verifies them on a cloned state and a value gate (`gain in chips - price x creditValueChips >= minGainChips`) decides. The config is `schemaVersion: 2`; the v1 chance, reserve, use-cap, safety and target-selection flags no longer exist. Only search specs (`classic`, `value`) cast abilities, and every move honours the turn's frozen-source and forbidden-landing masks through the search root filters. Self-play, arena and log generation are unchanged.
 
-## Economy calibration
+## Economy simulation
 
-`economy-sim` plays rules-engine games on the 20 void-only boards and writes separate JSONL (not the `ATLG` training log). `economy-analyze` fits board scaling, values and prices abilities, then checks cast rates; `economy` does both in one run. `economy-overnight.cmd` runs six resumable sessions (~3.5–4.5 h) with seeded legal openings, turn-start credit telemetry, and a separate-seed verification holdout into `runs\economy-overnight-diverse-v2\`; `economy-short.cmd` runs a smaller ~1.5 h batch into `runs\economy-short-diverse-v2\`. Neither script applies prices.
+`economy-sim` plays rules-engine games and writes one JSONL record per game, separate from `ATLG` training logs. It reads `game-rules.json` and `ai-ability-config.json` copied alongside the executable at build/publish time. For A/B runs, pass `--rules` and/or `--ai-config` to read alternate files; use the same seed and game settings and a separate output path for each run. It does not change prices or configs.
 
-Pass `true` or `false` explicitly to `--abilities`, `--swap-colors`, and the economy analysis `--quiescence` option. Prior economy runs are diagnostic only. Commands, telemetry and apply gates: [`ECONOMY_CALIBRATION.md`](ECONOMY_CALIBRATION.md).
+```powershell
+dotnet run --project Attax.Console -c Release -- economy-sim --boards default --games 1 --red classic:depth=1,quiescence=false --opening-plies 4 --parallel 1 --out "$env:TEMP\attax-economy.jsonl"
+```
+
+Pass explicit `true` or `false` for `--abilities` (default `true`) and `--swap-colors` (default `false`). Use `economy-sim --help` for all options. The JSONL still records config fingerprints and a build ID, but source revisions are no longer stamped.
 
 ## Game result rule
 

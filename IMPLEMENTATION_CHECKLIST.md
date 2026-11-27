@@ -1,6 +1,8 @@
 # Implementation Checklist: 01d Economy Calibration (Phase A)
 
-Plan: `F:/Unity_projects/AttaxUnity/.kilo/plans/01d-economy-calibration.md` (Large tier).
+Plan: `F:/Unity_projects/AttaxUnity/.kilo/plans/implemented/01d-economy-calibration.md` (Large tier).
+
+Historical Phase A results follow. As of 2026-11-27, only `economy-sim` and its runner/logger remain. See [the README](Readme.md#economy-simulation) for the current workflow.
 
 - [x] Context: both AGENTS.md, 01c prerequisites present (`AbilityDecider`, `MeasureValues`, `ISearchEnginePlayer.ChooseRestricted`, AiAbilityConfig v2).
 - [x] Impact: `LocalGameRunner.RunGame`, `LogV3Writer`, `selfplay`/`arena` untouched; additions only (`RulesGameRunner`, `Attax.Console/Economy/*`, 3 verbs).
@@ -18,6 +20,6 @@ Plan: `F:/Unity_projects/AttaxUnity/.kilo/plans/01d-economy-calibration.md` (Lar
 - [ ] Python `unittest` parity: not run in this session.
 - [ ] Zengram `attax-engine-economy-calibration`: stored after Phase B.
 
-## Phase B (after the user's overnight run)
+## Phase B (closed)
 
-Resume at plan section 5 steps 5-8: `economy-analyze --in runs\economy-overnight --out runs\economy-overnight\applied --apply`, then Shared/Simulator/server tests, docs diff, Zengram.
+The existing AttaxShared economy configs were accepted on 2026-11-26 and were not overwritten. The automatic calibration commands, scripts and build provenance stamp were removed on 2026-11-27.

@@ -1,4 +1,3 @@
-using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using Attax.Core.Utils;
@@ -6,38 +5,27 @@ using Attax.Play;
 using Newtonsoft.Json;
 
 namespace Attax.Console.Economy {
-    /// <summary>Loaded rules and AI config plus where they came from, their hashes and the source revision (stamped into every log record).</summary>
+    /// <summary>Simulation inputs and fingerprints written to the JSONL log.</summary>
     internal sealed class EconomyContext {
         public GameRulesConfig Rules { get; }
         public AiAbilityConfig Ai { get; }
-        public string RulesPath { get; }
-        public string AiPath { get; }
-        /// <summary>True when each file was named explicitly or is the AttaxShared source file (never a resolved bin/publish copy); required by --apply.</summary>
-        public bool FromSource { get; }
         public string RulesHash => Rules.Fingerprint().ToString("X16");
         public string AiHash { get; }
         public string EngineParamsHash { get; }
-        public string Revision { get; }
         public string BuildId { get; } = Sha(string.Join("|", new[] {
             typeof(EconomyContext), typeof(Attax.Agents.RulesGameRunner), typeof(Attax.Core.AtaxxAIEngine),
             typeof(GameState), typeof(PlayerFactory), typeof(Attax.Data.LogV3Reader)
         }.Select(type => type.Module.ModuleVersionId.ToString("N"))));
 
-        private EconomyContext(GameRulesConfig rules, AiAbilityConfig ai, string rulesPath, string aiPath, bool fromSource, string aiHash, string engineHash, string revision) {
-            Rules = rules; Ai = ai; RulesPath = rulesPath; AiPath = aiPath; FromSource = fromSource; AiHash = aiHash; EngineParamsHash = engineHash; Revision = revision;
+        private EconomyContext(GameRulesConfig rules, AiAbilityConfig ai, string aiHash, string engineHash) {
+            Rules = rules; Ai = ai; AiHash = aiHash; EngineParamsHash = engineHash;
         }
 
-        public const string RulesFile = "game-rules.json";
-        public const string AiFile = "ai-ability-config.json";
-
         public static EconomyContext Load(string? rulesPath, string? aiPath) {
-            string? sourceDir = FindSharedRulesDirectory();
-            bool rulesExplicit = !string.IsNullOrWhiteSpace(rulesPath), aiExplicit = !string.IsNullOrWhiteSpace(aiPath);
-            string rp = rulesExplicit ? rulesPath! : Resolve(sourceDir, RulesFile);
-            string ap = aiExplicit ? aiPath! : Resolve(sourceDir, AiFile);
+            string rp = string.IsNullOrWhiteSpace(rulesPath) ? Path.Combine(AppContext.BaseDirectory, "game-rules.json") : rulesPath;
+            string ap = string.IsNullOrWhiteSpace(aiPath) ? Path.Combine(AppContext.BaseDirectory, "ai-ability-config.json") : aiPath;
             if (!File.Exists(rp)) throw new FileNotFoundException($"Rules file not found: {rp}");
             if (!File.Exists(ap)) throw new FileNotFoundException($"AI ability config not found: {ap}");
-            rp = Path.GetFullPath(rp); ap = Path.GetFullPath(ap);
 
             var rules = JsonConvert.DeserializeObject<GameRulesConfig>(File.ReadAllText(rp)) ?? throw new InvalidDataException($"{rp} is empty.");
             var rulesErrors = rules.Validate();
@@ -47,73 +35,13 @@ namespace Attax.Console.Economy {
             var aiErrors = ai.Validate();
             if (aiErrors.Count > 0) throw new InvalidDataException($"Invalid AI config {ap}: {string.Join("; ", aiErrors)}");
 
-            // --apply may write a file that was named explicitly, or the AttaxShared source file; never a bin/publish copy.
-            string? buildSourceDir = FindRulesAt(BuildMetadata("EconomySharedRoot"));
-            bool fromSource = (rulesExplicit || (buildSourceDir != null && IsUnder(rp, buildSourceDir))) &&
-                              (aiExplicit || (buildSourceDir != null && IsUnder(ap, buildSourceDir)));
             string engineHash = EngineParamsFile.Fingerprint(EngineParamsFile.LoadBase());
-            return new EconomyContext(rules, ai, rp, ap, fromSource, Sha(aiText), engineHash, ResolveRevision());
+            return new EconomyContext(rules, ai, Sha(aiText), engineHash);
         }
-
-        /// <summary>The same loaded files with other rules/AI values (calibration candidates); hashes follow the new values.</summary>
-        public EconomyContext With(GameRulesConfig rules, AiAbilityConfig ai) =>
-            new EconomyContext(rules, ai, RulesPath, AiPath, FromSource, Sha(JsonConvert.SerializeObject(ai)), EngineParamsHash, Revision);
-
-        private static string Resolve(string? sourceDir, string name) =>
-            sourceDir != null ? Path.Combine(sourceDir, name) : Path.Combine(AppContext.BaseDirectory, name);
-
-        private static bool IsUnder(string path, string dir) =>
-            Path.GetFullPath(path).StartsWith(Path.GetFullPath(dir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
 
         internal static string Sha(string text) {
             using var sha = SHA256.Create();
             return Convert.ToHexString(sha.ComputeHash(Encoding.UTF8.GetBytes(text.Replace("\r\n", "\n")))).Substring(0, 16);
         }
-
-        private static string? FindRulesAt(string? root) {
-            if (string.IsNullOrWhiteSpace(root)) return null;
-            string path = Path.GetFullPath(Path.Combine(root, "src", "Attax.Core.Utils", "Rules"));
-            return File.Exists(Path.Combine(path, RulesFile)) && File.Exists(Path.Combine(path, AiFile)) ? path : null;
-        }
-
-        /// <summary>The explicit override, the checkout used for the build, or a discovery fallback for diagnostics.</summary>
-        internal static string? FindSharedRulesDirectory() {
-            string? env = Environment.GetEnvironmentVariable("ATTAX_SHARED_REPO");
-            if (!string.IsNullOrWhiteSpace(env)) return FindRulesAt(env) ?? throw new DirectoryNotFoundException($"ATTAX_SHARED_REPO does not contain both economy configs: {env}");
-            string? builtWith = FindRulesAt(BuildMetadata("EconomySharedRoot"));
-            if (builtWith != null) return builtWith;
-            foreach (string start in new[] { AppContext.BaseDirectory, Directory.GetCurrentDirectory() }) {
-                var dir = new DirectoryInfo(start);
-                while (dir != null) {
-                    string d = Path.Combine(dir.FullName, "AttaxShared", "src", "Attax.Core.Utils", "Rules");
-                    if (File.Exists(Path.Combine(d, RulesFile))) return d;
-                    d = Path.Combine(dir.FullName, "..", "AttaxShared", "src", "Attax.Core.Utils", "Rules");
-                    if (File.Exists(Path.Combine(d, RulesFile))) return Path.GetFullPath(d);
-                    dir = dir.Parent;
-                }
-            }
-            return null;
-        }
-
-        /// <summary>The AttaxUnity economy document (env ATTAX_UNITY_REPO, a sibling checkout, or the documented workspace layout), or null.</summary>
-        internal static string? FindEconomyDoc() {
-            var candidates = new List<string>();
-            string? env = Environment.GetEnvironmentVariable("ATTAX_UNITY_REPO");
-            if (!string.IsNullOrWhiteSpace(env)) candidates.Add(Path.Combine(env, "docs", "ECONOMY.md"));
-            foreach (string start in new[] { AppContext.BaseDirectory, Directory.GetCurrentDirectory() }) {
-                var dir = new DirectoryInfo(start);
-                while (dir != null) {
-                    candidates.Add(Path.Combine(dir.FullName, "AttaxUnity", "docs", "ECONOMY.md"));
-                    candidates.Add(Path.Combine(dir.FullName, "Unity_projects", "AttaxUnity", "docs", "ECONOMY.md"));
-                    dir = dir.Parent;
-                }
-            }
-            return candidates.Select(Path.GetFullPath).FirstOrDefault(File.Exists);
-        }
-
-        private static string? BuildMetadata(string key) => typeof(EconomyContext).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
-            .FirstOrDefault(a => a.Key == key)?.Value;
-
-        private static string ResolveRevision() => $"shared={BuildMetadata("EconomySharedRevision") ?? "unknown"};simulator={BuildMetadata("EconomySimulatorRevision") ?? "unknown"};state={BuildMetadata("EconomySourceState") ?? "unknown"}";
     }
 }

@@ -1,10 +1,14 @@
 # Economy calibration guide
 
+> Archived 2026-11-27. Automated calibration and its batch scripts were removed. For the retained `economy-sim` command, see [the current README](../../Readme.md#economy-simulation).
+
 How to measure and set the ByteCode ability prices, board scaling and AI gate value with `Attax.Console`. The economy itself is described in `F:\Unity_projects\AttaxUnity\docs\ECONOMY.md`. These verbs are additive: `selfplay`, `relabel`, `arena`, `train.py` and the v4 (`ATLG`) log format are untouched, and economy games write a separate JSONL format (`EconomyLog`, `schemaVersion: 1`).
 
 ## What the simulator uses without calibration
 
-`game-rules.json` and `ai-ability-config.json` in `AttaxShared\src\Attax.Core.Utils\Rules` hold seed prices that work out of the box. Calibration replaces them with measured values.
+`game-rules.json` and `ai-ability-config.json` in `AttaxShared\src\Attax.Core.Utils\Rules` hold the baseline v2 economy.
+
+**Decision (2026-11-26):** After analyzing the 5,000-game `economy-short-diverse-v2` batch and running an 80-game paired A/B comparison (`seed 20262133`, `classic:depth=3,quiescence=true`), the team accepted the existing `game-rules.json` (`41698A79F52FF1CE`) and `ai-ability-config.json` (`1604F7F41972A83E`) prices as authoritative and skipped `--apply`. Current prices already produce `2.54` casts/side and `0.59` expensive/side (1,000-game shipped-AI baseline) with active use of 8 of 9 abilities, whereas automated calibration (even at `--iterations 10` where Pass 2 converges and passes holdout) overprices Level I/II `Block`/`Convert`/`Spawn` and `SuperJump`/`DoubleMove` while underpricing `Bomb III` due to Level I `turnCost` selection bias in Pass 1 P75 sampling. Do not run `--apply` unless that Pass 1 valuation bias is fixed first. Generated `runs\economy-*` log directories from that evaluation were cleaned up on 2026-11-27; the CLI verbs remain in place for manual `economy-sim` A/B checks.
 
 ## Commands
 
@@ -34,7 +38,7 @@ Disable sleep and run `economy-overnight.cmd` with clean, committed AttaxShared 
 
 For a shorter 1–2 hour test batch (~1.5 hours on the reference machine, 5,000 games plus 80 tuning and 80 holdout games), run `economy-short.cmd`. It wraps `economy-overnight.cmd` into `runs\economy-short-diverse-v2`, keeping the same 4-ply openings and provenance gates (set `ALLOW_DIRTY_DRAFT=1` for a throwaway trial before committing, or commit first so the run stays eligible for `--apply`).
 
-Keep `runs\economy-overnight\` and `runs\economy-overnight-own-turn-v1\` separate. Both are diagnostic only in the new analyzer: they lack the new telemetry. Two `.jsonl` runs must not be mixed just because their file names match.
+Keep legacy/diagnostic runs separate from new runs: logs that lack the current telemetry are diagnostic only in the analyzer, and two `.jsonl` runs must not be mixed just because their file names match.
 
 Smoke test in `cmd.exe`: `set "RUNDIR=runs\economy-smoke-v2" & set "S01_GAMES=2" & set "S02_GAMES=2" & set "S03_GAMES=2" & set "S04_GAMES=2" & set "S05_GAMES=2" & set "S06_GAMES=2" & set "VERIFY_GAMES=0" & set "HOLDOUT_GAMES=0" & set "ALLOW_DIRTY_DRAFT=1" & set "NO_LOGWINDOW=1" & economy-overnight.cmd` (diagnostic only).
 

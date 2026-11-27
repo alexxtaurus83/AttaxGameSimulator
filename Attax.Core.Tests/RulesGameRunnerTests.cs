@@ -1,10 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Attax.Agents;
 using Attax.Console.Economy;
 using Attax.Core.Utils;
 using Attax.Play;
-using Newtonsoft.Json;
 using Xunit;
 
 namespace Attax.Core.Tests {
@@ -138,12 +138,6 @@ namespace Attax.Core.Tests {
                 Assert.All(back, r => Assert.Equal(EconomyLog.CurrentSchemaVersion, r.SchemaVersion));
                 Assert.Equal(ctx.RulesHash, back[0].RulesHash);
 
-                // directory input reads top-level *.jsonl only
-                System.IO.File.WriteAllText(System.IO.Path.Combine(dir, "x.jsonl.tmp"), "garbage");
-                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(dir, "analysis"));
-                System.IO.File.WriteAllText(System.IO.Path.Combine(dir, "analysis", "y.jsonl"), "garbage");
-                Assert.Single(EconomyLog.ResolveInputs(new[] { dir }));
-
                 System.IO.File.WriteAllText(path, "{\"schemaVersion\":99}\n");
                 Assert.Throws<System.IO.InvalidDataException>(() => EconomyLog.Read(path));
             } finally {
@@ -188,11 +182,36 @@ namespace Attax.Core.Tests {
         }
 
         [Fact]
-        public void Calibration_ApplyRoundTripsRulesFingerprint() {
+        public void Run_RespectsAsymmetricSamplingAndEmptyWindows() {
             var ctx = Context();
-            var parsed = JsonConvert.DeserializeObject<GameRulesConfig>(Attax.Console.Program.RenderRules(ctx.Rules, "\n"));
-            Assert.NotNull(parsed);
-            Assert.Equal(ctx.Rules.Fingerprint(), parsed!.Fingerprint());
+            var tinyBoard = new BitboardState {
+                RedPieces = 1UL << 0,
+                BluePieces = 1UL << 8,
+                BlockedSquares = BitboardState.BoardMask & ~((1UL << 0) | (1UL << 8) | (1UL << 1))
+            };
+            using var r1 = PlayerFactory.Create(PlayerSpec.Parse("classic:depth=1,quiescence=false"), null!, 1, defaultTrain: false);
+            using var b1 = PlayerFactory.Create(PlayerSpec.Parse("classic:depth=1,quiescence=false"), null!, 2, defaultTrain: false);
+            var shortRes = RulesGameRunner.Run(tinyBoard, r1, b1, new RulesGameOptions {
+                Rules = ctx.Rules, Ai = ctx.Ai, Abilities = true, MaxActions = 20, SampleValues = 10, Seed = 5
+            });
+            Assert.Empty(shortRes.Values);
+
+            var board = StartBoard.CreateFromShape("story-02", 9);
+            using var r2 = PlayerFactory.Create(PlayerSpec.Parse("classic:depth=1,quiescence=false"), null!, 3, defaultTrain: false);
+            using var b2 = PlayerFactory.Create(PlayerSpec.Parse("classic:depth=1,quiescence=false"), null!, 4, defaultTrain: false);
+            var res = RulesGameRunner.Run(board, r2, b2, new RulesGameOptions {
+                Rules = ctx.Rules, Ai = ctx.Ai, Abilities = true, MaxActions = 200, SampleValues = 20, Seed = 42
+            });
+
+            Assert.Equal(res.Red.OwnTurns, res.RedTurnStarts);
+            Assert.Equal(res.Blue.OwnTurns, res.BlueTurnStarts);
+            foreach (var v in res.Values) {
+                int sideEnd = v.Side == PlayerColor.Red ? res.Red.OwnTurns : res.Blue.OwnTurns;
+                Assert.InRange(v.OwnTurn, 4, sideEnd - 4);
+                Assert.Equal(17, v.Values.Count);
+            }
+            Assert.Equal(res.Values.Count, res.Values.Select(v => (v.Side, v.OwnTurn)).Distinct().Count());
+            Assert.Equal(res.Casts.Count, res.Casts.Select(c => (c.Side, c.Ply)).Distinct().Count());
         }
     }
 }

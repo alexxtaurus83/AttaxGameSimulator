@@ -158,7 +158,7 @@ namespace Attax.Console {
         public int Threads { get; set; } = 1;
     }
 
-    [Verb("economy-sim", HelpText = "Play rules-engine games (credits, footprints, abilities) and write an economy .jsonl log for calibration. Does not touch the training logs.")]
+    [Verb("economy-sim", HelpText = "Play rules-engine games (credits, footprints, abilities) and write a .jsonl log, separate from the training logs.")]
     internal sealed class EconomySimOptions {
         [Option("boards", Default = "all", HelpText = "Board shape IDs (comma separated) or 'all' (every catalog shape, equal game count each).")]
         public string Boards { get; set; } = "all";
@@ -182,90 +182,14 @@ namespace Attax.Console {
         public int Seed { get; set; } = 20261124;
         [Option("parallel", Default = 0, HelpText = "Games in parallel (0 = processor count; 1 for clean per-game timing).")]
         public int Parallel { get; set; } = 0;
-        [Option("rules", HelpText = "game-rules.json (default: the AttaxShared source file, else next to the exe).")]
+        [Option("rules", HelpText = "game-rules.json (default: the copy next to the exe).")]
         public string? Rules { get; set; }
-        [Option("ai-config", HelpText = "ai-ability-config.json (default: the AttaxShared source file, else next to the exe).")]
+        [Option("ai-config", HelpText = "ai-ability-config.json (default: the copy next to the exe).")]
         public string? AiConfig { get; set; }
         [Option("tag", HelpText = "Session label stamped into every record (default: the output file name).")]
         public string? Tag { get; set; }
         [Option("out", Required = true, HelpText = "Output .jsonl path (written to .tmp then renamed).")]
         public string Out { get; set; } = "";
-    }
-
-    [Verb("economy-analyze", HelpText = "Analyze economy .jsonl logs: fit board scaling, value ability levels, price them, verify cast frequencies and optionally apply.")]
-    internal sealed class EconomyAnalyzeOptions {
-        [Option("in", Required = true, Min = 1, HelpText = "Economy logs: .jsonl files or directories (top-level *.jsonl only).")]
-        public IEnumerable<string> In { get; set; } = Array.Empty<string>();
-        [Option("out", Required = true, HelpText = "Output directory for economy-report.json and economy-report.md.")]
-        public string Out { get; set; } = "";
-        [Option("verify-games", Default = 20, HelpText = "Self-play games per Pass 2 iteration (0 = analytical report only; cannot --apply).")]
-        public int VerifyGames { get; set; } = 20;
-        [Option("holdout-games", Default = 0, HelpText = "Final verification games on a separate seed; required for --apply (at least one per board).")]
-        public int HoldoutGames { get; set; }
-        [Option("boards", Default = "all", HelpText = "Boards for Pass 2 verification games.")]
-        public string Boards { get; set; } = "all";
-        [Option("depth", Default = 3, HelpText = "Search depth of the Pass 2 players.")]
-        public int Depth { get; set; } = 3;
-        [Option("quiescence", HelpText = "Quiescence search for the Pass 2 players (true or false, default true).")]
-        public string? Quiescence { get; set; }
-        [Option("iterations", Default = 4, HelpText = "Maximum Pass 2 price iterations.")]
-        public int Iterations { get; set; } = 4;
-        [Option("tolerance", Default = 0.5, HelpText = "Half-width of the accepted band around each frequency target.")]
-        public double Tolerance { get; set; } = 0.5;
-        [Option("seed", Default = 20261124, HelpText = "Seed of the Pass 2 games.")]
-        public int Seed { get; set; } = 20261124;
-        [Option("parallel", Default = 0, HelpText = "Games in parallel (0 = processor count).")]
-        public int Parallel { get; set; } = 0;
-        [Option("rules", HelpText = "game-rules.json (default: the AttaxShared source file).")]
-        public string? Rules { get; set; }
-        [Option("ai-config", HelpText = "ai-ability-config.json (default: the AttaxShared source file).")]
-        public string? AiConfig { get; set; }
-        [Option("economy-doc", HelpText = "AttaxUnity docs/ECONOMY.md (default: found from the repository layout or ATTAX_UNITY_REPO).")]
-        public string? EconomyDoc { get; set; }
-        [Option("anchors", HelpText = "JSON file overriding the calibration anchors.")]
-        public string? Anchors { get; set; }
-        [Option("apply", Default = false, HelpText = "Write game-rules.json, ai-ability-config.json and docs/ECONOMY.md when converged.")]
-        public bool Apply { get; set; } = false;
-    }
-
-    [Verb("economy", HelpText = "One-shot economy calibration in memory (income games, value games, verification), with the same gates as economy-analyze.")]
-    internal sealed class EconomyOptions {
-        [Option("boards", Default = "all", HelpText = "Board shape IDs or 'all'.")]
-        public string Boards { get; set; } = "all";
-        [Option("games", Default = 40, HelpText = "Games for each of Pass 0 (abilities off) and Pass 1 (abilities on).")]
-        public int Games { get; set; } = 40;
-        [Option("sample-values", Default = 10, HelpText = "Own-turn positions per Pass 1 game measured for ability values.")]
-        public int SampleValues { get; set; } = 10;
-        [Option("opening-plies", Default = 0, HelpText = "Seeded legal moves before the AI takes over (0..4).")]
-        public int OpeningPlies { get; set; }
-        [Option("verify-games", Default = 20, HelpText = "Self-play games per Pass 2 iteration (0 = analytical report only).")]
-        public int VerifyGames { get; set; } = 20;
-        [Option("holdout-games", Default = 0, HelpText = "Final verification games on a separate seed; required for --apply (at least one per board).")]
-        public int HoldoutGames { get; set; }
-        [Option("depth", Default = 3, HelpText = "Search depth of all players.")]
-        public int Depth { get; set; } = 3;
-        [Option("quiescence", HelpText = "Quiescence search for all players (true or false, default true).")]
-        public string? Quiescence { get; set; }
-        [Option("iterations", Default = 4, HelpText = "Maximum Pass 2 price iterations.")]
-        public int Iterations { get; set; } = 4;
-        [Option("tolerance", Default = 0.5, HelpText = "Half-width of the accepted band around each frequency target.")]
-        public double Tolerance { get; set; } = 0.5;
-        [Option("seed", Default = 20261124, HelpText = "Base seed.")]
-        public int Seed { get; set; } = 20261124;
-        [Option("parallel", Default = 0, HelpText = "Games in parallel (0 = processor count).")]
-        public int Parallel { get; set; } = 0;
-        [Option("out", Required = true, HelpText = "Output directory (reports and the two generated logs).")]
-        public string Out { get; set; } = "";
-        [Option("rules", HelpText = "game-rules.json (default: the AttaxShared source file).")]
-        public string? Rules { get; set; }
-        [Option("ai-config", HelpText = "ai-ability-config.json (default: the AttaxShared source file).")]
-        public string? AiConfig { get; set; }
-        [Option("economy-doc", HelpText = "AttaxUnity docs/ECONOMY.md.")]
-        public string? EconomyDoc { get; set; }
-        [Option("anchors", HelpText = "JSON file overriding the calibration anchors.")]
-        public string? Anchors { get; set; }
-        [Option("apply", Default = false, HelpText = "Write the configs and docs/ECONOMY.md when converged.")]
-        public bool Apply { get; set; } = false;
     }
 
     [Verb("contract-fixtures", HelpText = "Write JSON fixtures (positions, planes, legal actions, symmetry maps, optional model outputs) for the Python parity test.")]

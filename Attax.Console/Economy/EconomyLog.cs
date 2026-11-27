@@ -49,23 +49,6 @@ namespace Attax.Console.Economy {
             return list;
         }
 
-        /// <summary>Resolves --in: files as given, directories contribute their top-level *.jsonl only (no .tmp, no subdirectories).</summary>
-        public static List<string> ResolveInputs(IEnumerable<string> inputs) {
-            var files = new List<string>();
-            foreach (string input in inputs) {
-                if (Directory.Exists(input)) {
-                    var found = Directory.GetFiles(input, "*.jsonl", SearchOption.TopDirectoryOnly);
-                    Array.Sort(found, StringComparer.OrdinalIgnoreCase);
-                    files.AddRange(found);
-                } else if (File.Exists(input) && Path.GetExtension(input).Equals(".jsonl", StringComparison.OrdinalIgnoreCase)) {
-                    files.Add(input);
-                } else {
-                    throw new FileNotFoundException($"Economy log input not found: {input}");
-                }
-            }
-            if (files.Count == 0) throw new InvalidOperationException("No .jsonl economy logs found in --in.");
-            return files;
-        }
     }
 
     internal sealed class EconomySideIncome {
@@ -126,8 +109,8 @@ namespace Attax.Console.Economy {
         public string RulesHash { get; set; } = "";
         public string AiConfigHash { get; set; } = "";
         public string EngineParamsHash { get; set; } = "";
-        /// <summary>Source provenance embedded at build time, not the current checkout HEAD.</summary>
-        public string Revision { get; set; } = "";
+        /// <summary>Legacy JSONL field. New builds no longer stamp a source revision.</summary>
+        public string Revision { get; set; } = "shared=unknown;simulator=unknown;state=unknown";
         public string BuildId { get; set; } = "";
         public string SamplingMethod { get; set; } = "";
         public string? TelemetryMethod { get; set; }

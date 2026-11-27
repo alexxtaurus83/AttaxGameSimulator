@@ -84,7 +84,7 @@ namespace Attax.Console.Economy {
                 SchemaVersion = EconomyLog.CurrentSchemaVersion, Tag = s.Tag, Game = index, BoardId = boardId, Playable = r.Playable, Seed = seed,
                 SessionGameCount = s.Games * (s.SwapColors ? 2 : 1),
                 Red = red.ToString(), Blue = blue.ToString(), Swapped = swapped, Abilities = s.Abilities,
-                RulesHash = s.Context.RulesHash, AiConfigHash = s.Context.AiHash, EngineParamsHash = s.Context.EngineParamsHash, Revision = s.Context.Revision,
+                RulesHash = s.Context.RulesHash, AiConfigHash = s.Context.AiHash, EngineParamsHash = s.Context.EngineParamsHash,
                 BuildId = s.Context.BuildId, SamplingMethod = RulesGameRunner.SamplingMethod, RedTurnStarts = r.RedTurnStarts, BlueTurnStarts = r.BlueTurnStarts,
                 TelemetryMethod = RulesGameRunner.TelemetryMethod, OpeningPlies = s.OpeningPlies, OpeningPliesPlayed = r.OpeningPliesPlayed,
                 OpeningPosition = r.OpeningPosition.ToString("X16"),
