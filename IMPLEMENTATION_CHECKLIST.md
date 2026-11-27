@@ -1,25 +1,23 @@
-# Implementation Checklist: 01d Economy Calibration (Phase A)
+# Implementation Checklist: Cross-Repo Shared Rules Extraction & Deduplication (AttaxSimulator)
 
-Plan: `F:/Unity_projects/AttaxUnity/.kilo/plans/implemented/01d-economy-calibration.md` (Large tier).
+Plan: `F:\Unity_projects\AttaxUnity\.kilo\plans\1795811266458-extract-shared-rules-and-dedup.md`
 
-Historical Phase A results follow. As of 2026-11-27, only `economy-sim` and its runner/logger remain. See [the README](Readme.md#economy-simulation) for the current workflow.
-
-- [x] Context: both AGENTS.md, 01c prerequisites present (`AbilityDecider`, `MeasureValues`, `ISearchEnginePlayer.ChooseRestricted`, AiAbilityConfig v2).
-- [x] Impact: `LocalGameRunner.RunGame`, `LogV3Writer`, `selfplay`/`arena` untouched; additions only (`RulesGameRunner`, `Attax.Console/Economy/*`, 3 verbs).
-- [x] `RulesGameRunner`, `EconomyLog` (JSONL schema v1), `EconomyAnchors`, `PriceSolver`, `Calibrator`, `EconomyReport`, `EconomySim`, `EconomyContext`, `Program.Economy.cs`, Options/Program dispatch.
-- [x] Tests: `EconomyPriceSolverTests`, `RulesGameRunnerTests`, `EconomyLogAndBackwardCompatTests` 31/31; full `Attax.sln` Release 172/172 (147 core + 25 user simulator).
-- [x] Pilot (1 game, `--parallel 1`, default board, 10 value samples), wallMs / searchMs R+B / abilityDecideMs R+B / valueSampleMs / plies / casts:
-  - d2 q0: 4446 / 605+591 / 1333+1168 / 739 / 96 / 1
-  - d2 q1: 4157 / 548+533 / 1179+1152 / 737 / 96 / 1
-  - d3 q0: 11401 / 1161+1236 / 3642+3789 / 1562 / 102 / 14
-  - d3 q1: 17929 / 4358+4567 / 3659+3539 / 1797 / 95 / 5
-  - Probe: 12 games d3q1 all boards `--parallel 0` (12 cores): 33.9 s total, 2.83 s/game (K ~ 6.3).
-- [x] Per-session all-board probes (12 cores): s01 d2q0 abilities off 0.64 s/game; s02 pairs 0.33 s/game; s03 pairs 3.2 s/pair; s04 0.97 s; s05 0.92 s; s06 estimated from d3q1 2.8 s. Defaults `S01..S06 = 2500/2400/1000/2500/2600/1700` (about 4.5 h + analysis).
-- [x] `economy-overnight.cmd` smoke (all S=2, VERIFY_GAMES=1): exit 0, six logs, `analysis\economy-report.{md,json}`, `SUMMARY.txt`. Smoke analysis correctly reports NOT CONVERGED (too few samples).
-- [x] Docs: `AttaxUnity/docs/ECONOMY.md` skeleton with markers, `ECONOMY_CALIBRATION.md`, indexes, `GAME_RULES_BYTECODE.md` link, Simulator `Readme.md`.
-- [ ] Python `unittest` parity: not run in this session.
-- [ ] Zengram `attax-engine-economy-calibration`: stored after Phase B.
-
-## Phase B (closed)
-
-The existing AttaxShared economy configs were accepted on 2026-11-26 and were not overwritten. The automatic calibration commands, scripts and build provenance stamp were removed on 2026-11-27.
+- [x] 1. Context
+  - [x] 1.1 Memory recall (`attax-simulator`, `attax-engine`)
+  - [x] 1.2 Docs consulted (`AGENTS.md`, `docs/TESTING.md`, `basePLANNING.md`, `stacks/dotnet.md`)
+  - [x] 1.3 Impact analysis (`RunGame`, `RandomDecision`, `Select`, `Create`, `Standard`, `CreateStandardInitialBoard` callers verified)
+- [x] 2. Implementation: `Attax.Play`, `Attax.Model`, `Attax.Console`
+  - [x] 2.1 Modify `Attax.Play/StartBoard.cs`: delegate to `Attax.Core.Utils.StartPosition`
+  - [x] 2.2 Modify `Attax.Play/LocalGameRunner.cs`: delegate `RandomDecision` to `RandomPlayer.ChooseRandom`
+  - [x] 2.3 Modify `Attax.Play/RulesGameRunner.cs`: delegate turn planning to `AgentTurnPlanner.DecideDetailed` and scoring/winner to `AttaxRules.AdjudicateResult`/`GetScore`
+  - [x] 2.4 Modify `Attax.Model/PolicyMoveSelector.cs`: delegate to `Attax.Core.PolicyLogitSelector`
+  - [x] 2.5 Modify `Attax.Console/Economy/EconomyContext.cs`: use `RulesJsonLoader` and `AiAbilityConfig.Fingerprint().ToString("X16")`
+  - [x] 2.6 Modify `Attax.Console/Program.Util.cs`, `Program.Tools.cs`, `Program.Compare.cs`: remove `CreateStandardInitialBoard`, call `StartPosition.Standard()`, reuse `PositionSampler` thresholds & `BoardRenderer.Render`
+  - [x] 2.7 Existing `Attax.Core.Tests/*` verified compatible with `Attax.Core.PolicyChoice`
+- [x] 3. Verification
+  - [x] 3.1 Targeted tests via `small-model`
+  - [x] 3.2 Full `dotnet build -c Release Attax.sln && dotnet test Attax.Core.Tests/Attax.Core.Tests.csproj -c Release --no-build` (139 passed, 0 failed) via `small-model`
+- [x] 4. Close-out
+  - [x] 4.1 Code graph refresh attempted (`attax_simulator`)
+  - [x] 4.2 `IMPLEMENTED-ENGINE_RULES_API_SPEC.md` and Zengram `attax-simulator` updated
+  - [x] 4.3 Final review done

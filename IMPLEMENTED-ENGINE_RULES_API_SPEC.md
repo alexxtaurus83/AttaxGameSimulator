@@ -92,11 +92,11 @@ The server-side `StartOptions { BlockedCells (0..12), Seed, FirstPlayer = Red }`
 | `GetAbilityTargets(state, kind)` / `(state, side, kind)` / `(state, side, kind, level)` | Valid target cells now; 0 when disabled, unaffordable, disallowed, limit reached, or game over. `DoubleMove` and `SuperJump` return 0 (2/3-arg overloads select `GetMaxLevel(side, kind)`). |
 | `GetAbilityEffect(kind, level)` | Returns `AbilityLevelEffect` for `(kind, level)`; throws `ArgumentOutOfRangeException` if invalid. |
 | `CanUseAbility(state, kind)` / `(state, side, kind)` / `(state, side, kind, level)` | Enabled, allowed, affordable, limit not reached, and (for `DoubleMove`) `MovesRemainingThisTurn == 1`, or (for `SuperJump`) at least one source has `GetSuperJumpTargets != 0`, or (otherwise) at least one target. |
-| `GetAvailableAbilities(state)` and `(state, side)` (internal) | Bit mask with bit `1 << (int)kind` per usable ability (at max allowed level). |
+| `GetAvailableAbilities(state)` and `(state, side)` | Public bit mask with bit `1 << (int)kind` per usable ability (at max allowed level). |
 | `AttaxRules.HasAnyLegalMove(board, side)` | Unrestricted clone or jump available; ignores credits and turn-local restrictions. |
 | `AttaxRules.AdjudicateResult(state)` | Global terminal evaluation using `state.WinRule` (`Chips` or `ChipsPlusFootprints`); `AttaxRules.GetTerminalResult(board)` remains chip-only for `AtaxxAIEngine`. |
-| `GetScore(state, side)` (internal) / `AttaxRules.GetScore(state, side)` | Score according to `state.WinRule` (`Chips` or `ChipsPlusFootprints`). |
-| `WouldEndGame(state, actor, in action)` (internal) | False if invalid; otherwise simulates on a clone and reports whether the result is terminal. |
+| `GetScore(state, side)` / `AttaxRules.GetScore(state, side)` | `AttaxGame.GetScore` returns chip count; `AttaxRules.GetScore` returns score according to `state.WinRule` (`Chips` or `ChipsPlusFootprints`). |
+| `WouldEndGame(state, actor, in action)` | Public; false if invalid; otherwise simulates on a clone and reports whether the result is terminal. |
 
 Side-aware and level-aware overloads (`GetAbilityTargets`, `CanUseAbility`, `GetAbilityCost`) exist in addition to the side-to-move overloads.
 

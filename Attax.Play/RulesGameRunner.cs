@@ -119,6 +119,10 @@ namespace Attax.Agents {
             var wall = Stopwatch.StartNew();
             bool turnStart = true;
 
+            var planners = new Dictionary<IPlayer, AgentTurnPlanner> {
+                [red] = new AgentTurnPlanner(red, ai),
+                [blue] = new AgentTurnPlanner(blue, ai)
+            };
             while (state.Result == TerminalResult.NotOver && state.ActionCount < options.MaxActions) {
                 PlayerColor side = state.SideToMove;
                 IPlayer player = side == PlayerColor.Red ? red : blue;
@@ -135,34 +139,39 @@ namespace Attax.Agents {
                 ActionOutcome outcome;
                 ulong enemyFootprints = side == PlayerColor.Red ? state.BlueFootprints : state.RedFootprints;
                 bool opening = result.OpeningPliesPlayed < options.OpeningPlies;
-                if (!opening && ai != null && search != null && state.AbilityActionsUsedThisTurn == 0) {
-                    long a0 = Stopwatch.GetTimestamp();
-                    var verdict = AbilityDecider.Decide(state, search.Engine, ai, search.SearchDepth, CancellationToken.None);
-                    stats.AbilityDecideMs += Elapsed(a0);
-                    if (verdict.UseAbility) {
-                        int ply = state.ActionCount;
-                        var err = AttaxGame.TryApply(state, side, verdict.Action, out outcome);
-                        if (err != ActionError.None) throw new InvalidOperationException($"AbilityDecider chose an illegal action ({verdict.Kind} L{verdict.Level}): {err}.");
-                        stats.Casts++;
-                        result.Casts.Add(new RulesCastRecord {
-                            Ply = ply, Side = side, Kind = verdict.Kind, Level = verdict.Level, Cost = outcome.CreditsSpent, Effect = verdict.Effect,
-                            Reason = verdict.Reason, NetGainChips = verdict.NetGainChips,
-                            EstimatedGainChips = verdict.NetGainChips + outcome.CreditsSpent * ai.creditValueChips,
-                            CandidatesVerified = verdict.CandidatesVerified, AutoPassed = outcome.AutoPassed
-                        });
-                        turnStart = Account(result, options.Rules.economy, side, verdict.Action.Kind, enemyFootprints, outcome);
-                        continue;
-                    }
-                }
-
-                var action = opening ? ChooseOpeningMove(state, side, openingRandom!) : ChooseStandardMove(state, side, player, search, stats);
-                var applyError = AttaxGame.TryApply(state, side, action, out outcome);
-                if (applyError != ActionError.None) throw new InvalidOperationException($"Illegal move chosen for {side}: {applyError}.");
-                turnStart = Account(result, options.Rules.economy, side, action.Kind, enemyFootprints, outcome);
                 if (opening) {
+                    var action = ChooseOpeningMove(state, side, openingRandom!);
+                    var applyError = AttaxGame.TryApply(state, side, action, out outcome);
+                    if (applyError != ActionError.None) throw new InvalidOperationException($"Illegal move chosen for {side}: {applyError}.");
+                    turnStart = Account(result, options.Rules.economy, side, action.Kind, enemyFootprints, outcome);
                     result.OpeningPliesPlayed++;
                     result.OpeningPosition = state.Board.ZobristHash;
+                    continue;
                 }
+
+                var plan = planners[player].DecideDetailed(state, side, allowAbilities: ai != null, CancellationToken.None);
+                stats.AbilityDecideMs += plan.AbilityDecideMs;
+                stats.SearchMs += plan.SearchMs;
+                if (plan.UsedFallback) stats.Fallbacks++;
+
+                int ply = state.ActionCount;
+                var err = AttaxGame.TryApply(state, side, plan.Action, out outcome);
+                if (err != ActionError.None) {
+                    throw new InvalidOperationException(plan.IsAbility
+                        ? $"AbilityDecider chose an illegal action ({plan.AbilityDecision.Kind} L{plan.AbilityDecision.Level}): {err}."
+                        : $"Illegal move chosen for {side}: {err}.");
+                }
+                if (plan.IsAbility) {
+                    var verdict = plan.AbilityDecision;
+                    stats.Casts++;
+                    result.Casts.Add(new RulesCastRecord {
+                        Ply = ply, Side = side, Kind = verdict.Kind, Level = verdict.Level, Cost = outcome.CreditsSpent, Effect = verdict.Effect,
+                        Reason = verdict.Reason, NetGainChips = verdict.NetGainChips,
+                        EstimatedGainChips = verdict.NetGainChips + outcome.CreditsSpent * ai!.creditValueChips,
+                        CandidatesVerified = verdict.CandidatesVerified, AutoPassed = outcome.AutoPassed
+                    });
+                }
+                turnStart = Account(result, options.Rules.economy, side, plan.Action.Kind, enemyFootprints, outcome);
             }
 
             if (positions != null) {
@@ -186,11 +195,13 @@ namespace Attax.Agents {
             wall.Stop();
             result.WallMs = wall.Elapsed.TotalMilliseconds;
             result.Plies = state.ActionCount;
-            result.RedChips = BitboardOps.PopCount(state.Board.RedPieces);
-            result.BlueChips = BitboardOps.PopCount(state.Board.BluePieces);
+            result.RedChips = AttaxGame.GetScore(state, PlayerColor.Red);
+            result.BlueChips = AttaxGame.GetScore(state, PlayerColor.Blue);
+            var endResult = state.Result != TerminalResult.NotOver
+                ? state.Result
+                : AttaxRules.AdjudicateResult(state.Board, state.RedFootprints, state.BlueFootprints, WinRule.Chips);
             result.Terminal = state.Result != TerminalResult.NotOver;
-            if (result.Terminal) result.Winner = state.Result == TerminalResult.RedWins ? 1 : state.Result == TerminalResult.BlueWins ? -1 : 0;
-            else result.Winner = result.RedChips > result.BlueChips ? 1 : result.BlueChips > result.RedChips ? -1 : 0;
+            result.Winner = endResult == TerminalResult.RedWins ? 1 : endResult == TerminalResult.BlueWins ? -1 : 0;
             return result;
         }
 
@@ -236,27 +247,6 @@ namespace Attax.Agents {
             }
             if (count == 0) throw new InvalidOperationException($"No legal opening move remains for {side}.");
             return GameAction.MoveAction(selected);
-        }
-
-        private static GameAction ChooseStandardMove(GameState state, PlayerColor side, IPlayer player, ISearchEnginePlayer? search, RulesSideStats stats) {
-            ulong frozen = state.FrozenSourcesThisTurn;
-            ulong forbidden = state.ForbiddenLandingsThisTurn;
-            MoveDecision decision = (frozen | forbidden) != 0UL && search != null
-                ? search.ChooseRestricted(state.Board, side, frozen, forbidden)
-                : player.Choose(state.Board, side);
-            stats.SearchMs += decision.Milliseconds;
-
-            if (decision.HasMove && AttaxGame.IsLegalStandardMove(state, side, decision.Move)) return GameAction.MoveAction(decision.Move);
-
-            // A player that does not know the turn restriction: take the first legal restricted move.
-            stats.Fallbacks++;
-            for (int from = 0; from < 49; from++) {
-                ulong targets = AttaxGame.GetStandardMoveTargets(state, side, from % 7, from / 7);
-                if (targets == 0UL) continue;
-                int to = BitboardOps.TrailingZeroCount(targets);
-                return GameAction.MoveAction(new Move(from % 7, from / 7, to % 7, to / 7));
-            }
-            throw new InvalidOperationException($"No legal move remains for {side} although the game is not over.");
         }
 
         public static bool IsEligibleSampleTurn(int ownTurn, int end) => ownTurn >= 4 && ownTurn <= end - 4;

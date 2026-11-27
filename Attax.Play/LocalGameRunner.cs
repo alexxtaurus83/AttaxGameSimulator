@@ -50,11 +50,7 @@ namespace Attax.Agents {
 
         public static AtaxxAIEngine NewReferee() => new AtaxxAIEngine(EngineParamsFile.LoadBase());   // rules only (the search is never called); built like every engine
 
-        public static MoveDecision RandomDecision(AtaxxAIEngine referee, BitboardState board, PlayerColor side, Random rng) {
-            var legal = referee.GetAllValidMoves(board, side);
-            if (legal.Count == 0) return new MoveDecision { HasMove = false, Action = ActionCodec.NoAction };
-            var m = legal[rng.Next(legal.Count)];
-            return new MoveDecision { HasMove = true, Move = m, Action = ActionCodec.Encode(m), LegalCount = legal.Count, IsExploration = true };
-        }
+        public static MoveDecision RandomDecision(AtaxxAIEngine referee, BitboardState board, PlayerColor side, Random rng)
+            => RandomPlayer.ChooseRandom(board, side, rng);
     }
 }

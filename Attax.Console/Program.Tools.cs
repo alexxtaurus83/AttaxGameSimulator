@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using Attax.Core;
+using Attax.Core.Utils;
 using Attax.Model;
 using Attax.Eval.OnnxRuntime;
 using Attax.Play;
@@ -18,7 +19,7 @@ namespace Attax.Console {
             var rng = new Random(1); // NOSONAR
             var referee = LocalGameRunner.NewReferee();
             var boards = new List<BitboardState>();
-            var b = CreateStandardInitialBoard();
+            var b = StartPosition.Standard();
             var side = PlayerColor.Red;
             for (int ply = 0; ply < 60 && !referee.IsGameOver(b); ply++) {
                 boards.Add(b.Clone());
@@ -70,7 +71,7 @@ namespace Attax.Console {
 
             var positions = new List<(BitboardState board, PlayerColor side)>();
             while (positions.Count < o.Count) {
-                var b = CreateStandardInitialBoard();
+                var b = StartPosition.Standard();
                 // random blocks so the blocked plane is exercised
                 int blocks = rng.Next(0, 5);
                 var empty = Enumerable.Range(0, 49).Where(i => ((b.RedPieces | b.BluePieces) >> i & 1UL) == 0).OrderBy(_ => rng.Next()).Take(blocks);

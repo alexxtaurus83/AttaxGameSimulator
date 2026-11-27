@@ -35,20 +35,6 @@ namespace Attax.Console {
 
         internal static double Clamp01(double v) => v < 0.0 ? 0.0 : v > 1.0 ? 1.0 : v;
 
-        internal static void SetBoardBit(ref ulong bits, int x, int y) {
-            bits |= 1UL << (y * AttaxConstants.BaseConst.BoardSize + x);
-        }
-
-        internal static BitboardState CreateStandardInitialBoard() {
-            var board = new BitboardState();
-            int n = AttaxConstants.BaseConst.BoardSize;
-            SetBoardBit(ref board.RedPieces, 0, 0);
-            SetBoardBit(ref board.RedPieces, n - 1, n - 1);
-            SetBoardBit(ref board.BluePieces, 0, n - 1);
-            SetBoardBit(ref board.BluePieces, n - 1, 0);
-            return board;
-        }
-
         internal static BitboardState ApplySymmetryToBoard(BitboardState board, int symmetryIndex) {
             ulong red = board.RedPieces, blue = board.BluePieces, blocked = board.BlockedSquares, voidSq = board.VoidSquares;
             BitboardOps.TransformState(ref red, ref blue, ref blocked, symmetryIndex);
@@ -101,9 +87,8 @@ namespace Attax.Console {
 
             try {
                 for (int g = 0; g < games; g++) {
-                    var board = CreateStandardInitialBoard();
+                    var board = StartPosition.Standard();
                     var side = PlayerColor.Red;
-                    board.ZobristHash = engine.ComputeZobristHash(board, side);
 
                     for (int ply = 0; ply < maxMoves; ply++) {
                         Check("Hash", g, ply, side, board, engine.ComputeZobristHash(board, side));
@@ -148,7 +133,7 @@ namespace Attax.Console {
             public int ReusableTeacherScore;
         }
 
-        private const int EarlyMaxPieces = 14, MidMaxPieces = 35;
+        internal const int EarlyMaxPieces = 14, MidMaxPieces = 35;
         private readonly int target;
         private readonly Random rng;
         private readonly List<Observed> all = new List<Observed>();

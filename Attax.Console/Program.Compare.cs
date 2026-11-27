@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using Attax.Agents;
 using Attax.Core;
 using Attax.Data;
 using Attax.Play;
@@ -63,7 +64,7 @@ namespace Attax.Console {
             var examples = new List<int>();
             for (int i = 0; i < picked.Count; i++) {
                 int pieces = PopCount(picked[i].b.RedPieces | picked[i].b.BluePieces);
-                int ph = pieces <= 14 ? 0 : pieces <= 35 ? 1 : 2;
+                int ph = pieces <= PositionSampler.EarlyMaxPieces ? 0 : pieces <= PositionSampler.MidMaxPieces ? 1 : 2;
                 total[ph]++;
                 if (moveA[i] != moveB[i]) { differ[ph]++; if (examples.Count < o.Show) examples.Add(i); }
             }
@@ -76,10 +77,8 @@ namespace Attax.Console {
             foreach (int i in examples) {
                 var (bd, side) = picked[i];
                 System.Console.WriteLine($"[compare] example {i}: {side} to move, A plays {DescribeAction(moveA[i], bd, side)}, B plays {DescribeAction(moveB[i], bd, side)}");
-                for (int y = 0; y < 7; y++) {
-                    var row = new char[7];
-                    for (int x = 0; x < 7; x++) { ulong bit = 1UL << (y * 7 + x); row[x] = (bd.RedPieces & bit) != 0 ? 'R' : (bd.BluePieces & bit) != 0 ? 'B' : (bd.BlockedSquares & bit) != 0 ? 'X' : '.'; }
-                    System.Console.WriteLine("[compare]     " + new string(row));
+                foreach (var line in BoardRenderer.Render(bd, side).Split('\n', StringSplitOptions.RemoveEmptyEntries)) {
+                    System.Console.WriteLine("[compare]     " + line);
                 }
             }
             System.Console.WriteLine($"RESULT compare n={nAll} differ={dAll} pct={(100.0 * dAll / nAll).ToString("0.00", inv)} opening={Pct(differ[0], total[0])} mid={Pct(differ[1], total[1])} late={Pct(differ[2], total[2])} nodes_ratio={(nodesA == 0 ? 0 : nodesB / (double)nodesA).ToString("0.000", inv)}");
