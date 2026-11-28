@@ -104,8 +104,8 @@ namespace Attax.Agents {
                 var src = options.Ai ?? throw new ArgumentException("Abilities need an AiAbilityConfig.", nameof(options));
                 ai = new AiAbilityConfig {
                     schemaVersion = src.schemaVersion, aiAbilitiesEnabled = true, creditValueChips = src.creditValueChips,
-                    minGainChips = src.minGainChips, maxCandidatesVerified = src.maxCandidatesVerified,
-                    verifyDepthOffset = src.verifyDepthOffset, savingEnabled = src.savingEnabled
+                    minGainChips = src.minGainChips, freeCastMinGainChips = src.freeCastMinGainChips,
+                    maxCandidatesVerified = src.maxCandidatesVerified, verifyDepthOffset = src.verifyDepthOffset, savingEnabled = src.savingEnabled
                 };
                 var errors = ai.Validate();
                 if (errors.Count > 0) throw new ArgumentException("Invalid AiAbilityConfig: " + string.Join("; ", errors));
